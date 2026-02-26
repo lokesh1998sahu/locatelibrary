@@ -13,7 +13,7 @@ export default function Hero() {
     setLoading(true);
     setMessage("");
 
-    const form = e.currentTarget; // store reference safely
+    const form = e.currentTarget;
     const formData = new FormData(form);
 
     const email = formData.get("email");
@@ -40,7 +40,7 @@ export default function Hero() {
 
       if (responseMessage.toLowerCase() === "success") {
         setMessage("You're on the list 🎉");
-        form.reset(); // safe reset
+        form.reset();
       } else {
         setMessage(responseMessage || "Submission failed");
       }
@@ -85,6 +85,51 @@ export default function Hero() {
         </div>
       </section>
 
+      {/* FEATURES */}
+      <section className="py-28 px-6 border-t border-white/10 bg-[#0f172a]">
+        <div className="max-w-6xl mx-auto text-center">
+
+          <h2 className="text-4xl font-bold">
+            What We’re Building
+          </h2>
+
+          <p className="mt-6 text-gray-400 max-w-2xl mx-auto">
+            A smarter way to find and reserve the perfect study environment.
+          </p>
+
+          <div className="mt-20 grid md:grid-cols-3 gap-16">
+
+            <div className="p-8 rounded-2xl bg-[#111827] border border-white/5 hover:border-indigo-500/30 hover:shadow-xl hover:shadow-indigo-600/10 transition">
+              <h3 className="text-2xl font-semibold">
+                Discover Nearby Libraries
+              </h3>
+              <p className="mt-4 text-gray-400">
+                Search by location, pricing, amenities and availability.
+              </p>
+            </div>
+
+            <div className="p-8 rounded-2xl bg-[#111827] border border-white/5 hover:border-indigo-500/30 hover:shadow-xl hover:shadow-indigo-600/10 transition">
+              <h3 className="text-2xl font-semibold">
+                Compare Facilities
+              </h3>
+              <p className="mt-4 text-gray-400">
+                View seating, WiFi, timings and more before choosing.
+              </p>
+            </div>
+
+            <div className="p-8 rounded-2xl bg-[#111827] border border-white/5 hover:border-indigo-500/30 hover:shadow-xl hover:shadow-indigo-600/10 transition">
+              <h3 className="text-2xl font-semibold">
+                Book Instantly
+              </h3>
+              <p className="mt-4 text-gray-400">
+                Secure your seat online without visiting physically.
+              </p>
+            </div>
+
+          </div>
+        </div>
+      </section>
+
       {/* NOTIFY */}
       <section
         id="notify"
@@ -110,7 +155,6 @@ export default function Hero() {
             className="px-6 py-3 rounded-full border border-white/10 bg-[#0f172a] text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 w-full sm:w-80"
           />
 
-          {/* Honeypot */}
           <input
             name="company"
             type="text"
