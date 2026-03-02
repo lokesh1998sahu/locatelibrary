@@ -16,25 +16,16 @@ export default function KLPage() {
     remark: ""
   });
 
-  // Load payment tags
   useEffect(() => {
     fetch("https://script.google.com/macros/s/AKfycbwV5B1buaIIzhtWqp3MHbt6on2Pul6_VfZteQSIrqojQPsSnXp5bcZs9ooEOk-DXdk/exec?action=get")
       .then(res => res.json())
-      .then(data => {
-        setTags(data.tags);
-      })
-      .catch((error) => {
-        console.error(error);
-        alert("Failed to load payment tags");
-      });
+      .then(data => setTags(data.tags))
+      .catch(() => alert("Failed to load payment tags"));
   }, []);
 
-  // Restore authorization from localStorage
   useEffect(() => {
     const savedAuth = localStorage.getItem("klAuthorized");
-    if (savedAuth === "true") {
-      setAuthorized(true);
-    }
+    if (savedAuth === "true") setAuthorized(true);
   }, []);
 
   const checkPassword = () => {
@@ -56,7 +47,6 @@ export default function KLPage() {
     }
 
     const amountNumber = Number(form.amount);
-
     if (amountNumber === 0) {
       alert("Amount cannot be 0");
       return;
@@ -81,120 +71,138 @@ export default function KLPage() {
       const result = await response.json();
 
       if (result.status === "success") {
-        alert("Entry Saved Successfully");
-
         setForm({
           date: "",
           amount: "",
           paymentTag: "",
           remark: ""
         });
+        alert("Entry Saved Successfully");
       } else {
         alert("Something went wrong");
       }
 
-      setLoading(false);
-
-    } catch (error) {
-      console.error(error);
+    } catch {
       alert("Submission failed");
-      setLoading(false);
     }
+
+    setLoading(false);
   };
 
   return (
-    <div style={{ padding: "40px", maxWidth: "400px" }}>
-      {!authorized ? (
-        <>
-          <h2>Enter Password</h2>
+    <div className="min-h-screen bg-gray-100 flex items-center justify-center p-4">
 
-          <input
-            type="password"
-            placeholder="Enter Access Code"
-            value={passwordInput}
-            onChange={(e) => setPasswordInput(e.target.value)}
-          />
+      <div className="bg-white shadow-xl rounded-2xl w-full max-w-md p-6">
 
-          <button onClick={checkPassword}>Access</button>
-        </>
-      ) : (
-        <>
-          <button
-            onClick={() => {
-              setAuthorized(false);
-              localStorage.removeItem("klAuthorized");
-            }}
-            style={{ marginBottom: "10px" }}
-          >
-            Logout
-          </button>
-
-          <h1>KL Fees Entry</h1>
-
-          <form
-            onSubmit={handleSubmit}
-            style={{ display: "flex", flexDirection: "column", gap: "15px" }}
-          >
+        {!authorized ? (
+          <>
+            <h2 className="text-xl font-semibold text-center mb-4">
+              KL Access Panel
+            </h2>
 
             <input
-              type="date"
-              value={form.date}
-              onChange={(e) =>
-                setForm({ ...form, date: e.target.value })
-              }
-              required
+              type="password"
+              placeholder="Enter Access Code"
+              value={passwordInput}
+              onChange={(e) => setPasswordInput(e.target.value)}
+              className="w-full border rounded-lg px-3 py-2 mb-3 focus:outline-none focus:ring-2 focus:ring-black"
             />
 
-            <input
-              type="number"
-              placeholder="Amount"
-              value={form.amount}
-              onChange={(e) => {
-                const value = e.target.value;
-
-                if (value === "") {
-                  setForm({ ...form, amount: "" });
-                  return;
-                }
-
-                if (/^-?\d+$/.test(value)) {
-                  setForm({ ...form, amount: value });
-                }
-              }}
-              required
-            />
-
-            <select
-              value={form.paymentTag}
-              onChange={(e) =>
-                setForm({ ...form, paymentTag: e.target.value })
-              }
-              required
+            <button
+              onClick={checkPassword}
+              className="w-full bg-black text-white py-2 rounded-lg hover:opacity-90 transition"
             >
-              <option value="">Select Payment Tag</option>
-              {tags.map((tag, index) => (
-                <option key={index} value={tag}>
-                  {tag}
-                </option>
-              ))}
-            </select>
-
-            <input
-              type="text"
-              placeholder="Remark (Optional)"
-              value={form.remark}
-              onChange={(e) =>
-                setForm({ ...form, remark: e.target.value })
-              }
-            />
-
-            <button type="submit" disabled={loading}>
-              {loading ? "Saving..." : "Submit"}
+              Access
             </button>
+          </>
+        ) : (
+          <>
+            <div className="flex justify-between items-center mb-4">
+              <h1 className="text-xl font-semibold">KL Fees Entry</h1>
 
-          </form>
-        </>
-      )}
+              <button
+                onClick={() => {
+                  setAuthorized(false);
+                  localStorage.removeItem("klAuthorized");
+                }}
+                className="text-sm text-red-500 hover:underline"
+              >
+                Logout
+              </button>
+            </div>
+
+            <form onSubmit={handleSubmit} className="space-y-4">
+
+              <input
+                type="date"
+                value={form.date}
+                onChange={(e) =>
+                  setForm({ ...form, date: e.target.value })
+                }
+                required
+                className="w-full border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-black"
+              />
+
+              <input
+                type="number"
+                placeholder="Amount"
+                value={form.amount}
+                onChange={(e) => {
+                  const value = e.target.value;
+
+                  if (value === "") {
+                    setForm({ ...form, amount: "" });
+                    return;
+                  }
+
+                  if (/^-?\d+$/.test(value)) {
+                    setForm({ ...form, amount: value });
+                  }
+                }}
+                required
+                className="w-full border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-black"
+              />
+
+              <select
+                value={form.paymentTag}
+                onChange={(e) =>
+                  setForm({ ...form, paymentTag: e.target.value })
+                }
+                required
+                className="w-full border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-black"
+              >
+                <option value="">Select Payment Tag</option>
+                {tags.map((tag, index) => (
+                  <option key={index} value={tag}>
+                    {tag}
+                  </option>
+                ))}
+              </select>
+
+              <input
+                type="text"
+                placeholder="Remark (Optional)"
+                value={form.remark}
+                onChange={(e) =>
+                  setForm({ ...form, remark: e.target.value })
+                }
+                className="w-full border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-black"
+              />
+
+              <button
+                type="submit"
+                disabled={loading}
+                className="w-full bg-black text-white py-2 rounded-lg hover:opacity-90 transition disabled:opacity-50"
+              >
+                {loading ? "Saving..." : "Submit Entry"}
+              </button>
+
+            </form>
+          </>
+        )}
+
+      </div>
+
     </div>
   );
 }
