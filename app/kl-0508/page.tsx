@@ -11,6 +11,7 @@ export default function KLPage() {
   const [authorized, setAuthorized] = useState(false);
   const [passwordInput, setPasswordInput] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
+  const [pendingCount, setPendingCount] = useState(0);
 
   const [form, setForm] = useState({
     date: "",
@@ -19,13 +20,16 @@ export default function KLPage() {
     remark: ""
   });
 
-  // Load payment tags
+// Load payment tags + pending counter
   useEffect(() => {
-    fetch("https://script.google.com/macros/s/AKfycbwV5B1buaIIzhtWqp3MHbt6on2Pul6_VfZteQSIrqojQPsSnXp5bcZs9ooEOk-DXdk/exec?action=get")
-      .then(res => res.json())
-      .then(data => setTags(data.tags))
-      .catch(() => setSuccessMessage("Failed to load payment tags"));
-  }, []);
+  fetch("https://script.google.com/macros/s/AKfycbwV5B1buaIIzhtWqp3MHbt6on2Pul6_VfZteQSIrqojQPsSnXp5bcZs9ooEOk-DXdk/exec?action=get")
+    .then(res => res.json())
+    .then(data => {
+      setTags(data.tags);
+      setPendingCount(data.pendingCount || 0);
+    })
+    .catch(() => setSuccessMessage("Failed to load data"));
+}, []);
 
   // Restore auth
   useEffect(() => {
@@ -248,6 +252,16 @@ export default function KLPage() {
     >
       {loading ? "Saving..." : "Submit Entry"}
     </button>
+    <div className="mt-6 text-center select-none">
+  <div className="bg-red-50 border border-red-200 rounded-xl py-3 px-4">
+    <span className="text-sm font-medium text-red-600">
+      Pending Receipts :
+    </span>
+    <span className="ml-2 text-xl font-bold text-red-700">
+      {pendingCount}
+    </span>
+  </div>
+</div>
   </div>
 
 </form>
