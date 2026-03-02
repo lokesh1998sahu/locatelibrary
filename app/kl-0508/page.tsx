@@ -103,7 +103,14 @@ export default function KLPage() {
 
   return (
     <div className="min-h-screen bg-gray-200 flex items-center justify-center p-4">
-
+{loading && (
+  <div className="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50">
+    <div className="bg-white rounded-2xl px-8 py-6 flex flex-col items-center shadow-xl">
+      <div className="w-8 h-8 border-4 border-black border-t-transparent rounded-full animate-spin mb-4"></div>
+      <p className="text-lg font-semibold text-gray-900">Processing...</p>
+    </div>
+  </div>
+)}
       <div className="bg-white shadow-2xl rounded-2xl w-full max-w-md p-6 border border-gray-300">
 
         {successMessage && (
@@ -244,6 +251,9 @@ export default function KLPage() {
   </div>
 
 </form>
+<div className="mt-8 text-center text-xs text-gray-500">
+  Kirti Library – Internal Panel
+</div>
           </>
         )}
       </div>
