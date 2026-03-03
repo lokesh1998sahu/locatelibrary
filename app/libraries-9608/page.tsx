@@ -293,5 +293,5 @@ export default function LibrariesPage() {
         )}
       </div>
     </div>
-  );
+    );
 }
