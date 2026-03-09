@@ -45,7 +45,7 @@ export default function AddEntryPage(){
     const auth = localStorage.getItem("financeAuthorized")
 
     if(auth!=="true"){
-    window.location.href="/finance"
+    window.location.href="/mf-2"
     }
     },[])
     
@@ -388,7 +388,7 @@ export default function AddEntryPage(){
             <button
             onClick={()=>{
             localStorage.removeItem("financeAuthorized")
-            window.location.href="/finance"
+            window.location.href="/mf-2"
             }}
             style={{
             position:"absolute",
@@ -410,19 +410,19 @@ export default function AddEntryPage(){
 
                 <button
                 className="active"
-                onClick={()=>window.location.href="/finance/dashboard"}
+                onClick={()=>window.location.href="/mf-2/dashboard"}
                 >
                 Add
                 </button>
 
                 <button
-                onClick={()=>window.location.href="/finance/ledger"}
+                onClick={()=>window.location.href="/mf-2/ledger"}
                 >
                 Ledger
                 </button>
 
                 <button
-                onClick={()=>window.location.href="/finance/masters"}
+                onClick={()=>window.location.href="/mf-2/masters"}
                 >
                 Masters
                 </button>

@@ -57,7 +57,7 @@ export default function LedgerPage() {
     const auth = localStorage.getItem("financeAuthorized")
 
     if(auth!=="true"){
-    window.location.href="/finance"
+    window.location.href="/mf-2"
     }
     },[])
 
@@ -328,7 +328,7 @@ export default function LedgerPage() {
 
         localStorage.setItem("duplicateEntry",JSON.stringify(payload))
 
-        window.location.href="/finance/add"
+        window.location.href="/mf-2/add"
         
       }
 
@@ -387,7 +387,7 @@ export default function LedgerPage() {
             <button
             onClick={()=>{
             localStorage.removeItem("financeAuthorized")
-            window.location.href="/finance"
+            window.location.href="/mf-2"
             }}
             style={{
             position:"absolute",
@@ -407,20 +407,20 @@ export default function LedgerPage() {
 
           <div className="finance-nav">
           <button
-          onClick={()=>window.location.href="/finance/add"}
+          onClick={()=>window.location.href="/mf-2/add"}
           >
           Add
           </button>
 
           <button
           className="active"
-          onClick={()=>window.location.href="/finance/dashboard"}
+          onClick={()=>window.location.href="/mf-2/dashboard"}
           >
           Ledger
           </button>
 
           <button
-          onClick={()=>window.location.href="/finance/masters"}
+          onClick={()=>window.location.href="/mf-2/masters"}
           >
           Masters
           </button>

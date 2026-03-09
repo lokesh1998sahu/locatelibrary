@@ -24,7 +24,7 @@ export default function Masters(){
         const auth = localStorage.getItem("financeAuthorized")
     
         if(auth!=="true"){
-        window.location.href="/finance"
+        window.location.href="/mf-2"
         }
         },[])
 
@@ -191,7 +191,7 @@ export default function Masters(){
             <button
             onClick={()=>{
             localStorage.removeItem("financeAuthorized")
-            window.location.href="/finance"
+            window.location.href="/mf-2"
             }}
             style={{
             position:"absolute",
@@ -213,20 +213,20 @@ export default function Masters(){
           <div className="finance-nav">
 
           <button
-          onClick={()=>window.location.href="/finance/add"}
+          onClick={()=>window.location.href="/mf-2/add"}
           >
           Add
           </button>
 
           <button
-            onClick={()=>window.location.href="/finance/ledger"}
+            onClick={()=>window.location.href="/mf-2/ledger"}
           >
           Ledger
           </button>
 
           <button
           className="active"
-          onClick={()=>window.location.href="/finance/dashboard"}
+          onClick={()=>window.location.href="/mf-2/dashboard"}
           >
           Masters
           </button>

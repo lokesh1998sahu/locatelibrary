@@ -10,7 +10,7 @@ export default function FinanceDashboard(){
         const auth = localStorage.getItem("financeAuthorized")
     
         if(auth!=="true"){
-        window.location.href="/finance"
+        window.location.href="/mf-2"
         }
         },[])
     
@@ -33,7 +33,7 @@ return(
             <button
             onClick={()=>{
             localStorage.removeItem("financeAuthorized")
-            window.location.href="/finance"
+            window.location.href="/mf-2"
             }}
             style={{
             position:"absolute",
@@ -60,21 +60,21 @@ marginTop:20
 }}>
 
 <button
-onClick={()=>window.location.href="/finance/add"}
+onClick={()=>window.location.href="/mf-2/add"}
 style={cardStyle}
 >
 Add Entry
 </button>
 
 <button
-onClick={()=>window.location.href="/finance/ledger"}
+onClick={()=>window.location.href="/mf-2/ledger"}
 style={cardStyle}
 >
 Ledger
 </button>
 
 <button
-onClick={()=>window.location.href="/finance/masters"}
+onClick={()=>window.location.href="/mf-2/masters"}
 style={cardStyle}
 >
 Masters

@@ -15,7 +15,7 @@ useEffect(()=>{
 const saved = localStorage.getItem("financeAuthorized")
 
 if(saved==="true"){
-window.location.href="/finance/dashboard"
+window.location.href="/mf-2/dashboard"
 }
 
 },[])
@@ -26,7 +26,7 @@ if(passwordInput===PASSWORD){
 
 localStorage.setItem("financeAuthorized","true")
 
-window.location.href="/finance/dashboard"
+window.location.href="/mf-2/dashboard"
 
 }else{
 
