@@ -1,6 +1,6 @@
 export const metadata = {
-  title: "FEES ENTRY",
-  description: "Libraries Panel",
+  title: "My Financials 2.0",
+  description: "Private financial control panel",
   robots: {
     index: false,
     follow: false,

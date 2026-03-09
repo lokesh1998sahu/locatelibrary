@@ -1,0 +1,7 @@
+{
+  "functions": {
+    "app/api/ledger/route.ts": {
+      "maxDuration": 30
+    }
+  }
+}
