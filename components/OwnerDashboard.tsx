@@ -183,7 +183,15 @@ function MonthlyView({ data }: { data: DashboardData }) {
 
 // ── Main Dashboard ─────────────────────────────────────────
 export default function OwnerDashboard() {
-  const [authed, setAuthed]   = useState(false);
+  const [authed, setAuthed]   = useState(() => {
+    if (typeof window === "undefined") return false;
+    return localStorage.getItem("owner_authed") === "true";
+  });
+
+  function logout() {
+    localStorage.removeItem("owner_authed");
+    setAuthed(false);
+  }
   const [tab, setTab]         = useState<TabType>("today");
   const [type, setType]       = useState<CleanType>("daily");
   const [month, setMonth]     = useState("");
@@ -208,7 +216,7 @@ export default function OwnerDashboard() {
 
   useEffect(() => { if (authed) load(type, ""); }, [authed, type, load]);
 
-  if (!authed) return <Gate onAuth={() => setAuthed(true)} />;
+  if (!authed) return <Gate onAuth={() => { localStorage.setItem("owner_authed", "true"); setAuthed(true); }} />;
 
   const hour           = new Date().getHours();
   const unsubmitted    = data?.locations.filter(l => !l.submitted) ?? [];
@@ -285,6 +293,7 @@ export default function OwnerDashboard() {
               }}>{k.charAt(0).toUpperCase() + k.slice(1)}</button>
             ))}
             <a href="/owner/settings" style={{ marginLeft: "auto", padding: "10px 14px", fontSize: 13, color: "#64748b", textDecoration: "none", alignSelf: "center" }}>⚙️ Settings</a>
+            <button onClick={logout} style={{ padding: "10px 14px", fontSize: 13, color: "#ef4444", background: "none", border: "none", cursor: "pointer", fontFamily: "inherit", fontWeight: 600 }}>Logout</button>
           </div>
         </div>
       </div>

@@ -108,7 +108,15 @@ function iconBtn(disabled = false): React.CSSProperties {
 
 // ── Main Component ─────────────────────────────────────────
 export default function TaskSettings() {
-  const [authed, setAuthed]     = useState(false);
+  const [authed, setAuthed]     = useState(() => {
+    if (typeof window === "undefined") return false;
+    return localStorage.getItem("owner_authed") === "true";
+  });
+
+  function logout() {
+    localStorage.removeItem("owner_authed");
+    setAuthed(false);
+  }
   const [type, setType]         = useState<CleanType>("daily");
   const [section, setSection]   = useState<SectionType>("tasks");
   const [allLocations, setAllLocations] = useState<Location[]>([]);
@@ -210,7 +218,7 @@ export default function TaskSettings() {
     await loadData(); setSaving("");
   }
 
-  if (!authed) return <Gate onAuth={() => setAuthed(true)} />;
+  if (!authed) return <Gate onAuth={() => { localStorage.setItem("owner_authed", "true"); setAuthed(true); }} />;
 
   return (
     <div style={{ minHeight: "100svh", background: "#f1f5f9", fontFamily: "'DM Sans',sans-serif" }}>
@@ -224,7 +232,10 @@ export default function TaskSettings() {
               <p style={{ margin: 0, fontSize: 10, letterSpacing: 2, color: "#475569", textTransform: "uppercase" }}>Locate Library</p>
               <h1 style={{ margin: "3px 0 0", fontSize: 20, fontWeight: 800 }}>⚙️ Settings</h1>
             </div>
-            <a href="/owner" style={{ color: "#94a3b8", fontSize: 13, textDecoration: "none" }}>← Dashboard</a>
+            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              <a href="/owner" style={{ color: "#94a3b8", fontSize: 13, textDecoration: "none" }}>← Dashboard</a>
+              <button onClick={logout} style={{ padding: "6px 12px", fontSize: 13, color: "#ef4444", background: "none", border: "none", cursor: "pointer", fontFamily: "inherit", fontWeight: 600 }}>Logout</button>
+            </div>
           </div>
 
           <div style={{ display: "flex", background: "#1e293b", borderRadius: 11, padding: 4, gap: 3, marginTop: 14, width: "fit-content" }}>

@@ -114,7 +114,7 @@ export default function CleanerPage({ type }: CleanerPageProps) {
       {/* Header */}
       <div style={{ background: accent, padding: "20px 16px 18px", color: "#fff" }}>
         <div style={{ maxWidth: 480, margin: "0 auto" }}>
-          <p style={{ margin: 0, fontSize: 10, letterSpacing: 2, opacity: .65, textTransform: "uppercase" }}>Locate Library</p>
+          <p style={{ margin: 0, fontSize: 10, letterSpacing: 2, opacity: .65, textTransform: "uppercase" }}>Library</p>
           <h1 style={{ margin: "4px 0 0", fontSize: 22, fontWeight: 800 }}>{isDaily ? "🧹" : "✨"} {label}</h1>
           <p style={{ margin: "3px 0 0", fontSize: 12, opacity: .75 }}>{today}</p>
         </div>
