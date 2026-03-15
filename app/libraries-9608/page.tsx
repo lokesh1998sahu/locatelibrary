@@ -95,6 +95,24 @@ export default function LibrariesPage() {
     });
     setPendingList((prev) => prev.filter((p) => p.row !== row));
     loadData();
+    showMsg(status === "Receipt Made" ? "Receipt marked as done" : "Marked as not required");
+  };
+
+  // Colour palette — theme-safe accents assigned per library index
+  const LIBRARY_COLORS = [
+    { border: "#60a5fa", bg: "rgba(96,165,250,0.07)",  badge: "rgba(96,165,250,0.15)",  text: "#60a5fa"  },
+    { border: "#f472b6", bg: "rgba(244,114,182,0.07)", badge: "rgba(244,114,182,0.15)", text: "#f472b6"  },
+    { border: "#34d399", bg: "rgba(52,211,153,0.07)",  badge: "rgba(52,211,153,0.15)",  text: "#34d399"  },
+    { border: "#fb923c", bg: "rgba(251,146,60,0.07)",  badge: "rgba(251,146,60,0.15)",  text: "#fb923c"  },
+    { border: "#a78bfa", bg: "rgba(167,139,250,0.07)", badge: "rgba(167,139,250,0.15)", text: "#a78bfa"  },
+    { border: "#22d3ee", bg: "rgba(34,211,238,0.07)",  badge: "rgba(34,211,238,0.15)",  text: "#22d3ee"  },
+    { border: "#a3e635", bg: "rgba(163,230,53,0.07)",  badge: "rgba(163,230,53,0.15)",  text: "#a3e635"  },
+    { border: "#fbbf24", bg: "rgba(251,191,36,0.07)",  badge: "rgba(251,191,36,0.15)",  text: "#fbbf24"  },
+  ];
+
+  const getLibraryColor = (libraryCode: string) => {
+    const idx = codes.findIndex((c) => c.code === libraryCode);
+    return LIBRARY_COLORS[(idx >= 0 ? idx : 0) % LIBRARY_COLORS.length];
   };
 
   const libraries = ["ALL", ...codes.map((c) => c.code)];
@@ -740,7 +758,7 @@ export default function LibrariesPage() {
             <div className="logo-area">
               <div className="logo-icon">📚</div>
               <div>
-                <div className="logo-text">Library Panel</div>
+                <div className="logo-text">LibraryLedger</div>
                 <div className="logo-sub">Fee Management</div>
               </div>
             </div>
@@ -827,7 +845,7 @@ export default function LibrariesPage() {
                     <label className="field-label">Amount <span className="req">*</span></label>
                     <input
                       type="number"
-                      placeholder="₹ 0"
+                      placeholder="₹ 0.00"
                       value={form.amount}
                       onChange={(e) => setForm({ ...form, amount: e.target.value })}
                       className="input"
@@ -935,17 +953,34 @@ export default function LibrariesPage() {
 
               <div className="modal-body">
 
-                {/* Library Filter */}
+                {/* Library Filter — with colour dots */}
                 <div className="filter-tabs">
-                  {libraries.map((l) => (
-                    <button
-                      key={l}
-                      className={`filter-tab ${activeLibrary === l ? "active" : ""}`}
-                      onClick={() => setActiveLibrary(l)}
-                    >
-                      {l}
-                    </button>
-                  ))}
+                  {libraries.map((l, li) => {
+                    const col = l === "ALL" ? null : getLibraryColor(l);
+                    const isActive = activeLibrary === l;
+                    return (
+                      <button
+                        key={l}
+                        className={`filter-tab ${isActive ? "active" : ""}`}
+                        style={isActive && col ? { background: col.border, borderColor: col.border, color: "#0c0e14" } : {}}
+                        onClick={() => setActiveLibrary(l)}
+                      >
+                        {col && (
+                          <span style={{
+                            display: "inline-block",
+                            width: "7px", height: "7px",
+                            borderRadius: "50%",
+                            background: col.border,
+                            marginRight: "5px",
+                            verticalAlign: "middle",
+                            opacity: isActive ? 0.6 : 1,
+                            flexShrink: 0,
+                          }} />
+                        )}
+                        {l}
+                      </button>
+                    );
+                  })}
                 </div>
 
                 {/* Items */}
@@ -955,11 +990,41 @@ export default function LibrariesPage() {
                     <div>All receipts cleared</div>
                   </div>
                 ) : (
-                  filteredList.map((item, i) => (
-                    <div key={i} className="pending-item">
+                  filteredList.map((item, i) => {
+                    const col = getLibraryColor(item.library);
+                    return (
+                    <div
+                      key={i}
+                      className="pending-item"
+                      style={{
+                        borderColor: col.border,
+                        borderLeftWidth: "3px",
+                        background: col.bg,
+                      }}
+                    >
 
                       <div className="pending-item-header">
-                        <span className="sno-badge">SNO {item.sno}</span>
+                        <span
+                          className="sno-badge"
+                          style={{
+                            color: col.text,
+                            background: col.badge,
+                            borderColor: `${col.border}44`,
+                          }}
+                        >
+                          SNO {item.sno}
+                        </span>
+                        <span style={{
+                          fontFamily: "var(--font-mono)",
+                          fontSize: "11px",
+                          fontWeight: 700,
+                          color: col.text,
+                          opacity: 0.85,
+                          letterSpacing: "0.5px",
+                          textTransform: "uppercase",
+                        }}>
+                          {item.library}
+                        </span>
                       </div>
 
                       <div className="item-fields">
@@ -1030,7 +1095,8 @@ export default function LibrariesPage() {
                       </div>
 
                     </div>
-                  ))
+                    );
+                  })
                 )}
 
               </div>
