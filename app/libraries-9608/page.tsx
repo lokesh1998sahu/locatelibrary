@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 
 export default function LibrariesPage() {
   const PASSWORD = process.env.NEXT_PUBLIC_LIBRARIES_PASSWORD;
@@ -18,6 +18,9 @@ export default function LibrariesPage() {
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<{ text: string; type: "success" | "error" } | null>(null);
   const [showPass, setShowPass] = useState(false);
+
+  // ── Double-submit guard (ref fires synchronously, no re-render needed) ──
+  const isSubmitting = useRef(false);
 
   const [form, setForm] = useState({
     date: "",
@@ -67,20 +70,28 @@ export default function LibrariesPage() {
 
   const handleSubmit = async (e: any) => {
     e.preventDefault();
-    if (loading) return;
+    // Synchronous ref check — blocks even rapid double-clicks before re-render
+    if (isSubmitting.current) return;
     if (!form.date || !form.amount || !form.paymentTag || !form.libraryCode) {
       showMsg("Fill all required fields", "error");
       return;
     }
+    isSubmitting.current = true;
     setLoading(true);
-    await fetch(SCRIPT_URL, {
-      method: "POST",
-      body: JSON.stringify({ action: "newEntry", ...form }),
-    });
-    setForm({ date: "", amount: "", paymentTag: "", libraryCode: "", remark: "", receipt: "Pending" });
-    showMsg("Entry saved successfully");
-    setLoading(false);
-    loadData();
+    try {
+      await fetch(SCRIPT_URL, {
+        method: "POST",
+        body: JSON.stringify({ action: "newEntry", ...form }),
+      });
+      setForm({ date: "", amount: "", paymentTag: "", libraryCode: "", remark: "", receipt: "Pending" });
+      showMsg("Entry saved successfully");
+      loadData();
+    } catch {
+      showMsg("Something went wrong, please retry", "error");
+    } finally {
+      isSubmitting.current = false;
+      setLoading(false);
+    }
   };
 
   const updateReceipt = async (row: number, status: string, item: any) => {
@@ -98,7 +109,21 @@ export default function LibrariesPage() {
     showMsg(status === "Receipt Made" ? "Receipt marked as done" : "Marked as not required");
   };
 
-  // Colour palette — theme-safe accents assigned per library index
+  // ── Delete entry: clears amount, sets receipt → "Deleted", saves remark + new timestamp ──
+  const deleteEntry = async (row: number, item: any) => {
+    await fetch(SCRIPT_URL, {
+      method: "POST",
+      body: JSON.stringify({
+        action: "deleteEntry",
+        row,
+        remark: item.remark,
+      }),
+    });
+    setPendingList((prev) => prev.filter((p) => p.row !== row));
+    loadData();
+    showMsg("Entry deleted");
+  };
+
   const LIBRARY_COLORS = [
     { border: "#60a5fa", bg: "rgba(96,165,250,0.07)",  badge: "rgba(96,165,250,0.15)",  text: "#60a5fa"  },
     { border: "#f472b6", bg: "rgba(244,114,182,0.07)", badge: "rgba(244,114,182,0.15)", text: "#f472b6"  },
@@ -113,6 +138,12 @@ export default function LibrariesPage() {
   const getLibraryColor = (libraryCode: string) => {
     const idx = codes.findIndex((c) => c.code === libraryCode);
     return LIBRARY_COLORS[(idx >= 0 ? idx : 0) % LIBRARY_COLORS.length];
+  };
+
+  // ── Tab counter helpers ──
+  const getTabCount = (lib: string) => {
+    if (lib === "ALL") return pendingList.length;
+    return pendingList.filter((p) => p.library === lib).length;
   };
 
   const libraries = ["ALL", ...codes.map((c) => c.code)];
@@ -327,9 +358,7 @@ export default function LibrariesPage() {
           color: var(--cream);
         }
 
-        .select-wrapper {
-          position: relative;
-        }
+        .select-wrapper { position: relative; }
 
         .select-wrapper::after {
           content: '▾';
@@ -408,14 +437,9 @@ export default function LibrariesPage() {
           box-shadow: 0 8px 30px rgba(232,168,51,0.35);
         }
 
-        .btn-primary:active:not(:disabled) {
-          transform: translateY(0);
-        }
+        .btn-primary:active:not(:disabled) { transform: translateY(0); }
 
-        .btn-primary:disabled {
-          opacity: 0.6;
-          cursor: not-allowed;
-        }
+        .btn-primary:disabled { opacity: 0.6; cursor: not-allowed; }
 
         /* Pending card */
         .pending-card {
@@ -455,11 +479,7 @@ export default function LibrariesPage() {
           line-height: 1;
         }
 
-        .pending-arrow {
-          color: var(--red);
-          opacity: 0.6;
-          font-size: 20px;
-        }
+        .pending-arrow { color: var(--red); opacity: 0.6; font-size: 20px; }
 
         /* Logout */
         .logout-btn {
@@ -476,17 +496,10 @@ export default function LibrariesPage() {
           transition: all 0.2s;
         }
 
-        .logout-btn:hover {
-          border-color: var(--red);
-          color: var(--red);
-        }
+        .logout-btn:hover { border-color: var(--red); color: var(--red); }
 
         /* Divider */
-        .divider {
-          height: 1px;
-          background: var(--border);
-          margin: 20px 0;
-        }
+        .divider { height: 1px; background: var(--border); margin: 20px 0; }
 
         /* Form grid */
         .form-grid { display: flex; flex-direction: column; gap: 16px; }
@@ -527,11 +540,7 @@ export default function LibrariesPage() {
 
         @keyframes spin { to { transform: rotate(360deg); } }
 
-        .spinner-text {
-          font-size: 13px;
-          color: var(--muted2);
-          font-weight: 500;
-        }
+        .spinner-text { font-size: 13px; color: var(--muted2); font-weight: 500; }
 
         /* Modal */
         .modal-overlay {
@@ -568,11 +577,7 @@ export default function LibrariesPage() {
           justify-content: space-between;
         }
 
-        .modal-title {
-          font-family: var(--font-display);
-          font-size: 20px;
-          color: var(--cream);
-        }
+        .modal-title { font-family: var(--font-display); font-size: 20px; color: var(--cream); }
 
         .modal-close {
           background: var(--surface2);
@@ -591,7 +596,7 @@ export default function LibrariesPage() {
 
         .modal-body { padding: 20px 24px 24px; }
 
-        /* Filter tabs */
+        /* ── Filter tabs ── */
         .filter-tabs {
           display: flex;
           flex-wrap: wrap;
@@ -600,6 +605,9 @@ export default function LibrariesPage() {
         }
 
         .filter-tab {
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
           padding: 5px 12px;
           border-radius: 100px;
           font-size: 12px;
@@ -619,6 +627,27 @@ export default function LibrariesPage() {
           background: var(--gold);
           border-color: var(--gold);
           color: #0c0e14;
+        }
+
+        /* ── Option A counter badge ── */
+        .tab-count {
+          font-family: var(--font-mono);
+          font-size: 10px;
+          font-weight: 600;
+          padding: 2px 6px;
+          border-radius: 20px;
+          background: rgba(46,52,72,0.8);
+          color: var(--muted);
+          border: 1px solid var(--border2);
+          line-height: 1.4;
+          letter-spacing: 0;
+        }
+
+        /* active ALL tab — dark badge */
+        .filter-tab.active .tab-count {
+          background: rgba(12,14,20,0.25);
+          color: rgba(12,14,20,0.7);
+          border-color: rgba(0,0,0,0.12);
         }
 
         /* Pending item card */
@@ -669,9 +698,7 @@ export default function LibrariesPage() {
           -webkit-appearance: none;
         }
 
-        .item-input:focus, .item-select:focus {
-          border-color: var(--gold-dim);
-        }
+        .item-input:focus, .item-select:focus { border-color: var(--gold-dim); }
 
         .item-input[type="date"]::-webkit-calendar-picker-indicator {
           filter: invert(0.4) sepia(1) saturate(2) hue-rotate(5deg);
@@ -717,6 +744,20 @@ export default function LibrariesPage() {
           color: var(--cream);
         }
 
+        /* ── Delete button ── */
+        .btn-receipt.delete {
+          background: var(--red-dim);
+          color: var(--red);
+          border: 1px solid rgba(240,82,82,0.2);
+          flex: 0 0 auto;
+          padding: 11px 14px;
+        }
+
+        .btn-receipt.delete:hover {
+          background: rgba(240,82,82,0.2);
+          box-shadow: 0 0 12px rgba(240,82,82,0.12);
+        }
+
         .empty-state {
           text-align: center;
           padding: 40px 20px;
@@ -724,11 +765,7 @@ export default function LibrariesPage() {
           font-size: 14px;
         }
 
-        .empty-icon {
-          font-size: 40px;
-          margin-bottom: 10px;
-          opacity: 0.4;
-        }
+        .empty-icon { font-size: 40px; margin-bottom: 10px; opacity: 0.4; }
       `}</style>
 
       <div className="page">
@@ -953,11 +990,20 @@ export default function LibrariesPage() {
 
               <div className="modal-body">
 
-                {/* Library Filter — with colour dots */}
+                {/* Filter tabs with Option A counter badges */}
                 <div className="filter-tabs">
-                  {libraries.map((l, li) => {
+                  {libraries.map((l) => {
                     const col = l === "ALL" ? null : getLibraryColor(l);
                     const isActive = activeLibrary === l;
+                    const count = getTabCount(l);
+
+                    // Badge style: accented when inactive library tab, dark when active
+                    const badgeStyle: React.CSSProperties = isActive
+                      ? { background: "rgba(12,14,20,0.25)", color: "rgba(12,14,20,0.7)", borderColor: "rgba(0,0,0,0.12)" }
+                      : col
+                        ? { background: `${col.border}18`, color: col.text, borderColor: `${col.border}44` }
+                        : {};
+
                     return (
                       <button
                         key={l}
@@ -971,13 +1017,12 @@ export default function LibrariesPage() {
                             width: "7px", height: "7px",
                             borderRadius: "50%",
                             background: col.border,
-                            marginRight: "5px",
-                            verticalAlign: "middle",
-                            opacity: isActive ? 0.6 : 1,
                             flexShrink: 0,
+                            opacity: isActive ? 0.6 : 1,
                           }} />
                         )}
                         {l}
+                        <span className="tab-count" style={badgeStyle}>{count}</span>
                       </button>
                     );
                   })}
@@ -993,108 +1038,115 @@ export default function LibrariesPage() {
                   filteredList.map((item, i) => {
                     const col = getLibraryColor(item.library);
                     return (
-                    <div
-                      key={i}
-                      className="pending-item"
-                      style={{
-                        borderColor: col.border,
-                        borderLeftWidth: "3px",
-                        background: col.bg,
-                      }}
-                    >
-
-                      <div className="pending-item-header">
-                        <span
-                          className="sno-badge"
-                          style={{
+                      <div
+                        key={i}
+                        className="pending-item"
+                        style={{
+                          borderColor: col.border,
+                          borderLeftWidth: "3px",
+                          background: col.bg,
+                        }}
+                      >
+                        <div className="pending-item-header">
+                          <span
+                            className="sno-badge"
+                            style={{
+                              color: col.text,
+                              background: col.badge,
+                              borderColor: `${col.border}44`,
+                            }}
+                          >
+                            SNO {item.sno}
+                          </span>
+                          <span style={{
+                            fontFamily: "var(--font-mono)",
+                            fontSize: "11px",
+                            fontWeight: 700,
                             color: col.text,
-                            background: col.badge,
-                            borderColor: `${col.border}44`,
-                          }}
-                        >
-                          SNO {item.sno}
-                        </span>
-                        <span style={{
-                          fontFamily: "var(--font-mono)",
-                          fontSize: "11px",
-                          fontWeight: 700,
-                          color: col.text,
-                          opacity: 0.85,
-                          letterSpacing: "0.5px",
-                          textTransform: "uppercase",
-                        }}>
-                          {item.library}
-                        </span>
-                      </div>
-
-                      <div className="item-fields">
-
-                        <input
-                          type="date"
-                          value={item.dateRaw}
-                          onChange={(e) => { item.dateRaw = e.target.value; setPendingList([...pendingList]); }}
-                          className="item-input"
-                        />
-
-                        <div className="select-wrapper">
-                          <select
-                            value={item.library}
-                            onChange={(e) => { item.library = e.target.value; setPendingList([...pendingList]); }}
-                            className="item-select"
-                          >
-                            {codes.map((c, i) => (
-                              <option key={i} value={c.code}>{c.code} — {c.name}</option>
-                            ))}
-                          </select>
+                            opacity: 0.85,
+                            letterSpacing: "0.5px",
+                            textTransform: "uppercase",
+                          }}>
+                            {item.library}
+                          </span>
                         </div>
 
-                        <input
-                          type="number"
-                          value={item.amount}
-                          onChange={(e) => { item.amount = e.target.value; setPendingList([...pendingList]); }}
-                          className="item-input"
-                          placeholder="Amount"
-                          style={{ fontFamily: "var(--font-mono)" }}
-                        />
+                        <div className="item-fields">
 
-                        <div className="select-wrapper">
-                          <select
-                            value={item.paymentTag}
-                            onChange={(e) => { item.paymentTag = e.target.value; setPendingList([...pendingList]); }}
-                            className="item-select"
-                          >
-                            {tags.map((t, i) => (
-                              <option key={i} value={t}>{t}</option>
-                            ))}
-                          </select>
+                          <input
+                            type="date"
+                            value={item.dateRaw}
+                            onChange={(e) => { item.dateRaw = e.target.value; setPendingList([...pendingList]); }}
+                            className="item-input"
+                          />
+
+                          <div className="select-wrapper">
+                            <select
+                              value={item.library}
+                              onChange={(e) => { item.library = e.target.value; setPendingList([...pendingList]); }}
+                              className="item-select"
+                            >
+                              {codes.map((c, i) => (
+                                <option key={i} value={c.code}>{c.code} — {c.name}</option>
+                              ))}
+                            </select>
+                          </div>
+
+                          <input
+                            type="number"
+                            value={item.amount}
+                            onChange={(e) => { item.amount = e.target.value; setPendingList([...pendingList]); }}
+                            className="item-input"
+                            placeholder="Amount"
+                            style={{ fontFamily: "var(--font-mono)" }}
+                          />
+
+                          <div className="select-wrapper">
+                            <select
+                              value={item.paymentTag}
+                              onChange={(e) => { item.paymentTag = e.target.value; setPendingList([...pendingList]); }}
+                              className="item-select"
+                            >
+                              {tags.map((t, i) => (
+                                <option key={i} value={t}>{t}</option>
+                              ))}
+                            </select>
+                          </div>
+
+                          {/* Remark — editable, used by both receipt actions and delete */}
+                          <input
+                            type="text"
+                            value={item.remark}
+                            onChange={(e) => { item.remark = e.target.value; setPendingList([...pendingList]); }}
+                            className="item-input"
+                            placeholder="Remark"
+                          />
+
                         </div>
 
-                        <input
-                          type="text"
-                          value={item.remark}
-                          onChange={(e) => { item.remark = e.target.value; setPendingList([...pendingList]); }}
-                          className="item-input"
-                          placeholder="Remark"
-                        />
+                        <div className="action-row">
+                          <button
+                            className="btn-receipt made"
+                            onClick={() => updateReceipt(item.row, "Receipt Made", item)}
+                          >
+                            ✓ Receipt Made
+                          </button>
+                          <button
+                            className="btn-receipt skip"
+                            onClick={() => updateReceipt(item.row, "Not Required", item)}
+                          >
+                            ✕ Not Required
+                          </button>
+                          {/* Delete — clears amount, sets Deleted, saves remark + new timestamp */}
+                          <button
+                            className="btn-receipt delete"
+                            onClick={() => deleteEntry(item.row, item)}
+                          >
+                            🗑
+                          </button>
+                        </div>
 
                       </div>
-
-                      <div className="action-row">
-                        <button
-                          className="btn-receipt made"
-                          onClick={() => updateReceipt(item.row, "Receipt Made", item)}
-                        >
-                          ✓ Receipt Made
-                        </button>
-                        <button
-                          className="btn-receipt skip"
-                          onClick={() => updateReceipt(item.row, "Not Required", item)}
-                        >
-                          ✕ Not Required
-                        </button>
-                      </div>
-
-                    </div>
                     );
                   })
                 )}
