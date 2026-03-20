@@ -108,15 +108,25 @@ function iconBtn(disabled = false): React.CSSProperties {
 
 // ── Main Component ─────────────────────────────────────────
 export default function TaskSettings() {
-  const [authed, setAuthed]     = useState(() => {
-    if (typeof window === "undefined") return false;
-    return localStorage.getItem("owner_authed") === "true";
-  });
+  // ── HYDRATION FIX ──
+  // Always start as false on both server and client.
+  // Read localStorage only after mount in useEffect — this prevents
+  // the SSR/client mismatch that caused the hydration error.
+  const [authed, setAuthed] = useState(false);
+  const [hydrated, setHydrated] = useState(false);
+
+  useEffect(() => {
+    setHydrated(true);
+    if (localStorage.getItem("owner_authed") === "true") {
+      setAuthed(true);
+    }
+  }, []);
 
   function logout() {
     localStorage.removeItem("owner_authed");
     setAuthed(false);
   }
+
   const [type, setType]         = useState<CleanType>("daily");
   const [section, setSection]   = useState<SectionType>("tasks");
   const [allLocations, setAllLocations] = useState<Location[]>([]);
@@ -217,6 +227,10 @@ export default function TaskSettings() {
     flash("Library added ✅"); setNewLocName(""); setAddingLoc(false);
     await loadData(); setSaving("");
   }
+
+  // ── Render nothing until client has hydrated ──
+  // This prevents any flash of the wrong screen during SSR reconciliation.
+  if (!hydrated) return null;
 
   if (!authed) return <Gate onAuth={() => { localStorage.setItem("owner_authed", "true"); setAuthed(true); }} />;
 
