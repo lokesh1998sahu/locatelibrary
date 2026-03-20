@@ -252,12 +252,21 @@ function HistoryView({
   type: CleanType;
   locationNames: string[];
 }) {
-  const todayIso = new Date().toISOString().split("T")[0];
-  const [selDate, setSelDate]     = useState(todayIso);
+  // useState("") on server — set to today client-side after mount to avoid
+  // SSR/client timezone hydration mismatch.
+  const [selDate, setSelDate]     = useState("");
   const [selLoc, setSelLoc]       = useState("ALL");
   const [histData, setHistData]   = useState<HistoryData | null>(null);
   const [loading, setLoading]     = useState(false);
   const [expandedIdx, setExpandedIdx] = useState<number | null>(null);
+  // todayIso for the date input max attribute — computed client-side only
+  const [todayIso, setTodayIso]   = useState("");
+
+  useEffect(() => {
+    const t = new Date().toISOString().split("T")[0];
+    setTodayIso(t);
+    setSelDate(prev => prev || t);
+  }, []);
 
   const load = useCallback(async (date: string, loc: string, t: CleanType) => {
     setLoading(true);
@@ -417,10 +426,16 @@ function HistoryView({
 
 // ── Main Dashboard ─────────────────────────────────────────
 export default function OwnerDashboard() {
-  const [authed, setAuthed] = useState(() => {
-    if (typeof window === "undefined") return false;
-    return localStorage.getItem("owner_authed") === "true";
-  });
+  // ── HYDRATION FIX ──
+  // Always start as false on both server and client.
+  // Read localStorage only after mount — prevents SSR/client mismatch.
+  const [authed, setAuthed]     = useState(false);
+  const [hydrated, setHydrated] = useState(false);
+
+  useEffect(() => {
+    setHydrated(true);
+    if (localStorage.getItem("owner_authed") === "true") setAuthed(true);
+  }, []);
 
   function logout() {
     localStorage.removeItem("owner_authed");
@@ -451,11 +466,16 @@ export default function OwnerDashboard() {
 
   useEffect(() => { if (authed) load(type, ""); }, [authed, type, load]);
 
+  // Render nothing until client has hydrated — server and client agree on initial render
+  if (!hydrated) return null;
+
   if (!authed) return <Gate onAuth={() => { localStorage.setItem("owner_authed", "true"); setAuthed(true); }} />;
 
   const hour           = new Date().getHours();
   const unsubmitted    = data?.locations.filter(l => !l.submitted) ?? [];
   const showAlert      = hour >= 14 && unsubmitted.length > 0 && tab === "today";
+  // toLocaleDateString with explicit locale is safe here because the component
+  // only renders after hydration (guarded by the `if (!hydrated) return null` above).
   const today          = new Date().toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
   const submittedCount = data?.locations.filter(l => l.submitted).length ?? 0;
   const totalCount     = data?.locations.length ?? 0;
