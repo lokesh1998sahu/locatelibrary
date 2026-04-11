@@ -14,6 +14,8 @@ const geistMono = Geist_Mono({
 export const metadata = {
   title: "Locate Library",
   description: "Discover and book premium study libraries near you.",
+    manifest: '/manifest.json',
+  themeColor: '#25d366',
 };
 
 
