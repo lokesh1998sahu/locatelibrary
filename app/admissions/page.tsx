@@ -507,7 +507,7 @@ export default function AdmissionsPage() {
             <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",paddingBottom:14 }}>
               <div>
                 <div style={{ fontSize:10,color:"#475569",letterSpacing:2,textTransform:"uppercase" }}>Locate Library</div>
-                <div style={{ fontSize:20,fontWeight:800,color:"#fff",marginTop:2 }}>Admissions v6</div>
+                <div style={{ fontSize:20,fontWeight:800,color:"#fff",marginTop:2 }}>Library Admissions</div>
               </div>
               <button onClick={logout} style={{ fontSize:12,color:"#f87171",background:"rgba(239,68,68,0.1)",border:"1px solid rgba(239,68,68,0.2)",borderRadius:8,padding:"6px 12px",cursor:"pointer",fontWeight:600,fontFamily:"'DM Sans',sans-serif" }}>Logout</button>
             </div>
