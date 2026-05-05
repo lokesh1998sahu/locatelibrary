@@ -396,7 +396,7 @@ export default function TechToolPage() {
             <div className="brand-dot" />
             <span className="brand-name">Locate Library</span>
           </div>
-          <span className="version-badge">TECH-TOOL</span>
+          <span className="version-badge">TECH-TOOLS</span>
         </div>
 
         {/* Hero */}
@@ -470,7 +470,7 @@ export default function TechToolPage() {
 
         {/* Footer */}
         <div className="footer animate-item" style={{ animationDelay: "440ms" }}>
-          <span className="footer-text">LOCATELIBRARY.COM / TECH-TOOL</span>
+          <span className="footer-text">LOCATELIBRARY.COM / TECH-TOOLS</span>
           <div className="footer-dot" />
           <span className="footer-text">{mounted ? new Date().getFullYear() : ""}</span>
         </div>

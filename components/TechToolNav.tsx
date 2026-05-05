@@ -150,7 +150,7 @@ export default function TechToolNav() {
             <div style={{ width: 8, height: 8, background: "#e8a833" }} />
             <div style={{ width: 8, height: 8, background: "#f472b6" }} />
           </div>
-          <span className="ttn-label">Tech Tool</span>
+          <span className="ttn-label">Tech Tools</span>
         </div>
       </div>
 
@@ -158,7 +158,7 @@ export default function TechToolNav() {
       {showConfirm && (
         <div className="ttn-modal-bg">
           <div className="ttn-modal">
-            <div className="ttn-title">Go to Tech Tool?</div>
+            <div className="ttn-title">Go to Tech Tools?</div>
             <div className="ttn-sub">
               Unsaved work may be lost.
             </div>

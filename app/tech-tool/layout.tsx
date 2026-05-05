@@ -2,14 +2,14 @@ import type { Metadata, Viewport } from "next";
 import TechToolNav from "@/components/TechToolNav";
 
 export const metadata: Metadata = {
-  title: "Tech Tool — Locate Library",
+  title: "Tech Tools — Locate Library",
   description: "Internal tools dashboard for Locate Library operations.",
   manifest: "/tech-tool-manifest.json",
   robots: { index: false, follow: false },
   appleWebApp: {
     capable: true,
     statusBarStyle: "black-translucent",
-    title: "Tech Tool",
+    title: "Tech Tools",
   },
 };
 
