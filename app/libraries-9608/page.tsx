@@ -52,6 +52,8 @@ export default function LibrariesPage() {
   const [entriesOpen, setEntriesOpen]         = useState(false);
   const [entries, setEntries]                 = useState<Entry[]>([]);
   const [statusCounts, setStatusCounts]       = useState<StatusCounts>({ Pending:0, "Receipt Made":0, "Not Required":0, Deleted:0 });
+  const [libraryCounts, setLibraryCounts]     = useState<Record<string, number>>({});
+  const [tagCounts, setTagCounts]             = useState<Record<string, number>>({});
   const [page, setPage]                       = useState(1);
   const [totalPages, setTotalPages]           = useState(0);
   const [total, setTotal]                     = useState(0);
@@ -128,6 +130,8 @@ export default function LibrariesPage() {
       const d = await res.json();
       setEntries(d.entries || []);
       setStatusCounts(d.statusCounts || { Pending:0, "Receipt Made":0, "Not Required":0, Deleted:0 });
+      setLibraryCounts(d.libraryCounts || {});
+      setTagCounts(d.tagCounts || {});
       setTotal(d.total || 0);
       setTotalPages(d.totalPages || 0);
       setPage(d.page || 1);
@@ -579,9 +583,15 @@ export default function LibrariesPage() {
                 <div style={{ marginBottom:10 }}>
                   <div style={{ fontSize:10,fontWeight:700,color:"var(--muted)",textTransform:"uppercase",letterSpacing:0.5,marginBottom:6 }}>Library</div>
                   <div style={{ display:"flex",gap:6,overflowX:"auto",paddingBottom:4 }}>
-                    <button className={`filter-tab ${fLibrary===""?"active":""}`} onClick={() => setFLibrary("")}>All</button>
+                    <button className={`filter-tab ${fLibrary===""?"active":""}`} onClick={() => setFLibrary("")}>
+                      All
+                      <span className="tab-count">{Object.values(libraryCounts).reduce((sum, count) => sum + count, 0)}</span>
+                    </button>
                     {codes.map((c, i) => (
-                      <button key={i} className={`filter-tab ${fLibrary===c.code?"active":""}`} onClick={() => setFLibrary(c.code)}>{c.code}</button>
+                      <button key={i} className={`filter-tab ${fLibrary===c.code?"active":""}`} onClick={() => setFLibrary(c.code)}>
+                        {c.code}
+                        <span className="tab-count">{libraryCounts[c.code] || 0}</span>
+                      </button>
                     ))}
                   </div>
                 </div>
@@ -590,9 +600,15 @@ export default function LibrariesPage() {
                 <div style={{ marginBottom:10 }}>
                   <div style={{ fontSize:10,fontWeight:700,color:"var(--muted)",textTransform:"uppercase",letterSpacing:0.5,marginBottom:6 }}>Payment Tag</div>
                   <div style={{ display:"flex",gap:6,overflowX:"auto",paddingBottom:4 }}>
-                    <button className={`filter-tab ${fPaymentTag===""?"active":""}`} onClick={() => setFPaymentTag("")}>All</button>
+                    <button className={`filter-tab ${fPaymentTag===""?"active":""}`} onClick={() => setFPaymentTag("")}>
+                      All
+                      <span className="tab-count">{Object.values(tagCounts).reduce((sum, count) => sum + count, 0)}</span>
+                    </button>
                     {tags.map((t, i) => (
-                      <button key={i} className={`filter-tab ${fPaymentTag===t?"active":""}`} onClick={() => setFPaymentTag(t)}>{t}</button>
+                      <button key={i} className={`filter-tab ${fPaymentTag===t?"active":""}`} onClick={() => setFPaymentTag(t)}>
+                        {t}
+                        <span className="tab-count">{tagCounts[t] || 0}</span>
+                      </button>
                     ))}
                   </div>
                 </div>
