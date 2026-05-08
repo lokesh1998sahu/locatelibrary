@@ -10,8 +10,8 @@ type ReceiptStep = "library" | "type" | "search" | "form" | "result";
 type EntryType   = "NEW" | "RENEWAL";
 
 interface PhoneEntry  { number: string; tag: string; }
-interface Library     { library_code: string; library_name: string; display_name: string; active: boolean; has_branches: boolean; emoji: string; }
-interface Branch      { library_code: string; branch_code: string; branch_display: string; active: boolean; emoji: string; }
+interface Library     { library_code: string; library_name: string; display_name: string; active: boolean; has_branches: boolean; emoji: string; color?: string; }
+interface Branch      { library_code: string; branch_code: string; branch_display: string; active: boolean; emoji: string; color?: string; }
 interface Shift       { shift_key: string; shift_name: string; shift_time: string; active: boolean; }
 interface PaymentTag  { tag_name: string; active: boolean; created_at: string; }
 interface LibSettings { library: string; last_student_id: number; last_receipt_no: number; cutoff_student_id: number; cutoff_receipt_no: number; }
@@ -148,6 +148,60 @@ function fmtDateOnly(ts: string): string {
 }
 function toU(v: string) { return (v || "").toUpperCase().trim(); }
 
+// ── COLOR RESOLUTION ─────────────────────────────────────────────────────────
+// Branch color wins; falls back to library color; final fallback grey.
+const FALLBACK_COLOR = "#64748b";
+function resolveLibColor(library: string, branch: string, libraries: Library[], branches: Branch[]): string {
+  const br = (branch||"").toUpperCase().trim();
+  if (br) {
+    const b = branches.find(x => (x.branch_code||"").toUpperCase() === br);
+    if (b && b.color) return b.color;
+  }
+  const lib = (library||"").toUpperCase().trim();
+  if (lib) {
+    const l = libraries.find(x => (x.library_code||"").toUpperCase() === lib);
+    if (l && l.color) return l.color;
+  }
+  return FALLBACK_COLOR;
+}
+// Resolve from a library/branch CODE that could be either (e.g. Fee Panel may store YAL-1 in library field)
+function resolveLibColorFromCode(code: string, libraries: Library[], branches: Branch[]): string {
+  const c = (code||"").toUpperCase().trim();
+  if (!c) return FALLBACK_COLOR;
+  const b = branches.find(x => (x.branch_code||"").toUpperCase() === c);
+  if (b && b.color) return b.color;
+  const l = libraries.find(x => (x.library_code||"").toUpperCase() === c);
+  if (l && l.color) return l.color;
+  return FALLBACK_COLOR;
+}
+// Add transparency to a hex color (8-digit form)
+function withAlpha(hex: string, alpha: number): string {
+  if (!hex || !hex.startsWith("#")) return hex || FALLBACK_COLOR;
+  const a = Math.max(0, Math.min(255, Math.round(alpha * 255))).toString(16).padStart(2,"0");
+  // Strip existing alpha if any (#rrggbbaa → #rrggbb)
+  const base = hex.length === 9 ? hex.slice(0,7) : hex;
+  return base + a;
+}
+// Pick contrasting text color (black/white) for a given hex bg
+function pickTextColor(hex: string): string {
+  if (!hex || !hex.startsWith("#") || hex.length < 7) return "#fff";
+  const r = parseInt(hex.slice(1,3),16), g = parseInt(hex.slice(3,5),16), b = parseInt(hex.slice(5,7),16);
+  const luminance = (0.299*r + 0.587*g + 0.114*b);
+  return luminance > 160 ? "#1e293b" : "#fff";
+}
+// Resolve full library display name from code (returns "Suraj Library" not "SL")
+function resolveLibName(code: string, libraries: Library[], branches: Branch[]): string {
+  const c = (code||"").toUpperCase().trim();
+  if (!c) return "";
+  const b = branches.find(x => (x.branch_code||"").toUpperCase() === c);
+  if (b) {
+    const parent = libraries.find(x => (x.library_code||"").toUpperCase() === b.library_code.toUpperCase());
+    return (parent?.display_name || parent?.library_name || b.library_code) + " — " + (b.branch_display || b.branch_code);
+  }
+  const l = libraries.find(x => (x.library_code||"").toUpperCase() === c);
+  return l?.display_name || l?.library_name || c;
+}
+
 // ── SHARED STYLES ─────────────────────────────────────────────────────────────
 const inp:  React.CSSProperties = { padding:"11px 14px",borderRadius:12,border:"1.5px solid #e2e8f0",fontSize:14,background:"#f8fafc",color:"#1e293b",fontFamily:"'DM Sans',sans-serif",width:"100%",outline:"none",boxSizing:"border-box" };
 const selS: React.CSSProperties = { ...inp,cursor:"pointer",appearance:"none" };
@@ -202,9 +256,39 @@ function CopyBtn({ text, label, accent="#6366f1" }: { text:string;label:string;a
 function Badge({ text, color="#6366f1" }: { text:string;color?:string }) {
   return <span style={{ fontSize:10,fontWeight:700,padding:"3px 8px",borderRadius:99,background:`${color}18`,color,letterSpacing:"0.05em" }}>{text}</span>;
 }
+// High-contrast filled badge — used for library/branch badges where visibility matters most
+function LibraryBadge({ text, color }: { text:string;color:string }) {
+  const fg = pickTextColor(color);
+  return <span style={{ fontSize:11,fontWeight:800,padding:"4px 10px",borderRadius:99,background:color,color:fg,letterSpacing:"0.05em",boxShadow:`0 1px 4px ${color}33` }}>{text}</span>;
+}
+// Full library/branch name + code header shown above forms and result screens
+function LibraryHeader({ library, branch, libraries, branches, prefix }: { library:string;branch?:string;libraries:Library[];branches:Branch[];prefix?:string }) {
+  const color = resolveLibColor(library, branch||"", libraries, branches);
+  const fullName = resolveLibName(branch||library, libraries, branches);
+  const code = branch || library;
+  if (!fullName && !code) return null;
+  return (
+    <div style={{ display:"flex",alignItems:"center",gap:10,padding:"10px 14px",background:`linear-gradient(135deg, ${color}18, ${color}08)`,border:`1.5px solid ${color}55`,borderLeft:`4px solid ${color}`,borderRadius:12,marginBottom:14 }}>
+      <div style={{ flex:1,minWidth:0 }}>
+        {prefix && <div style={{ fontSize:10,fontWeight:700,color:`${color}cc`,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:2 }}>{prefix}</div>}
+        <div style={{ fontSize:15,fontWeight:800,color:"#1e293b",lineHeight:1.2 }}>{fullName}</div>
+      </div>
+      <LibraryBadge text={code} color={color} />
+    </div>
+  );
+}
 function Pill({ text, active, onClick }: { text:string;active:boolean;onClick:()=>void }) {
   return (
     <button onClick={onClick} style={{ padding:"7px 14px",borderRadius:99,border:"none",background:active?"#6366f1":"#f1f5f9",color:active?"#fff":"#64748b",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",transition:"all 0.15s",whiteSpace:"nowrap" }}>
+      {text}
+    </button>
+  );
+}
+// Library/branch pill — themed when active using its color (used in pickers)
+function LibraryPill({ text, active, color, onClick }: { text:string;active:boolean;color:string;onClick:()=>void }) {
+  const fg = active ? pickTextColor(color) : "#64748b";
+  return (
+    <button onClick={onClick} style={{ padding:"7px 14px",borderRadius:99,border:active?"none":`1.5px solid ${color}55`,background:active?color:`${color}10`,color:active?fg:color,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",transition:"all 0.15s",whiteSpace:"nowrap",boxShadow:active?`0 2px 8px ${color}44`:"none" }}>
       {text}
     </button>
   );
@@ -218,11 +302,43 @@ function Field({ label, children, required }: { label:string;children:React.Reac
   );
 }
 function DateInput({ value, onChange }: { value:string;onChange:(v:string)=>void }) {
+  // Format visible text as "8 May 2026". Hide the native input's locale-dependent placeholder
+  // by overlaying our display on top, but keep the real <input type="date"> functional for picker.
+  const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  function fmtVisible(dmy: string): string {
+    if (!dmy) return "";
+    const p = dmy.split("-"); if (p.length !== 3) return "";
+    const day = Number(p[0]), mon = Number(p[1]), yr = Number(p[2]);
+    if (!day || !mon || !yr) return "";
+    const monName = months[mon-1] || "";
+    return `${day} ${monName} ${yr}`;
+  }
+  const display = fmtVisible(value);
   return (
-    <input type="date" value={dmyToISO(value)}
-      onChange={e => onChange(isoToDMY(e.target.value))}
-      onClick={e => (e.target as HTMLInputElement).showPicker?.()}
-      style={inp} />
+    <div
+      onClick={e => {
+        const realInput = (e.currentTarget.querySelector('input[type="date"]') as HTMLInputElement);
+        if (realInput) { realInput.showPicker?.(); realInput.focus(); }
+      }}
+      style={{ ...inp, position:"relative", cursor:"pointer", padding:0, overflow:"hidden", display:"flex", alignItems:"center" }}>
+      {/* Visible formatted display */}
+      <span style={{ flex:1, padding:"11px 14px", fontSize:14, color: display ? "#1e293b" : "#94a3b8", userSelect:"none", pointerEvents:"none" }}>
+        {display || "Tap to pick date"}
+      </span>
+      {/* Calendar icon for affordance */}
+      <span style={{ paddingRight:14, pointerEvents:"none", color:"#94a3b8", fontSize:16 }}>📅</span>
+      {/* Real, invisible input — handles picker + value binding */}
+      <input
+        type="date"
+        value={dmyToISO(value)}
+        onChange={e => onChange(isoToDMY(e.target.value))}
+        style={{
+          position:"absolute", inset:0, opacity:0, width:"100%", height:"100%",
+          border:"none", padding:0, margin:0, cursor:"pointer",
+          fontSize:0, color:"transparent", background:"transparent"
+        }}
+      />
+    </div>
   );
 }
 function NumInput({ value, onChange, placeholder, style: extraStyle }: { value:string|number;onChange:(v:string)=>void;placeholder?:string;style?:React.CSSProperties }) {
@@ -368,13 +484,14 @@ function PaymentHistoryInline({ receiptNo, enabled=true, onPayments }: { receipt
 }
 
 // ── RECEIPT CARD ──────────────────────────────────────────────────────────────
-function ReceiptCard({ r, showCopy=true, libraries=[], onEditReceipt, onViewStudent }: { r:ReceiptEntry;showCopy?:boolean;libraries:Library[];onEditReceipt?:(r:ReceiptEntry)=>void;onViewStudent?:(studentId:string,library:string)=>void }) {
+function ReceiptCard({ r, showCopy=true, libraries=[], branches=[], onEditReceipt, onViewStudent }: { r:ReceiptEntry;showCopy?:boolean;libraries:Library[];branches?:Branch[];onEditReceipt?:(r:ReceiptEntry)=>void;onViewStudent?:(studentId:string,library:string)=>void }) {
   const [open, setOpen] = useState(false);
   const lib = libraries.find(l=>l.library_code===r.library);
   const hasDue = (r.fees_due_balance||0) > 0;
   const validPhones = r.phones?.filter(p=>p.number)||[];
+  const libColor = resolveLibColor(r.library, r.branch||"", libraries, branches);
   return (
-    <div style={{ ...card,marginBottom:8,overflow:"hidden" }}>
+    <div style={{ ...card,marginBottom:8,overflow:"hidden",borderLeft:`4px solid ${libColor}` }}>
       <div onClick={()=>setOpen(e=>!e)} style={{ cursor:"pointer" }}>
         <div style={{ display:"flex",alignItems:"flex-start",gap:10 }}>
           <div style={{ width:44,height:44,borderRadius:12,background:r.type==="NEW"?"linear-gradient(135deg,#10b981,#059669)":"linear-gradient(135deg,#6366f1,#8b5cf6)",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0 }}>
@@ -383,13 +500,14 @@ function ReceiptCard({ r, showCopy=true, libraries=[], onEditReceipt, onViewStud
           <div style={{ flex:1,minWidth:0 }}>
             <div style={{ display:"flex",alignItems:"center",gap:6,flexWrap:"wrap" }}>
               <span style={{ fontWeight:700,fontSize:14,color:"#1e293b" }}>{r.name}</span>
+              <LibraryBadge text={r.branch||r.library} color={libColor} />
               <Badge text={r.receipt_no} color="#6366f1" />
               {hasDue && <Badge text={`DUE ₹${r.fees_due_balance}`} color="#ef4444" />}
               {r.is_cross_library && r.is_cross_library!=="NO" && r.is_cross_library!=="YES" && <Badge text={`FROM ${r.is_cross_library}`} color="#f59e0b" />}
               {r.is_cross_library==="YES" && <Badge text="CROSS" color="#f59e0b" />}
             </div>
             <div style={{ fontSize:12,color:"#64748b",marginTop:3 }}>{r.student_id} · {validPhones.map(p=>p.tag&&toU(p.tag)!=="SELF"?`${p.number} (${p.tag})`:p.number).join(" · ")}</div>
-            <div style={{ fontSize:12,color:"#94a3b8",marginTop:2 }}>{lib?.display_name||r.library}{r.branch?` (${r.branch})`:""} · {fmtDate(r.booking_from)} → {fmtDate(r.booking_to)}</div>
+            <div style={{ fontSize:12,color:"#94a3b8",marginTop:2 }}>{lib?.display_name||r.library}{r.branch?` · ${r.branch}`:""} · {fmtDate(r.booking_from)} → {fmtDate(r.booking_to)}</div>
             <div style={{ fontSize:12,color:"#64748b",marginTop:2 }}>Seat <strong>{r.seat_no||"—"}</strong> · ₹<strong>{r.fee}</strong> · {fmtDate(r.receipt_date)}</div>
             <ShiftBadge shift_name={r.shift_name} shift_time={r.shift_time} />
             <PayLinesDisplay r={r} />
@@ -435,20 +553,21 @@ function ReceiptCard({ r, showCopy=true, libraries=[], onEditReceipt, onViewStud
 }
 
 // ── STUDENT CARD ──────────────────────────────────────────────────────────────
-function StudentCard({ st, onEdit, onDelete, libraries=[] }: { st:Student;onEdit?:()=>void;onDelete?:()=>void;libraries:Library[] }) {
+function StudentCard({ st, onEdit, onDelete, libraries=[], branches=[] }: { st:Student;onEdit?:()=>void;onDelete?:()=>void;libraries:Library[];branches?:Branch[] }) {
   const lib = libraries.find(l=>l.library_code===st.library);
   const validPhones = st.phones?.filter(p=>p.number)||[];
+  const libColor = resolveLibColor(st.library, st.branch||"", libraries, branches);
   return (
-    <div style={{ ...card,marginBottom:8 }}>
+    <div style={{ ...card,marginBottom:8,borderLeft:`4px solid ${libColor}` }}>
       <div style={{ display:"flex",alignItems:"flex-start",gap:12 }}>
-        <div style={{ width:44,height:44,borderRadius:12,background:"linear-gradient(135deg,#6366f1,#8b5cf6)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,flexShrink:0 }}>
+        <div style={{ width:44,height:44,borderRadius:12,background:`linear-gradient(135deg,${libColor},${libColor}cc)`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,flexShrink:0,color:pickTextColor(libColor) }}>
           {lib?.emoji||"📚"}
         </div>
         <div style={{ flex:1,minWidth:0 }}>
           <div style={{ display:"flex",alignItems:"center",gap:6,flexWrap:"wrap" }}>
             <span style={{ fontWeight:700,fontSize:15,color:"#1e293b" }}>{st.name}</span>
+            <LibraryBadge text={st.branch||st.library} color={libColor} />
             {st.is_past && <Badge text="PAST" color="#f59e0b" />}
-            {st.branch && <Badge text={st.branch} color="#6366f1" />}
           </div>
           <div style={{ fontSize:12,color:"#64748b",marginTop:3 }}>{st.student_id} · {validPhones.map(p=>p.tag&&toU(p.tag)!=="SELF"?`${p.number} (${p.tag})`:p.number).join(" · ")}</div>
           <div style={{ fontSize:12,color:"#94a3b8",marginTop:2 }}>{lib?.display_name||st.library} · Seat {st.seat_no||"—"}</div>
@@ -647,8 +766,8 @@ function PendingFeeEntriesBanner({ count, onClick }: { count:number; onClick:()=
 }
 
 // ── PENDING FEE ENTRIES MODAL ───────────────────────────────────────────────
-function PendingFeeEntriesModal({ entries, libraries, onClose, onPick, onMarkNotRequired, onDelete, refreshing }:
-  { entries: PendingFeeEntry[]; libraries: Library[]; onClose:()=>void; onPick:(e:PendingFeeEntry)=>void; onMarkNotRequired:(e:PendingFeeEntry)=>void; onDelete:(e:PendingFeeEntry)=>void; refreshing:boolean })
+function PendingFeeEntriesModal({ entries, libraries, branches, onClose, onPick, onMarkNotRequired, onDelete, refreshing }:
+  { entries: PendingFeeEntry[]; libraries: Library[]; branches: Branch[]; onClose:()=>void; onPick:(e:PendingFeeEntry)=>void; onMarkNotRequired:(e:PendingFeeEntry)=>void; onDelete:(e:PendingFeeEntry)=>void; refreshing:boolean })
 {
   const [filterLib, setFilterLib] = useState("");
   const filtered = filterLib
@@ -684,22 +803,25 @@ function PendingFeeEntriesModal({ entries, libraries, onClose, onPick, onMarkNot
               <div style={{ fontSize:14 }}>No pending entries{filterLib?` for ${filterLib}`:""}</div>
             </div>
           )}
-          {filtered.map((e,i)=>(
-            <div key={i} style={{ ...card,marginBottom:8,padding:"12px 14px" }}>
-              <div style={{ display:"flex",alignItems:"center",gap:6,flexWrap:"wrap",marginBottom:4 }}>
-                <Badge text={e.library} color="#6366f1" />
-                <Badge text={e.paymentTag} color="#10b981" />
-                <span style={{ fontSize:14,fontWeight:800,color:"#1e293b",fontFamily:"'DM Mono',monospace" }}>₹{e.amount}</span>
+          {filtered.map((e,i)=>{
+            const c = resolveLibColorFromCode(e.library, libraries, branches);
+            return (
+              <div key={i} style={{ ...card,marginBottom:8,padding:"12px 14px",borderLeft:`4px solid ${c}` }}>
+                <div style={{ display:"flex",alignItems:"center",gap:6,flexWrap:"wrap",marginBottom:4 }}>
+                  <LibraryBadge text={e.library} color={c} />
+                  <Badge text={e.paymentTag} color="#10b981" />
+                  <span style={{ fontSize:14,fontWeight:800,color:"#1e293b",fontFamily:"'DM Mono',monospace" }}>₹{e.amount}</span>
+                </div>
+                <div style={{ fontSize:12,color:"#64748b",marginBottom:4 }}>{fmtDateOnly(e.date)}</div>
+                {e.remark && <div style={{ fontSize:12,color:"#475569",fontStyle:"italic",marginBottom:10,lineHeight:1.4 }}>"{e.remark}"</div>}
+                <div style={{ display:"flex",gap:6,flexWrap:"wrap" }}>
+                  <button onClick={()=>onPick(e)} style={{ flex:2,padding:"10px 12px",borderRadius:10,border:"none",background:`linear-gradient(135deg,${c},${c}dd)`,color:pickTextColor(c),fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",minHeight:38 }}>📝 Make Receipt</button>
+                  <button onClick={()=>onMarkNotRequired(e)} style={{ padding:"10px 12px",borderRadius:10,border:"1.5px solid #cbd5e1",background:"#f8fafc",color:"#475569",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",minHeight:38 }}>Not Required</button>
+                  <button onClick={()=>onDelete(e)} style={{ padding:"10px 12px",borderRadius:10,border:"1.5px solid #fecaca",background:"#fef2f2",color:"#dc2626",fontSize:14,fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",minHeight:38 }}>🗑</button>
+                </div>
               </div>
-              <div style={{ fontSize:12,color:"#64748b",marginBottom:4 }}>{fmtDateOnly(e.date)}</div>
-              {e.remark && <div style={{ fontSize:12,color:"#475569",fontStyle:"italic",marginBottom:10,lineHeight:1.4 }}>"{e.remark}"</div>}
-              <div style={{ display:"flex",gap:6,flexWrap:"wrap" }}>
-                <button onClick={()=>onPick(e)} style={{ flex:2,padding:"10px 12px",borderRadius:10,border:"none",background:"linear-gradient(135deg,#6366f1,#8b5cf6)",color:"#fff",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",minHeight:38 }}>📝 Make Receipt</button>
-                <button onClick={()=>onMarkNotRequired(e)} style={{ padding:"10px 12px",borderRadius:10,border:"1.5px solid #cbd5e1",background:"#f8fafc",color:"#475569",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",minHeight:38 }}>Not Required</button>
-                <button onClick={()=>onDelete(e)} style={{ padding:"10px 12px",borderRadius:10,border:"1.5px solid #fecaca",background:"#fef2f2",color:"#dc2626",fontSize:14,fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",minHeight:38 }}>🗑</button>
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </div>
     </div>
@@ -840,15 +962,21 @@ function ReceiptTab({ showToast,showConfirm,startLoading,stopLoading,libraries,b
   useEffect(() => {
     if (f.shift && feeKey) {
       const sh = (shifts as Shift[]).find((s:Shift)=>s.shift_key===f.shift);
-      const fee = (fees as any)[feeKey]?.[f.shift];
+      const standardFee = (fees as any)[feeKey]?.[f.shift];
+      // Issue 4 (Option A): If linked to a Fee Panel entry, the linked amount wins.
+      // The shift fee is just the default for unbound entries.
+      const linkedAmt = linkedFeeEntry ? Number(linkedFeeEntry.amount) : null;
+      const feeToUse = (linkedAmt !== null && !isNaN(linkedAmt))
+        ? linkedAmt
+        : (standardFee !== undefined ? standardFee : null);
       setF(p=>({
         ...p,
-        fee: (!feeEdited && fee !== undefined) ? String(fee) : p.fee,
+        fee: (!feeEdited && feeToUse !== null) ? String(feeToUse) : p.fee,
         customShiftName: sh?.shift_name||"",
         customShiftTime: sh?.shift_time||"",
       }));
     }
-  }, [f.shift, library, branch]);
+  }, [f.shift, library, branch, linkedFeeEntry]);
 
   useEffect(() => {
     if (f.bookingFrom && !bookingToEdited) setF(p=>({...p, bookingTo:addOneMonth(p.bookingFrom)}));
@@ -1021,12 +1149,15 @@ function ReceiptTab({ showToast,showConfirm,startLoading,stopLoading,libraries,b
       board_updated:"NO", generated_at:"",
       receipt_text:result.receipt_text, registration_text:result.registration_text||"",
     };
+    const resultColor = resolveLibColor(library, branch, libraries, branches);
+    const resultFg = pickTextColor(resultColor);
     return (
       <div style={{ animation:"slideUp 0.3s ease" }}>
-        <div style={{ background:"linear-gradient(135deg,#10b981,#059669)",borderRadius:16,padding:20,marginBottom:16,color:"#fff",textAlign:"center" }}>
+        <div style={{ background:`linear-gradient(135deg,${resultColor},${resultColor}dd)`,borderRadius:16,padding:20,marginBottom:14,color:resultFg,textAlign:"center",boxShadow:`0 8px 24px ${resultColor}44` }}>
           <div style={{ fontSize:36,marginBottom:8 }}>🎉</div>
           <div style={{ fontSize:18,fontWeight:800,marginBottom:4 }}>Receipt Generated!</div>
-          <div style={{ fontSize:14,opacity:0.9 }}>{result.receipt_no} · {result.student_id}</div>
+          <div style={{ fontSize:14,opacity:0.92 }}>{result.receipt_no} · {result.student_id}</div>
+          <div style={{ fontSize:13,opacity:0.85,marginTop:6,fontWeight:600 }}>{resolveLibName(branch||library, libraries, branches)}</div>
         </div>
         <div style={{ display:"flex",flexDirection:"column",gap:10,marginBottom:16 }}>
           {result.registration_text && <CopyBtn text={result.registration_text} label="📢 Group Copy (Registration Form)" />}
@@ -1036,7 +1167,7 @@ function ReceiptTab({ showToast,showConfirm,startLoading,stopLoading,libraries,b
         <button onClick={()=>setEditReceipt(resultAsEntry)} style={{ ...ghostBtn,width:"100%",marginBottom:10,color:"#4f46e5",borderColor:"#6366f133",background:"#eff6ff",fontSize:14,fontWeight:700 }}>
           ✏️ Found a mistake? Edit this receipt
         </button>
-        <div style={{ ...card,background:"#f8fafc" }}>
+        <div style={{ ...card,background:"#f8fafc",borderLeft:`4px solid ${resultColor}` }}>
           <div style={{ fontSize:11,fontWeight:700,color:"#94a3b8",marginBottom:8,textTransform:"uppercase" }}>Preview</div>
           <pre style={{ fontSize:12,color:"#374151",whiteSpace:"pre-wrap",fontFamily:"'DM Mono',monospace",lineHeight:1.7,margin:0 }}>{result.receipt_text}</pre>
         </div>
@@ -1054,6 +1185,7 @@ function ReceiptTab({ showToast,showConfirm,startLoading,stopLoading,libraries,b
         <PendingFeeEntriesModal
           entries={pendingFeeEntries}
           libraries={libraries}
+          branches={branches}
           refreshing={refreshingPending}
           onClose={()=>setShowPendingModal(false)}
           onPick={handlePickPendingFeeEntry}
@@ -1073,29 +1205,37 @@ function ReceiptTab({ showToast,showConfirm,startLoading,stopLoading,libraries,b
           <div style={{ fontSize:17,fontWeight:800,color:"#1e293b",marginBottom:4 }}>Select Library</div>
           <div style={{ fontSize:13,color:"#94a3b8",marginBottom:16 }}>Which library is this receipt for?</div>
           <div style={{ display:"flex",flexDirection:"column",gap:10 }}>
-            {(libraries as Library[]).filter(l=>l.active).map(lib=>(
-              <button key={lib.library_code} onClick={()=>{setLibrary(lib.library_code);setBranch("");if(!lib.has_branches)setStep("type");}}
-                style={{ display:"flex",alignItems:"center",gap:14,padding:"16px",borderRadius:14,border:`2px solid ${library===lib.library_code?"#6366f1":"#e2e8f0"}`,background:library===lib.library_code?"#eff6ff":"#fff",cursor:"pointer",textAlign:"left",fontFamily:"'DM Sans',sans-serif",transition:"all 0.15s" }}>
-                <span style={{ fontSize:28 }}>{lib.emoji}</span>
-                <div>
-                  <div style={{ fontWeight:700,fontSize:15,color:library===lib.library_code?"#4f46e5":"#1e293b" }}>{lib.display_name}</div>
-                  <div style={{ fontSize:12,color:"#94a3b8",marginTop:1 }}>{lib.library_code}</div>
-                </div>
-                {library===lib.library_code && <span style={{ marginLeft:"auto",color:"#6366f1",fontSize:18 }}>✓</span>}
-              </button>
-            ))}
+            {(libraries as Library[]).filter(l=>l.active).map(lib=>{
+              const c = lib.color || FALLBACK_COLOR;
+              const active = library===lib.library_code;
+              return (
+                <button key={lib.library_code} onClick={()=>{setLibrary(lib.library_code);setBranch("");if(!lib.has_branches)setStep("type");}}
+                  style={{ display:"flex",alignItems:"center",gap:14,padding:"16px",borderRadius:14,border:`2px solid ${active?c:`${c}55`}`,borderLeft:`6px solid ${c}`,background:active?`${c}15`:`${c}08`,cursor:"pointer",textAlign:"left",fontFamily:"'DM Sans',sans-serif",transition:"all 0.15s",boxShadow:active?`0 4px 16px ${c}33`:"none" }}>
+                  <span style={{ fontSize:28 }}>{lib.emoji}</span>
+                  <div style={{ flex:1,minWidth:0 }}>
+                    <div style={{ fontWeight:800,fontSize:15,color:"#1e293b" }}>{lib.display_name}</div>
+                    <div style={{ fontSize:11,color:c,marginTop:2,fontWeight:700,letterSpacing:0.5 }}>{lib.library_code}</div>
+                  </div>
+                  {active && <LibraryBadge text="✓" color={c} />}
+                </button>
+              );
+            })}
           </div>
           {library && libData?.has_branches && (
             <div ref={el=>{ if(el) setTimeout(()=>el.scrollIntoView({behavior:"smooth",block:"nearest"}),50); }} style={{ marginTop:16 }}>
               <div style={{ fontSize:14,fontWeight:700,color:"#1e293b",marginBottom:10 }}>Select Branch</div>
               <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:10 }}>
-                {libBranches.map((b:Branch)=>(
-                  <button key={b.branch_code} onClick={()=>{setBranch(b.branch_code);setStep("type");}}
-                    style={{ padding:"18px 12px",borderRadius:14,border:`2px solid ${branch===b.branch_code?"#6366f1":"#e2e8f0"}`,background:branch===b.branch_code?"#eff6ff":"#fff",fontWeight:800,fontSize:15,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",color:branch===b.branch_code?"#4f46e5":"#1e293b",transition:"all 0.15s",textAlign:"center" }}>
-                    <div>{b.emoji} {b.branch_code}</div>
-                    <div style={{ fontSize:11,color:"#94a3b8",fontWeight:500,marginTop:4 }}>{b.branch_display}</div>
-                  </button>
-                ))}
+                {libBranches.map((b:Branch)=>{
+                  const c = b.color || libData?.color || FALLBACK_COLOR;
+                  const active = branch===b.branch_code;
+                  return (
+                    <button key={b.branch_code} onClick={()=>{setBranch(b.branch_code);setStep("type");}}
+                      style={{ padding:"18px 12px",borderRadius:14,border:`2px solid ${active?c:`${c}55`}`,borderTop:`5px solid ${c}`,background:active?`${c}15`:`${c}08`,fontWeight:800,fontSize:15,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",color:"#1e293b",transition:"all 0.15s",textAlign:"center",boxShadow:active?`0 4px 16px ${c}33`:"none" }}>
+                      <div style={{ fontSize:14 }}>{b.emoji} <span style={{ color:c }}>{b.branch_code}</span></div>
+                      <div style={{ fontSize:11,color:"#64748b",fontWeight:500,marginTop:4 }}>{b.branch_display}</div>
+                    </button>
+                  );
+                })}
               </div>
             </div>
           )}
@@ -1105,13 +1245,7 @@ function ReceiptTab({ showToast,showConfirm,startLoading,stopLoading,libraries,b
       {step==="type" && (
         <div style={{ animation:"slideUp 0.25s ease" }}>
           <button onClick={()=>setStep("library")} style={{ ...ghostBtn,marginBottom:16 }}>← Back</button>
-          <div style={{ display:"flex",alignItems:"center",gap:10,marginBottom:20 }}>
-            <span style={{ fontSize:24 }}>{libData?.emoji}</span>
-            <div>
-              <div style={{ fontSize:16,fontWeight:800,color:"#1e293b" }}>{libData?.display_name}</div>
-              {branch && <div style={{ fontSize:12,color:"#6366f1",fontWeight:600 }}>{branch}</div>}
-            </div>
-          </div>
+          <LibraryHeader library={library} branch={branch} libraries={libraries} branches={branches} prefix="Receipt for" />
           <div style={{ fontSize:14,fontWeight:700,color:"#64748b",marginBottom:12,textTransform:"uppercase",letterSpacing:"0.07em" }}>Admission Type</div>
           <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:12 }}>
             {[{t:"NEW",icon:"✨",label:"New Admission",desc:"First time student"},{t:"RENEWAL",icon:"🔄",label:"Renewal",desc:"Existing student"}].map(opt=>(
@@ -1246,15 +1380,15 @@ function ReceiptTab({ showToast,showConfirm,startLoading,stopLoading,libraries,b
               <button onClick={()=>setLinkedFeeEntry(null)} style={{ background:"transparent",border:"none",color:"#3b82f6",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",padding:"4px 6px" }}>Unlink</button>
             </div>
           )}
-          <div style={{ display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:16 }}>
+          <div style={{ display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8 }}>
             <button onClick={()=>setStep(entryType==="RENEWAL"?"search":"type")} style={ghostBtn}>← Back</button>
             <div style={{ display:"flex",gap:6 }}>
               <Badge text={entryType==="NEW"?"NEW":"RENEWAL"} color={entryType==="NEW"?"#10b981":"#6366f1"} />
-              <Badge text={branch||libData?.library_code||""} color="#64748b" />
               {isCrossLib && crossLibOrigin && <Badge text={`FROM ${crossLibOrigin}`} color="#f59e0b" />}
               {isCrossLib && !crossLibOrigin && <Badge text="CROSS" color="#f59e0b" />}
             </div>
           </div>
+          <LibraryHeader library={library} branch={branch} libraries={libraries} branches={branches} prefix={entryType==="NEW"?"New Admission":"Renewal"} />
 
           <div style={{ display:"flex",flexDirection:"column",gap:12 }}>
             <div style={card}>
@@ -1317,6 +1451,18 @@ function ReceiptTab({ showToast,showConfirm,startLoading,stopLoading,libraries,b
             <div style={card}>
               <div style={{ fontSize:13,fontWeight:700,color:"#1e293b",marginBottom:12 }}>💰 Fees <span style={{ color:"#f43f5e" }}>*</span></div>
               <div style={{ display:"flex",flexDirection:"column",gap:10 }}>
+                {(() => {
+                  // Issue 4: show fee-mismatch hint when linked entry amount ≠ standard shift fee
+                  if (!linkedFeeEntry || !f.shift || !feeKey) return null;
+                  const standardFee = (fees as any)[feeKey]?.[f.shift];
+                  const linkedAmt = Number(linkedFeeEntry.amount);
+                  if (standardFee === undefined || isNaN(linkedAmt) || Number(standardFee) === linkedAmt) return null;
+                  return (
+                    <div style={{ background:"#fffbeb",border:"1.5px solid #fcd34d",borderRadius:10,padding:"9px 12px",fontSize:12,color:"#92400e",lineHeight:1.5 }}>
+                      💡 Standard fee for this shift is <strong>₹{standardFee}</strong>, but linked entry is <strong>₹{linkedAmt}</strong> — using the linked amount. Adjust below if needed.
+                    </div>
+                  );
+                })()}
                 <Field label="Total Fee (₹)">
                   <NumInput value={f.fee} onChange={v=>{setFeeEdited(true);setF(p=>({...p,fee:v}));}} placeholder="0" style={{ fontSize:18,fontWeight:700 }} />
                 </Field>
@@ -1742,7 +1888,7 @@ function StudentsTab({ showToast,showConfirm,startLoading,stopLoading,libraries,
     if (!editSt||isSubmitting.current) return;
     isSubmitting.current = true; startLoading("Saving...");
     try {
-      const payload = { student_id:editSt.student_id, name:toU(editSt.name||""), seat_no:toU(editSt.seat_no||""), shift:editSt.shift||"", shift_name:toU(editSt.shift_name||""), shift_time:toU(editSt.shift_time||""), payment_tag:toU(editSt.payment_tag||""), last_receipt_no:toU(editSt.last_receipt_no||""), phones:editPhones.filter(p=>p.number).map(p=>({number:normalizePhone(p.number),tag:toU(p.tag)})) };
+      const payload = { student_id:editSt.student_id, name:toU(editSt.name||""), seat_no:toU(editSt.seat_no||""), shift:editSt.shift||"", shift_name:toU(editSt.shift_name||""), shift_time:toU(editSt.shift_time||""), payment_tag:toU(editSt.payment_tag||""), last_receipt_no:toU(editSt.last_receipt_no||""), phones:editPhones.filter(p=>p.number).map(p=>({number:normalizePhone(p.number),tag:toU(p.tag)})), address:toU(editSt.address||""), preparing_for:toU(editSt.preparing_for||""), aadhaar_last4:String(editSt.aadhaar_last4||"").replace(/\D/g,"").slice(0,4), date_of_birth:editSt.date_of_birth||"" };
       const res = await fetch(API,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"updatePastStudent",payload})});
       const d   = await res.json();
       if (d.ok) { showToast("Past student updated!"); setView("list"); loadAll(page); }
@@ -1771,7 +1917,7 @@ function StudentsTab({ showToast,showConfirm,startLoading,stopLoading,libraries,
     if (isSubmitting.current) return; isSubmitting.current = true;
     startLoading("Adding past student...");
     try {
-      const payload = { student_id:toU(pastStudentId), library:formLib, branch:formBranch, has_branches:formLibData?.has_branches||false, name:toU(form.name), phones:formPhones.filter((p:PhoneEntry)=>p.number).map((p:PhoneEntry)=>({number:normalizePhone(p.number),tag:toU(p.tag)})), seat_no:toU(form.seat_no||""), shift:form.shift||"", shift_name:toU(form.shift_name||""), shift_time:toU(form.shift_time||""), payment_tag:toU(form.payment_tag||""), last_receipt_no:toU(pastLastReceipt||"") };
+      const payload = { student_id:toU(pastStudentId), library:formLib, branch:formBranch, has_branches:formLibData?.has_branches||false, name:toU(form.name), phones:formPhones.filter((p:PhoneEntry)=>p.number).map((p:PhoneEntry)=>({number:normalizePhone(p.number),tag:toU(p.tag)})), seat_no:toU(form.seat_no||""), shift:form.shift||"", shift_name:toU(form.shift_name||""), shift_time:toU(form.shift_time||""), payment_tag:toU(form.payment_tag||""), last_receipt_no:toU(pastLastReceipt||""), address:toU(form.address||""), preparing_for:toU(form.preparing_for||""), aadhaar_last4:String(form.aadhaar_last4||"").replace(/\D/g,"").slice(0,4), date_of_birth:form.date_of_birth||"" };
       const res = await fetch(API,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"addPastStudent",payload})});
       const d   = await res.json();
       if (d.ok) { showToast("Past student added!"); setView("list"); setPastStudentId(""); setPastLastReceipt(""); setFormLib(""); setFormBranch(""); setFormPhones(emptyPhones()); setForm({name:"",seat_no:"",shift:"",shift_name:"",shift_time:"",payment_tag:"",address:"",preparing_for:"",aadhaar_last4:"",date_of_birth:"",student_id:""}); loadAll(1); }
@@ -1818,14 +1964,11 @@ function StudentsTab({ showToast,showConfirm,startLoading,stopLoading,libraries,
           </select>
         </Field>
         {isPast && <Field label="Last Receipt No."><input value={pastLastReceipt} onChange={e=>setPastLastReceipt(e.target.value.toUpperCase())} placeholder="e.g. R1586" style={inp} /></Field>}
-        {!isPast && (
-          <>
-            <Field label="Address"><input value={form.address||""} onChange={e=>setForm((p:any)=>({...p,address:e.target.value.toUpperCase()}))} style={inp} /></Field>
-            <Field label="Preparing For"><input value={form.preparing_for||""} onChange={e=>setForm((p:any)=>({...p,preparing_for:e.target.value.toUpperCase()}))} style={inp} /></Field>
-            <Field label="Aadhaar Last 4"><input value={form.aadhaar_last4||""} onChange={e=>setForm((p:any)=>({...p,aadhaar_last4:e.target.value.replace(/\D/g,"").slice(0,4)}))} maxLength={4} style={inp} inputMode="numeric" /></Field>
-            <Field label="Date of Birth"><DateInput value={form.date_of_birth||""} onChange={v=>setForm((p:any)=>({...p,date_of_birth:v}))} /></Field>
-          </>
-        )}
+        {/* Personal details — shown for both NEW and PAST students */}
+        <Field label="Address"><input value={form.address||""} onChange={e=>setForm((p:any)=>({...p,address:e.target.value.toUpperCase()}))} style={inp} /></Field>
+        <Field label="Preparing For"><input value={form.preparing_for||""} onChange={e=>setForm((p:any)=>({...p,preparing_for:e.target.value.toUpperCase()}))} style={inp} /></Field>
+        <Field label="Aadhaar Last 4"><input value={form.aadhaar_last4||""} onChange={e=>setForm((p:any)=>({...p,aadhaar_last4:e.target.value.replace(/\D/g,"").slice(0,4)}))} maxLength={4} style={inp} inputMode="numeric" /></Field>
+        <Field label="Date of Birth"><DateInput value={form.date_of_birth||""} onChange={v=>setForm((p:any)=>({...p,date_of_birth:v}))} /></Field>
       </div>
     );
   }
@@ -1849,18 +1992,11 @@ function StudentsTab({ showToast,showConfirm,startLoading,stopLoading,libraries,
   );
   if (view==="editPast"&&editSt) return (
     <div style={{ animation:"slideUp 0.25s ease" }}>
-      <div style={{ display:"flex",alignItems:"center",gap:12,marginBottom:16 }}>
-        <button onClick={()=>setView("list")} style={ghostBtn}>← Back</button>
-        <div style={{ flex:1,minWidth:0 }}>
-          <div style={{ fontSize:16,fontWeight:800,color:"#1e293b" }}>Edit Past Student</div>
-          <div style={{ display:"flex",alignItems:"center",gap:6,flexWrap:"wrap",marginTop:4 }}>
-            {editSt.name && <span style={{ fontSize:13,fontWeight:700,color:"#1e293b" }}>{editSt.name}</span>}
-            <Badge text={editSt.student_id} color="#6366f1" />
-            {(()=>{ const lib=(libraries as Library[]).find((l:Library)=>l.library_code===editSt.library); return lib ? <Badge text={lib.display_name||editSt.library} color="#64748b" /> : null; })()}
-            {editSt.branch && <Badge text={editSt.branch} color="#0ea5e9" />}
-            <Badge text="PAST" color="#f59e0b" />
-          </div>
-        </div>
+      <button onClick={()=>setView("list")} style={{ ...ghostBtn,marginBottom:12 }}>← Back</button>
+      <LibraryHeader library={editSt.library} branch={editSt.branch} libraries={libraries} branches={branches} prefix={`Edit Past Student · ${editSt.name||editSt.student_id}`} />
+      <div style={{ display:"flex",alignItems:"center",gap:6,flexWrap:"wrap",marginBottom:12 }}>
+        <Badge text={editSt.student_id} color="#6366f1" />
+        <Badge text="PAST" color="#f59e0b" />
       </div>
       <div style={card}>
         <div style={{ display:"flex",flexDirection:"column",gap:10 }}>
@@ -1883,6 +2019,10 @@ function StudentsTab({ showToast,showConfirm,startLoading,stopLoading,libraries,
             </select>
           </Field>
           <Field label="Last Receipt No."><input value={editSt.last_receipt_no||""} onChange={e=>setEditSt(s=>s?{...s,last_receipt_no:e.target.value.toUpperCase()}:s)} style={inp} /></Field>
+          <Field label="Address"><input value={editSt.address||""} onChange={e=>setEditSt(s=>s?{...s,address:e.target.value.toUpperCase()}:s)} style={inp} /></Field>
+          <Field label="Preparing For"><input value={editSt.preparing_for||""} onChange={e=>setEditSt(s=>s?{...s,preparing_for:e.target.value.toUpperCase()}:s)} style={inp} /></Field>
+          <Field label="Aadhaar Last 4"><input value={editSt.aadhaar_last4||""} onChange={e=>setEditSt(s=>s?{...s,aadhaar_last4:e.target.value.replace(/\D/g,"").slice(0,4)}:s)} maxLength={4} style={inp} inputMode="numeric" /></Field>
+          <Field label="Date of Birth"><DateInput value={editSt.date_of_birth||""} onChange={v=>setEditSt(s=>s?{...s,date_of_birth:v}:s)} /></Field>
         </div>
       </div>
       <button onClick={saveEditPast} style={{ ...primaryBtn,marginTop:4 }}>Save Changes</button>
@@ -1890,17 +2030,10 @@ function StudentsTab({ showToast,showConfirm,startLoading,stopLoading,libraries,
   );
   if (view==="edit"&&editSt) return (
     <div style={{ animation:"slideUp 0.25s ease" }}>
-      <div style={{ display:"flex",alignItems:"center",gap:12,marginBottom:16 }}>
-        <button onClick={()=>setView("list")} style={ghostBtn}>← Back</button>
-        <div style={{ flex:1,minWidth:0 }}>
-          <div style={{ fontSize:16,fontWeight:800,color:"#1e293b" }}>Edit Student</div>
-          <div style={{ display:"flex",alignItems:"center",gap:6,flexWrap:"wrap",marginTop:4 }}>
-            {editSt.name && <span style={{ fontSize:13,fontWeight:700,color:"#1e293b" }}>{editSt.name}</span>}
-            <Badge text={editSt.student_id} color="#6366f1" />
-            {(()=>{ const lib=(libraries as Library[]).find((l:Library)=>l.library_code===editSt.library); return lib ? <Badge text={lib.display_name||editSt.library} color="#64748b" /> : null; })()}
-            {editSt.branch && <Badge text={editSt.branch} color="#0ea5e9" />}
-          </div>
-        </div>
+      <button onClick={()=>setView("list")} style={{ ...ghostBtn,marginBottom:12 }}>← Back</button>
+      <LibraryHeader library={editSt.library} branch={editSt.branch} libraries={libraries} branches={branches} prefix={`Edit Student · ${editSt.name||editSt.student_id}`} />
+      <div style={{ display:"flex",alignItems:"center",gap:6,flexWrap:"wrap",marginBottom:12 }}>
+        <Badge text={editSt.student_id} color="#6366f1" />
       </div>
       <div style={card}>
         <div style={{ display:"flex",flexDirection:"column",gap:10 }}>
@@ -1955,7 +2088,7 @@ function StudentsTab({ showToast,showConfirm,startLoading,stopLoading,libraries,
       </div>
       {searched && <div style={{ fontSize:12,color:"#94a3b8",marginBottom:10 }}>{total} students{filterLib&&` in ${filterLib}`}</div>}
       {students.map((st,i)=>(
-        <StudentCard key={i} st={st} libraries={libraries}
+        <StudentCard key={i} st={st} libraries={libraries} branches={branches}
           onEdit={()=>{
             setEditSt(st);
             setEditPhones([...(st.phones||[]),{number:"",tag:""},{number:"",tag:""},{number:"",tag:""}].slice(0,4));
@@ -1980,6 +2113,8 @@ function StudentsTab({ showToast,showConfirm,startLoading,stopLoading,libraries,
 function BoardTab({ showToast,showConfirm,startLoading,stopLoading,libraries,shifts,activeTags,branches,viewStudent }:any) {
   const [view, setView]   = useState<"pending"|"history">("pending");
   const [pending, setPending] = useState<ReceiptEntry[]>([]);
+  const [pendingCounts, setPendingCounts] = useState<Record<string,number>>({});
+  const [pendingTotalCount, setPendingTotalCount] = useState(0);
   const [receipts, setReceipts] = useState<ReceiptEntry[]>([]);
   const [filterLib, setFilterLib] = useState("");
   const [searchQ, setSearchQ] = useState("");
@@ -2005,8 +2140,27 @@ function BoardTab({ showToast,showConfirm,startLoading,stopLoading,libraries,shi
       const res = await fetch(`${API}?action=getPendingBoard&library=${filterLib}`);
       const d   = await res.json();
       if (d.ok) { setPending(d.pending||[]); setLoaded(true); }
+      // Always fetch full unfiltered list to compute per-library counters for the pills
+      if (filterLib) {
+        try {
+          const r2 = await fetch(`${API}?action=getPendingBoard&library=`);
+          const d2 = await r2.json();
+          if (d2.ok) updatePendingCounts(d2.pending||[]);
+        } catch {}
+      } else {
+        updatePendingCounts(d.pending||[]);
+      }
     } catch { showToast("Failed.","error"); }
     stopLoading();
+  }
+  function updatePendingCounts(allPending: ReceiptEntry[]) {
+    const counts: Record<string,number> = {};
+    allPending.forEach(p => {
+      const key = String(p.library||"").toUpperCase();
+      counts[key] = (counts[key]||0) + 1;
+    });
+    setPendingCounts(counts);
+    setPendingTotalCount(allPending.length);
   }
   async function loadHistory(pg=1, opts?: { lib?:string; type?:string; q?:string }) {
     const useLib  = opts?.lib  !== undefined ? opts.lib  : filterLib;
@@ -2096,8 +2250,13 @@ function BoardTab({ showToast,showConfirm,startLoading,stopLoading,libraries,shi
         <Pill text="📜 History" active={view==="history"} onClick={()=>setView("history")} />
       </div>
       <div style={{ display:"flex",gap:6,overflowX:"auto",paddingBottom:4,marginBottom:12 }}>
-        <Pill text="All" active={filterLib===""} onClick={()=>setFilterLib("")} />
-        {(libraries as Library[]).filter((l:Library)=>l.active).map((l:Library)=><Pill key={l.library_code} text={l.library_code} active={filterLib===l.library_code} onClick={()=>setFilterLib(l.library_code)} />)}
+        <Pill text={view==="pending" ? `All (${pendingTotalCount})` : "All"} active={filterLib===""} onClick={()=>setFilterLib("")} />
+        {(libraries as Library[]).filter((l:Library)=>l.active).map((l:Library)=>{
+          const c = l.color || "#6366f1";
+          const count = pendingCounts[l.library_code] || 0;
+          const txt = view==="pending" ? `${l.library_code} (${count})` : l.library_code;
+          return <LibraryPill key={l.library_code} text={txt} active={filterLib===l.library_code} color={c} onClick={()=>setFilterLib(l.library_code)} />;
+        })}
       </div>
       {view==="pending" && (
         <>
@@ -2189,7 +2348,7 @@ function BoardTab({ showToast,showConfirm,startLoading,stopLoading,libraries,shi
             </button>
             {searchQ && <button onClick={()=>{setSearchQ("");setSearchType("all");loadHistory(1,{q:"",type:"all"});}} style={{ ...ghostBtn,padding:"11px 14px",fontSize:13 }}>Clear</button>}
           </div>
-          {receipts.map((r,i)=><ReceiptCard key={i} r={r} libraries={libraries} onEditReceipt={setEditReceipt} onViewStudent={viewStudent} />)}
+          {receipts.map((r,i)=><ReceiptCard key={i} r={r} libraries={libraries} branches={branches} onEditReceipt={setEditReceipt} onViewStudent={viewStudent} />)}
           {receipts.length===0&&<div style={{ textAlign:"center",padding:"40px 0",color:"#94a3b8" }}><div style={{ fontSize:36,marginBottom:8 }}>📜</div><div style={{ fontSize:14 }}>No receipts found.</div></div>}
           <Pagination page={page} totalPages={totalPages} onChange={pg=>loadHistory(pg)} />
         </>
@@ -2493,9 +2652,9 @@ function SettingsTab({ showToast,showConfirm,startLoading,stopLoading,libraries,
   const [newShift, setNewShift] = useState({ shift_key:"",shift_name:"",shift_time:"" });
   const [countersEdit, setCountersEdit] = useState<Record<string,any>>({});
   const [addingLib, setAddingLib] = useState(false);
-  const [newLib, setNewLib]   = useState({ library_code:"",library_name:"",display_name:"",emoji:"📚",has_branches:false });
+  const [newLib, setNewLib]   = useState({ library_code:"",library_name:"",display_name:"",emoji:"📚",has_branches:false,color:"#6366f1" });
   const [pendingBranchesForLib, setPendingBranchesForLib] = useState<string|null>(null);
-  const [newBranches, setNewBranches] = useState<{branch_code:string;branch_display:string;emoji:string}[]>([{branch_code:"",branch_display:"",emoji:""}]);
+  const [newBranches, setNewBranches] = useState<{branch_code:string;branch_display:string;emoji:string;color:string}[]>([{branch_code:"",branch_display:"",emoji:"",color:"#6366f1"}]);
   const [editingFees, setEditingFees] = useState<string|null>(null);
   const [feeEdits, setFeeEdits] = useState<Record<string,Record<string,number>>>({});
   const [feesDirty, setFeesDirty] = useState(false);
@@ -2589,9 +2748,9 @@ function SettingsTab({ showToast,showConfirm,startLoading,stopLoading,libraries,
       const d   = await res.json();
       if (d.ok) {
         showToast("Library added!");
-        if (newLib.has_branches) { setPendingBranchesForLib(newLib.library_code.toUpperCase()); setNewBranches([{branch_code:"",branch_display:"",emoji:""}]); }
+        if (newLib.has_branches) { setPendingBranchesForLib(newLib.library_code.toUpperCase()); setNewBranches([{branch_code:"",branch_display:"",emoji:"",color:"#6366f1"}]); }
         setAddingLib(false);
-        setNewLib({library_code:"",library_name:"",display_name:"",emoji:"📚",has_branches:false});
+        setNewLib({library_code:"",library_name:"",display_name:"",emoji:"📚",has_branches:false,color:"#6366f1"});
       } else showToast(d.error||"Failed.","error");
     } catch { showToast("Network error.","error"); }
     stopLoading();
@@ -2609,7 +2768,7 @@ function SettingsTab({ showToast,showConfirm,startLoading,stopLoading,libraries,
       } catch { showToast("Network error.","error"); }
     }
     stopLoading();
-    if (added > 0) { showToast(`${added} branch(es) added!`); setPendingBranchesForLib(null); setNewBranches([{branch_code:"",branch_display:"",emoji:""}]); loadInit(); }
+    if (added > 0) { showToast(`${added} branch(es) added!`); setPendingBranchesForLib(null); setNewBranches([{branch_code:"",branch_display:"",emoji:"",color:"#6366f1"}]); loadInit(); }
   }
   async function toggleLibrary(lib: Library) {
     showConfirm(`${lib.active?"Deactivate":"Activate"} "${lib.display_name}"?`, async () => {
@@ -2757,21 +2916,24 @@ function SettingsTab({ showToast,showConfirm,startLoading,stopLoading,libraries,
               <div style={{ fontSize:14,fontWeight:800,color:"#4f46e5",marginBottom:4 }}>➕ Add Branches for {pendingBranchesForLib}</div>
               <div style={{ fontSize:12,color:"#94a3b8",marginBottom:12 }}>Library created. Now add branches. You can add more later.</div>
               {newBranches.map((b,idx)=>(
-                <div key={idx} style={{ display:"grid",gridTemplateColumns:"2fr 2fr 1fr",gap:8,marginBottom:8 }}>
-                  <Field label="Code *"><input value={b.branch_code} onChange={e=>{const n=[...newBranches];n[idx]={...n[idx],branch_code:e.target.value.toUpperCase()};setNewBranches(n);}} placeholder="YAL-1" style={{ ...inp,fontSize:13 }} /></Field>
-                  <Field label="Display Name"><input value={b.branch_display} onChange={e=>{const n=[...newBranches];n[idx]={...n[idx],branch_display:e.target.value};setNewBranches(n);}} placeholder="Branch 1" style={{ ...inp,fontSize:13 }} /></Field>
-                  <Field label="Emoji"><input value={b.emoji} onChange={e=>{const n=[...newBranches];n[idx]={...n[idx],emoji:e.target.value};setNewBranches(n);}} placeholder="🏢" style={{ ...inp,fontSize:13 }} /></Field>
+                <div key={idx} style={{ display:"flex",gap:8,marginBottom:8,alignItems:"flex-end" }}>
+                  <div style={{ flex:1,display:"grid",gridTemplateColumns:"2fr 2fr 1fr",gap:8 }}>
+                    <Field label="Code *"><input value={b.branch_code} onChange={e=>{const n=[...newBranches];n[idx]={...n[idx],branch_code:e.target.value.toUpperCase()};setNewBranches(n);}} placeholder="YAL-1" style={{ ...inp,fontSize:13 }} /></Field>
+                    <Field label="Display Name"><input value={b.branch_display} onChange={e=>{const n=[...newBranches];n[idx]={...n[idx],branch_display:e.target.value};setNewBranches(n);}} placeholder="Branch 1" style={{ ...inp,fontSize:13 }} /></Field>
+                    <Field label="Emoji"><input value={b.emoji} onChange={e=>{const n=[...newBranches];n[idx]={...n[idx],emoji:e.target.value};setNewBranches(n);}} placeholder="🏢" style={{ ...inp,fontSize:13 }} /></Field>
+                  </div>
+                  <input type="color" title="Branch color" value={b.color||"#6366f1"} onChange={e=>{const n=[...newBranches];n[idx]={...n[idx],color:e.target.value};setNewBranches(n);}} style={{ width:42,height:42,borderRadius:10,border:`2px solid ${b.color||"#6366f1"}`,cursor:"pointer",padding:0,background:"transparent",flexShrink:0,marginBottom:0 }} />
                 </div>
               ))}
               <div style={{ display:"flex",gap:8,marginTop:8 }}>
-                <button onClick={()=>setNewBranches(b=>[...b,{branch_code:"",branch_display:"",emoji:""}])} style={{ ...ghostBtn,fontSize:12,color:"#6366f1",borderColor:"#6366f1",padding:"8px 12px" }}>+ Add Row</button>
-                <button onClick={()=>{setPendingBranchesForLib(null);setNewBranches([{branch_code:"",branch_display:"",emoji:""}]);loadInit();}} style={{ ...ghostBtn,fontSize:12 }}>Skip</button>
+                <button onClick={()=>setNewBranches(b=>[...b,{branch_code:"",branch_display:"",emoji:"",color:"#6366f1"}])} style={{ ...ghostBtn,fontSize:12,color:"#6366f1",borderColor:"#6366f1",padding:"8px 12px" }}>+ Add Row</button>
+                <button onClick={()=>{setPendingBranchesForLib(null);setNewBranches([{branch_code:"",branch_display:"",emoji:"",color:"#6366f1"}]);loadInit();}} style={{ ...ghostBtn,fontSize:12 }}>Skip</button>
                 <button onClick={savePendingBranches} style={{ flex:1,padding:"10px",borderRadius:12,border:"none",background:"#6366f1",color:"#fff",fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"'DM Sans',sans-serif" }}>Save Branches</button>
               </div>
             </div>
           )}
           {(libraries as Library[]).map((lib,i)=>(
-            <div key={i} style={{ ...card,marginBottom:8,opacity:lib.active?1:0.6 }}>
+            <div key={i} style={{ ...card,marginBottom:8,opacity:lib.active?1:0.6,borderLeft:`4px solid ${lib.color||"#cbd5e1"}` }}>
               <div style={{ display:"flex",justifyContent:"space-between",alignItems:"flex-start" }}>
                 <div>
                   <div style={{ display:"flex",alignItems:"center",gap:8 }}>
@@ -2780,15 +2942,33 @@ function SettingsTab({ showToast,showConfirm,startLoading,stopLoading,libraries,
                       <div style={{ fontWeight:700,fontSize:14,color:"#1e293b" }}>{lib.display_name}</div>
                       <div style={{ fontSize:11,color:"#94a3b8" }}>{lib.library_code} {lib.has_branches?"· Has Branches":""}</div>
                     </div>
+                    {/* Library color picker — saves on change */}
+                    <input type="color" value={lib.color||"#94a3b8"}
+                      onChange={async e=>{
+                        const newColor = e.target.value;
+                        try { await fetch(API,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"updateLibrary",payload:{library_code:lib.library_code,color:newColor}})}); showToast("Library color updated."); loadInit(); } catch { showToast("Failed.","error"); }
+                      }}
+                      title="Library color (saves on change)"
+                      style={{ width:32,height:32,borderRadius:8,border:`2px solid ${lib.color||"#cbd5e1"}`,cursor:"pointer",padding:0,background:"transparent",flexShrink:0 }} />
                   </div>
                   {lib.has_branches && (
                     <div style={{ marginTop:8,display:"flex",gap:6,flexWrap:"wrap",alignItems:"center" }}>
-                      {(branches as Branch[]).filter((b:Branch)=>b.library_code===lib.library_code).map((b:Branch)=>(
-                        <span key={b.branch_code} style={{ fontSize:11,fontWeight:600,background:b.active?"#eff6ff":"#f1f5f9",color:b.active?"#4f46e5":"#94a3b8",padding:"3px 10px",borderRadius:8 }}>
-                          {b.emoji} {b.branch_code}
-                        </span>
-                      ))}
-                      <button onClick={()=>{setPendingBranchesForLib(lib.library_code);setNewBranches([{branch_code:"",branch_display:"",emoji:""}]);}}
+                      {(branches as Branch[]).filter((b:Branch)=>b.library_code===lib.library_code).map((b:Branch)=>{
+                        const bColor = b.color||lib.color||"#cbd5e1";
+                        return (
+                          <span key={b.branch_code} style={{ display:"inline-flex",alignItems:"center",gap:6,fontSize:11,fontWeight:700,background:b.active?`${bColor}15`:"#f1f5f9",color:b.active?bColor:"#94a3b8",padding:"3px 8px",borderRadius:8,border:`1.5px solid ${b.active?`${bColor}55`:"#e2e8f0"}` }}>
+                            <input type="color" value={bColor}
+                              onChange={async e=>{
+                                const newColor = e.target.value;
+                                try { await fetch(API,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"updateBranch",payload:{branch_code:b.branch_code,color:newColor}})}); showToast("Branch color updated."); loadInit(); } catch { showToast("Failed.","error"); }
+                              }}
+                              title="Branch color (saves on change)"
+                              style={{ width:14,height:14,borderRadius:"50%",border:"none",cursor:"pointer",padding:0,background:"transparent",flexShrink:0 }} />
+                            {b.emoji} {b.branch_code}
+                          </span>
+                        );
+                      })}
+                      <button onClick={()=>{setPendingBranchesForLib(lib.library_code);setNewBranches([{branch_code:"",branch_display:"",emoji:"",color:"#6366f1"}]);}}
                         style={{ fontSize:11,fontWeight:700,padding:"3px 10px",borderRadius:8,border:"1.5px dashed #6366f1",background:"#eff6ff",color:"#4f46e5",cursor:"pointer",fontFamily:"'DM Sans',sans-serif" }}>
                         + Add Branch
                       </button>
@@ -2813,6 +2993,13 @@ function SettingsTab({ showToast,showConfirm,startLoading,stopLoading,libraries,
                 </div>
                 <Field label="Library Name *"><input value={newLib.library_name} onChange={e=>setNewLib(p=>({...p,library_name:e.target.value,display_name:e.target.value}))} placeholder="Kiran AC Library" style={inp} /></Field>
                 <Field label="Display Name"><input value={newLib.display_name} onChange={e=>setNewLib(p=>({...p,display_name:e.target.value}))} placeholder="Kiran AC Library" style={inp} /></Field>
+                <div style={{ display:"flex",alignItems:"center",gap:14,padding:"10px 14px",background:"#f8fafc",borderRadius:10,border:`1.5px solid ${newLib.color}33` }}>
+                  <input type="color" value={newLib.color} onChange={e=>setNewLib(p=>({...p,color:e.target.value}))} style={{ width:38,height:38,borderRadius:10,border:`2px solid ${newLib.color}`,cursor:"pointer",padding:0,background:"transparent",flexShrink:0 }} />
+                  <div style={{ flex:1 }}>
+                    <div style={{ fontSize:13,fontWeight:700,color:"#1e293b" }}>Library Color</div>
+                    <div style={{ fontSize:11,color:"#94a3b8",marginTop:2 }}>Used as theme everywhere this library appears</div>
+                  </div>
+                </div>
                 <div style={{ display:"flex",alignItems:"center",gap:10,padding:"10px 14px",background:"#f8fafc",borderRadius:10 }}>
                   <input type="checkbox" checked={newLib.has_branches} onChange={e=>setNewLib(p=>({...p,has_branches:e.target.checked}))} style={{ width:18,height:18,cursor:"pointer" }} />
                   <span style={{ fontSize:13,fontWeight:600,color:"#1e293b" }}>Has Branches (like YAL-1/YAL-2)</span>
