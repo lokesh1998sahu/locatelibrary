@@ -205,7 +205,7 @@ function resolveLibName(code: string, libraries: Library[], branches: Branch[]):
 // ── SHARED STYLES ─────────────────────────────────────────────────────────────
 const inp:  React.CSSProperties = { padding:"11px 14px",borderRadius:12,border:"1.5px solid #e2e8f0",fontSize:14,background:"#f8fafc",color:"#1e293b",fontFamily:"'DM Sans',sans-serif",width:"100%",outline:"none",boxSizing:"border-box" };
 const selS: React.CSSProperties = { ...inp,cursor:"pointer",appearance:"none" };
-const card: React.CSSProperties = { background:"#fff",borderRadius:16,border:"1px solid #f1f5f9",padding:"16px",marginBottom:10,boxShadow:"0 1px 3px rgba(0,0,0,0.05)" };
+const card: React.CSSProperties = { background:"#fff",borderRadius:16,borderTop:"1px solid #f1f5f9",borderRight:"1px solid #f1f5f9",borderBottom:"1px solid #f1f5f9",borderLeft:"1px solid #f1f5f9",padding:"16px",marginBottom:10,boxShadow:"0 1px 3px rgba(0,0,0,0.05)" };
 const primaryBtn: React.CSSProperties = { width:"100%",padding:"14px",borderRadius:14,border:"none",background:"linear-gradient(135deg,#6366f1,#8b5cf6)",color:"#fff",fontSize:15,fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",boxShadow:"0 4px 14px rgba(99,102,241,0.3)" };
 const ghostBtn: React.CSSProperties = { padding:"10px 14px",borderRadius:12,border:"1.5px solid #e2e8f0",background:"#f8fafc",fontSize:13,fontWeight:600,cursor:"pointer",color:"#64748b",fontFamily:"'DM Sans',sans-serif" };
 const numInp: React.CSSProperties = { ...inp, fontFamily:"'DM Mono',monospace" };
@@ -215,7 +215,7 @@ function Loader({ label }: { label: string }) {
   return (
     <div style={{ position:"fixed",inset:0,background:"rgba(15,23,42,0.75)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:9999,backdropFilter:"blur(4px)" }}>
       <div style={{ background:"#fff",padding:"28px 36px",borderRadius:20,display:"flex",flexDirection:"column",alignItems:"center",gap:16,boxShadow:"0 25px 60px rgba(0,0,0,0.3)" }}>
-        <div style={{ width:36,height:36,border:"3px solid #e2e8f0",borderTop:"3px solid #6366f1",borderRadius:"50%",animation:"spin 0.7s linear infinite" }} />
+        <div style={{ width:36,height:36,borderTop:"3px solid #6366f1",borderRight:"3px solid #e2e8f0",borderBottom:"3px solid #e2e8f0",borderLeft:"3px solid #e2e8f0",borderRadius:"50%",animation:"spin 0.7s linear infinite" }} />
         <div style={{ fontSize:14,fontWeight:600,color:"#1e293b" }}>{label}</div>
       </div>
     </div>
@@ -253,6 +253,70 @@ function CopyBtn({ text, label, accent="#6366f1" }: { text:string;label:string;a
     </button>
   );
 }
+// ── DATA CHIP COMPONENTS ─────────────────────────────────────────────────────
+// Small visual chips for key data fields that appear across cards.
+// Each has its own color/icon to make data scannable at a glance.
+function SeatChip({ seat, branch, color }: { seat:string;branch?:string;color?:string }) {
+  if (!seat) return null;
+  const c = color || "#0891b2"; // teal/cyan default for seats
+  return (
+    <span style={{ display:"inline-flex",alignItems:"center",gap:4,fontSize:11,fontWeight:800,padding:"3px 9px",borderRadius:8,background:`${c}15`,color:c,border:`1px solid ${c}40`,fontFamily:"'DM Mono',monospace",letterSpacing:"0.02em" }}>
+      <span style={{ fontSize:10 }}>💺</span>
+      <span>{seat}{branch?` · ${branch}`:""}</span>
+    </span>
+  );
+}
+function PhoneChip({ number, tag }: { number:string;tag?:string }) {
+  if (!number) return null;
+  return (
+    <span style={{ display:"inline-flex",alignItems:"center",gap:4,fontSize:11,fontWeight:600,padding:"3px 9px",borderRadius:8,background:"#f0f9ff",color:"#0369a1",border:"1px solid #bae6fd",fontFamily:"'DM Mono',monospace",letterSpacing:"0.01em" }}>
+      <span style={{ fontSize:10 }}>📞</span>
+      <span>{number}{tag&&toU(tag)!=="SELF"?` · ${tag}`:""}</span>
+    </span>
+  );
+}
+function ReceiptChip({ no }: { no:string }) {
+  if (!no) return null;
+  return (
+    <span style={{ display:"inline-flex",alignItems:"center",gap:4,fontSize:11,fontWeight:800,padding:"3px 9px",borderRadius:8,background:"#eef2ff",color:"#4338ca",border:"1px solid #c7d2fe",fontFamily:"'DM Mono',monospace",letterSpacing:"0.02em" }}>
+      <span style={{ fontSize:10 }}>🧾</span>
+      <span>{no}</span>
+    </span>
+  );
+}
+function StudentIdChip({ id }: { id:string }) {
+  if (!id) return null;
+  return (
+    <span style={{ display:"inline-flex",alignItems:"center",gap:4,fontSize:11,fontWeight:800,padding:"3px 9px",borderRadius:8,background:"#f5f3ff",color:"#6d28d9",border:"1px solid #ddd6fe",fontFamily:"'DM Mono',monospace",letterSpacing:"0.02em" }}>
+      <span style={{ fontSize:10 }}>🆔</span>
+      <span>{id}</span>
+    </span>
+  );
+}
+function FeeChip({ amount, due }: { amount:number|string;due?:boolean }) {
+  if (amount === undefined || amount === null || amount === "") return null;
+  const c = due ? "#dc2626" : "#059669";
+  const bg = due ? "#fef2f2" : "#ecfdf5";
+  const bd = due ? "#fecaca" : "#a7f3d0";
+  return (
+    <span style={{ display:"inline-flex",alignItems:"center",gap:4,fontSize:12,fontWeight:800,padding:"3px 9px",borderRadius:8,background:bg,color:c,border:`1px solid ${bd}`,fontFamily:"'DM Mono',monospace" }}>
+      <span style={{ fontSize:10 }}>{due?"💸":"💰"}</span>
+      <span>₹{amount}</span>
+    </span>
+  );
+}
+function DateRangeChip({ from, to }: { from:string;to:string }) {
+  if (!from && !to) return null;
+  return (
+    <span style={{ display:"inline-flex",alignItems:"center",gap:5,fontSize:11,fontWeight:600,padding:"3px 9px",borderRadius:8,background:"#fefce8",color:"#854d0e",border:"1px solid #fde68a" }}>
+      <span style={{ fontSize:10 }}>📅</span>
+      <span style={{ fontFamily:"'DM Mono',monospace" }}>{fmtDate(from)}</span>
+      <span style={{ opacity:0.5 }}>→</span>
+      <span style={{ fontFamily:"'DM Mono',monospace" }}>{fmtDate(to)}</span>
+    </span>
+  );
+}
+
 function Badge({ text, color="#6366f1" }: { text:string;color?:string }) {
   return <span style={{ fontSize:10,fontWeight:700,padding:"3px 8px",borderRadius:99,background:`${color}18`,color,letterSpacing:"0.05em" }}>{text}</span>;
 }
@@ -268,7 +332,7 @@ function LibraryHeader({ library, branch, libraries, branches, prefix }: { libra
   const code = branch || library;
   if (!fullName && !code) return null;
   return (
-    <div style={{ display:"flex",alignItems:"center",gap:10,padding:"10px 14px",background:`linear-gradient(135deg, ${color}18, ${color}08)`,border:`1.5px solid ${color}55`,borderLeft:`4px solid ${color}`,borderRadius:12,marginBottom:14 }}>
+    <div style={{ display:"flex",alignItems:"center",gap:10,padding:"10px 14px",background:`linear-gradient(135deg, ${color}18, ${color}08)`,borderTop:`1.5px solid ${color}55`,borderRight:`1.5px solid ${color}55`,borderBottom:`1.5px solid ${color}55`,borderLeft:`4px solid ${color}`,borderRadius:12,marginBottom:14 }}>
       <div style={{ flex:1,minWidth:0 }}>
         {prefix && <div style={{ fontSize:10,fontWeight:700,color:`${color}cc`,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:2 }}>{prefix}</div>}
         <div style={{ fontSize:15,fontWeight:800,color:"#1e293b",lineHeight:1.2 }}>{fullName}</div>
@@ -501,17 +565,24 @@ function ReceiptCard({ r, showCopy=true, libraries=[], branches=[], onEditReceip
             <div style={{ display:"flex",alignItems:"center",gap:6,flexWrap:"wrap" }}>
               <span style={{ fontWeight:700,fontSize:14,color:"#1e293b" }}>{r.name}</span>
               <LibraryBadge text={r.branch||r.library} color={libColor} />
-              <Badge text={r.receipt_no} color="#6366f1" />
-              {hasDue && <Badge text={`DUE ₹${r.fees_due_balance}`} color="#ef4444" />}
               {r.is_cross_library && r.is_cross_library!=="NO" && r.is_cross_library!=="YES" && <Badge text={`FROM ${r.is_cross_library}`} color="#f59e0b" />}
               {r.is_cross_library==="YES" && <Badge text="CROSS" color="#f59e0b" />}
             </div>
-            <div style={{ fontSize:12,color:"#64748b",marginTop:3 }}>{r.student_id} · {validPhones.map(p=>p.tag&&toU(p.tag)!=="SELF"?`${p.number} (${p.tag})`:p.number).join(" · ")}</div>
-            <div style={{ fontSize:12,color:"#94a3b8",marginTop:2 }}>{lib?.display_name||r.library}{r.branch?` · ${r.branch}`:""} · {fmtDate(r.booking_from)} → {fmtDate(r.booking_to)}</div>
-            <div style={{ fontSize:12,color:"#64748b",marginTop:2 }}>Seat <strong>{r.seat_no||"—"}</strong> · ₹<strong>{r.fee}</strong> · {fmtDate(r.receipt_date)}</div>
+            <div style={{ display:"flex",gap:5,flexWrap:"wrap",marginTop:6 }}>
+              <StudentIdChip id={r.student_id} />
+              <ReceiptChip no={r.receipt_no} />
+              {validPhones.slice(0,2).map((p,i)=><PhoneChip key={i} number={p.number} tag={p.tag} />)}
+            </div>
+            <div style={{ display:"flex",gap:5,flexWrap:"wrap",marginTop:5 }}>
+              <SeatChip seat={r.seat_no} branch={r.branch} color={libColor} />
+              <FeeChip amount={r.fee} />
+              {hasDue && <FeeChip amount={r.fees_due_balance!} due />}
+              <DateRangeChip from={r.booking_from} to={r.booking_to} />
+            </div>
+            <div style={{ fontSize:11,color:"#94a3b8",marginTop:5 }}>{lib?.display_name||r.library} · Receipt date: {fmtDate(r.receipt_date)}</div>
             <ShiftBadge shift_name={r.shift_name} shift_time={r.shift_time} />
             <PayLinesDisplay r={r} />
-            <div style={{ fontSize:12,color:"#94a3b8",marginTop:2,fontWeight:500 }}>{fmtDateTime(r.generated_at)}</div>
+            <div style={{ fontSize:11,color:"#94a3b8",marginTop:3,fontWeight:500 }}>{fmtDateTime(r.generated_at)}</div>
           </div>
           <span style={{ color:"#94a3b8",fontSize:18,marginTop:2 }}>{open?"▲":"▼"}</span>
         </div>
@@ -552,8 +623,78 @@ function ReceiptCard({ r, showCopy=true, libraries=[], branches=[], onEditReceip
   );
 }
 
+// ── VIEW STUDENT MODAL — read-only detailed view ─────────────────────────────
+function ViewStudentModal({ student, libraries, branches, onClose, onEdit }: { student:Student;libraries:Library[];branches:Branch[];onClose:()=>void;onEdit:()=>void }) {
+  const c = resolveLibColor(student.library, student.branch||"", libraries, branches);
+  const fullName = resolveLibName(student.branch||student.library, libraries, branches);
+  const validPhones = student.phones?.filter(p=>p.number)||[];
+  function Row({ icon, label, value, mono=false }: { icon:string;label:string;value:any;mono?:boolean }) {
+    const empty = value === null || value === undefined || value === "" || value === "—";
+    return (
+      <div style={{ display:"flex",alignItems:"flex-start",gap:10,padding:"10px 0",borderBottom:"1px dashed #f1f5f9" }}>
+        <div style={{ width:28,fontSize:16,flexShrink:0,textAlign:"center",lineHeight:"22px" }}>{icon}</div>
+        <div style={{ flex:1,minWidth:0 }}>
+          <div style={{ fontSize:10,fontWeight:700,color:"#94a3b8",textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:2 }}>{label}</div>
+          <div style={{ fontSize:14,fontWeight:600,color:empty?"#cbd5e1":"#1e293b",fontFamily:mono?"'DM Mono',monospace":"'DM Sans',sans-serif",fontStyle:empty?"italic":"normal" }}>
+            {empty ? "Not provided" : value}
+          </div>
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div onClick={(e)=>{if(e.target===e.currentTarget)onClose();}} style={{ position:"fixed",inset:0,background:"rgba(15,23,42,0.55)",zIndex:50,display:"flex",alignItems:"flex-end",justifyContent:"center",animation:"fadeIn 0.2s ease" }}>
+      <div style={{ background:"#fff",borderRadius:"20px 20px 0 0",width:"100%",maxWidth:520,maxHeight:"90vh",display:"flex",flexDirection:"column",animation:"slideUp 0.25s ease" }}>
+        {/* Header strip */}
+        <div style={{ background:`linear-gradient(135deg,${c},${c}dd)`,padding:"18px 20px",color:pickTextColor(c),borderRadius:"20px 20px 0 0",display:"flex",alignItems:"center",gap:12 }}>
+          <div style={{ width:48,height:48,borderRadius:14,background:"rgba(255,255,255,0.25)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,flexShrink:0 }}>
+            {student.is_past?"📁":"👤"}
+          </div>
+          <div style={{ flex:1,minWidth:0 }}>
+            <div style={{ fontSize:18,fontWeight:800,letterSpacing:"-0.01em",lineHeight:1.2 }}>{student.name}</div>
+            <div style={{ fontSize:12,opacity:0.92,marginTop:2,fontWeight:600 }}>{fullName}</div>
+          </div>
+          <button onClick={onClose} style={{ width:32,height:32,borderRadius:"50%",border:"none",background:"rgba(255,255,255,0.25)",color:pickTextColor(c),fontSize:16,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center" }}>✕</button>
+        </div>
+
+        {/* Quick chips row */}
+        <div style={{ padding:"12px 20px",background:"#f8fafc",display:"flex",gap:6,flexWrap:"wrap",borderBottom:"1px solid #e2e8f0" }}>
+          <StudentIdChip id={student.student_id} />
+          {student.is_past && <Badge text="PAST" color="#f59e0b" />}
+          {student.seat_no && <SeatChip seat={student.seat_no} branch={student.branch} color={c} />}
+        </div>
+
+        {/* Detail rows */}
+        <div style={{ flex:1,overflowY:"auto",padding:"4px 20px" }}>
+          <Row icon="📞" label={validPhones.length>1?"Phone Numbers":"Phone Number"} value={
+            validPhones.length>0
+              ? <div style={{ display:"flex",flexDirection:"column",gap:4 }}>
+                  {validPhones.map((p,i)=><div key={i}>{p.number}{p.tag&&toU(p.tag)!=="SELF"?` · ${p.tag}`:""}</div>)}
+                </div>
+              : ""
+          } />
+          <Row icon="🕐" label="Shift" value={student.shift_name?`${student.shift_name}${student.shift_time?` (${student.shift_time})`:""}`:""} />
+          <Row icon="💳" label="Payment Tag" value={student.payment_tag||""} />
+          {student.is_past && <Row icon="🧾" label="Last Receipt No." value={student.last_receipt_no||""} mono />}
+          <Row icon="🏠" label="Address" value={student.address||""} />
+          <Row icon="📚" label="Preparing For" value={student.preparing_for||""} />
+          <Row icon="🆔" label="Aadhaar Last 4" value={student.aadhaar_last4||""} mono />
+          <Row icon="🎂" label="Date of Birth" value={student.date_of_birth?fmtDate(student.date_of_birth):""} mono />
+          {student.added_on && <Row icon="📅" label="Added On" value={fmtDateOnly(student.added_on)} />}
+        </div>
+
+        {/* Footer actions */}
+        <div style={{ padding:"14px 20px",borderTop:"1px solid #e2e8f0",display:"flex",gap:8 }}>
+          <button onClick={onClose} style={{ ...ghostBtn,flex:1,padding:"12px",fontSize:13,fontWeight:700 }}>Close</button>
+          <button onClick={onEdit} style={{ ...primaryBtn,flex:1.5,padding:"12px",fontSize:13,background:`linear-gradient(135deg,${c},${c}dd)`,boxShadow:`0 4px 14px ${c}44` }}>✏️ Edit</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── STUDENT CARD ──────────────────────────────────────────────────────────────
-function StudentCard({ st, onEdit, onDelete, libraries=[], branches=[] }: { st:Student;onEdit?:()=>void;onDelete?:()=>void;libraries:Library[];branches?:Branch[] }) {
+function StudentCard({ st, onView, onEdit, onDelete, libraries=[], branches=[] }: { st:Student;onView?:()=>void;onEdit?:()=>void;onDelete?:()=>void;libraries:Library[];branches?:Branch[] }) {
   const lib = libraries.find(l=>l.library_code===st.library);
   const validPhones = st.phones?.filter(p=>p.number)||[];
   const libColor = resolveLibColor(st.library, st.branch||"", libraries, branches);
@@ -569,15 +710,22 @@ function StudentCard({ st, onEdit, onDelete, libraries=[], branches=[] }: { st:S
             <LibraryBadge text={st.branch||st.library} color={libColor} />
             {st.is_past && <Badge text="PAST" color="#f59e0b" />}
           </div>
-          <div style={{ fontSize:12,color:"#64748b",marginTop:3 }}>{st.student_id} · {validPhones.map(p=>p.tag&&toU(p.tag)!=="SELF"?`${p.number} (${p.tag})`:p.number).join(" · ")}</div>
-          <div style={{ fontSize:12,color:"#94a3b8",marginTop:2 }}>{lib?.display_name||st.library} · Seat {st.seat_no||"—"}</div>
-          <ShiftBadge shift_name={st.shift_name} shift_time={st.shift_time} />
-          {st.added_on && <div style={{ fontSize:12,color:"#94a3b8",marginTop:3,fontWeight:500 }}>{fmtDateOnly(st.added_on)}</div>}
+          <div style={{ display:"flex",gap:5,flexWrap:"wrap",marginTop:6 }}>
+            <StudentIdChip id={st.student_id} />
+            {validPhones.slice(0,2).map((p,i)=><PhoneChip key={i} number={p.number} tag={p.tag} />)}
+          </div>
+          <div style={{ display:"flex",gap:5,flexWrap:"wrap",marginTop:5 }}>
+            {st.seat_no && <SeatChip seat={st.seat_no} branch={st.branch} color={libColor} />}
+            <ShiftBadge shift_name={st.shift_name} shift_time={st.shift_time} />
+          </div>
+          <div style={{ fontSize:11,color:"#94a3b8",marginTop:5 }}>{lib?.display_name||st.library}</div>
+          {st.added_on && <div style={{ fontSize:11,color:"#94a3b8",marginTop:2,fontWeight:500 }}>Added: {fmtDateOnly(st.added_on)}</div>}
         </div>
-        {(onEdit||onDelete) && (
-          <div style={{ display:"flex",gap:6,flexShrink:0 }}>
-            {onEdit && <button onClick={onEdit} style={{ ...ghostBtn,padding:"8px 12px",fontSize:12,minHeight:36 }}>Edit</button>}
-            {onDelete && <button onClick={onDelete} style={{ ...ghostBtn,padding:"8px 12px",fontSize:12,minHeight:36,color:"#ef4444",borderColor:"#fecaca" }}>Delete</button>}
+        {(onView||onEdit||onDelete) && (
+          <div style={{ display:"flex",flexDirection:"column",gap:5,flexShrink:0 }}>
+            {onView && <button onClick={onView} style={{ ...ghostBtn,padding:"6px 10px",fontSize:11,minHeight:32,background:`${libColor}10`,color:libColor,borderColor:`${libColor}55`,fontWeight:700 }}>👁 View</button>}
+            {onEdit && <button onClick={onEdit} style={{ ...ghostBtn,padding:"6px 10px",fontSize:11,minHeight:32 }}>✏️ Edit</button>}
+            {onDelete && <button onClick={onDelete} style={{ ...ghostBtn,padding:"6px 10px",fontSize:11,minHeight:32,color:"#ef4444",borderColor:"#fecaca" }}>🗑</button>}
           </div>
         )}
       </div>
@@ -710,7 +858,7 @@ export default function AdmissionsPage() {
         <div style={{ maxWidth:480,margin:"0 auto",padding:"16px 14px 0" }}>
           {initLoading ? (
             <div style={{ display:"flex",flexDirection:"column",alignItems:"center",padding:"60px 0",gap:16 }}>
-              <div style={{ width:32,height:32,border:"3px solid #e2e8f0",borderTop:"3px solid #6366f1",borderRadius:"50%",animation:"spin 0.7s linear infinite" }} />
+              <div style={{ width:32,height:32,borderTop:"3px solid #6366f1",borderRight:"3px solid #e2e8f0",borderBottom:"3px solid #e2e8f0",borderLeft:"3px solid #e2e8f0",borderRadius:"50%",animation:"spin 0.7s linear infinite" }} />
               <div style={{ fontSize:13,color:"#94a3b8" }}>Loading data…</div>
             </div>
           ) : (
@@ -1153,25 +1301,36 @@ function ReceiptTab({ showToast,showConfirm,startLoading,stopLoading,libraries,b
     const resultFg = pickTextColor(resultColor);
     return (
       <div style={{ animation:"slideUp 0.3s ease" }}>
+        {/* Hero — confirmation */}
         <div style={{ background:`linear-gradient(135deg,${resultColor},${resultColor}dd)`,borderRadius:16,padding:20,marginBottom:14,color:resultFg,textAlign:"center",boxShadow:`0 8px 24px ${resultColor}44` }}>
           <div style={{ fontSize:36,marginBottom:8 }}>🎉</div>
           <div style={{ fontSize:18,fontWeight:800,marginBottom:4 }}>Receipt Generated!</div>
           <div style={{ fontSize:14,opacity:0.92 }}>{result.receipt_no} · {result.student_id}</div>
           <div style={{ fontSize:13,opacity:0.85,marginTop:6,fontWeight:600 }}>{resolveLibName(branch||library, libraries, branches)}</div>
         </div>
-        <div style={{ display:"flex",flexDirection:"column",gap:10,marginBottom:16 }}>
+
+        {/* PRIMARY ACTION — copy buttons */}
+        <div style={{ display:"flex",flexDirection:"column",gap:10,marginBottom:14 }}>
           {result.registration_text && <CopyBtn text={result.registration_text} label="📢 Group Copy (Registration Form)" />}
           <CopyBtn text={result.receipt_text} label="👤 Student Copy (Receipt)" accent="#10b981" />
           <CopyBtn text={result.contact_name} label="📇 Contact Name" accent="#f59e0b" />
         </div>
-        <button onClick={()=>setEditReceipt(resultAsEntry)} style={{ ...ghostBtn,width:"100%",marginBottom:10,color:"#4f46e5",borderColor:"#6366f133",background:"#eff6ff",fontSize:14,fontWeight:700 }}>
-          ✏️ Found a mistake? Edit this receipt
-        </button>
-        <div style={{ ...card,background:"#f8fafc",borderLeft:`4px solid ${resultColor}` }}>
+
+        {/* Preview right under copy buttons so user can verify what they copied */}
+        <div style={{ ...card,background:"#f8fafc",borderLeft:`4px solid ${resultColor}`,marginBottom:14 }}>
           <div style={{ fontSize:11,fontWeight:700,color:"#94a3b8",marginBottom:8,textTransform:"uppercase" }}>Preview</div>
           <pre style={{ fontSize:12,color:"#374151",whiteSpace:"pre-wrap",fontFamily:"'DM Mono',monospace",lineHeight:1.7,margin:0 }}>{result.receipt_text}</pre>
         </div>
-        <button onClick={reset} style={{ ...primaryBtn,marginTop:12 }}>+ New Receipt</button>
+
+        {/* Subtle edit hint — only useful if user spots a typo while reading the preview */}
+        <button onClick={()=>setEditReceipt(resultAsEntry)} style={{ ...ghostBtn,width:"100%",marginBottom:14,color:"#4f46e5",borderColor:"#6366f133",background:"#eff6ff",fontSize:13,fontWeight:600 }}>
+          ✏️ Found a mistake? Edit this receipt
+        </button>
+
+        {/* Terminal action — clearly separated at the very bottom */}
+        <div style={{ borderTop:"1px dashed #e2e8f0",paddingTop:14 }}>
+          <button onClick={reset} style={primaryBtn}>+ New Receipt</button>
+        </div>
       </div>
     );
   }
@@ -1210,7 +1369,7 @@ function ReceiptTab({ showToast,showConfirm,startLoading,stopLoading,libraries,b
               const active = library===lib.library_code;
               return (
                 <button key={lib.library_code} onClick={()=>{setLibrary(lib.library_code);setBranch("");if(!lib.has_branches)setStep("type");}}
-                  style={{ display:"flex",alignItems:"center",gap:14,padding:"16px",borderRadius:14,border:`2px solid ${active?c:`${c}55`}`,borderLeft:`6px solid ${c}`,background:active?`${c}15`:`${c}08`,cursor:"pointer",textAlign:"left",fontFamily:"'DM Sans',sans-serif",transition:"all 0.15s",boxShadow:active?`0 4px 16px ${c}33`:"none" }}>
+                  style={{ display:"flex",alignItems:"center",gap:14,padding:"16px",borderRadius:14,borderTop:`2px solid ${active?c:`${c}55`}`,borderRight:`2px solid ${active?c:`${c}55`}`,borderBottom:`2px solid ${active?c:`${c}55`}`,borderLeft:`6px solid ${c}`,background:active?`${c}15`:`${c}08`,cursor:"pointer",textAlign:"left",fontFamily:"'DM Sans',sans-serif",transition:"all 0.15s",boxShadow:active?`0 4px 16px ${c}33`:"none" }}>
                   <span style={{ fontSize:28 }}>{lib.emoji}</span>
                   <div style={{ flex:1,minWidth:0 }}>
                     <div style={{ fontWeight:800,fontSize:15,color:"#1e293b" }}>{lib.display_name}</div>
@@ -1262,23 +1421,27 @@ function ReceiptTab({ showToast,showConfirm,startLoading,stopLoading,libraries,b
 
       {step==="search" && (
         <div style={{ animation:"slideUp 0.25s ease" }}>
-          <button onClick={()=>setStep("type")} style={{ ...ghostBtn,marginBottom:16 }}>← Back</button>
-          <div style={{ fontSize:16,fontWeight:800,color:"#1e293b",marginBottom:4 }}>Search Student or Receipt</div>
+          <button onClick={()=>setStep("type")} style={{ ...ghostBtn,marginBottom:12 }}>← Back</button>
+          <LibraryHeader library={library} branch={branch} libraries={libraries} branches={branches} prefix="Renewal for" />
           <div style={{ fontSize:13,color:"#94a3b8",marginBottom:10 }}>Pick library, search type, then enter your query.</div>
 
           {/* Library filter — default is current library, can switch to search elsewhere */}
           <div style={{ fontSize:12,fontWeight:700,color:"#64748b",textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:6 }}>Library</div>
           <div style={{ display:"flex",gap:6,overflowX:"auto",paddingBottom:4,marginBottom:10 }}>
-            {(libraries as Library[]).filter(l=>l.active).map(lib=>(
-              <button key={lib.library_code} onClick={()=>{setSearchLib(lib.library_code);if(searchQ.trim().length>=2)doSearch({lib:lib.library_code});else{setSearchStudents([]);setSearchReceipts([]);}}}
-                style={{ padding:"5px 12px",borderRadius:99,border:"none",background:searchLib===lib.library_code?"#6366f1":"#f1f5f9",color:searchLib===lib.library_code?"#fff":"#64748b",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",whiteSpace:"nowrap",transition:"all 0.15s" }}>
-                {lib.library_code}{lib.library_code===library?" (this)":""}
-              </button>
-            ))}
-            <button onClick={()=>{setSearchLib("");if(searchQ.trim().length>=2)doSearch({lib:""});else{setSearchStudents([]);setSearchReceipts([]);}}}
-              style={{ padding:"5px 12px",borderRadius:99,border:"none",background:searchLib===""?"#6366f1":"#f1f5f9",color:searchLib===""?"#fff":"#64748b",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",whiteSpace:"nowrap",transition:"all 0.15s" }}>
-              All Libraries
-            </button>
+            {(libraries as Library[]).filter(l=>l.active).map(lib=>{
+              const c = lib.color || "#6366f1";
+              const isActive = searchLib===lib.library_code;
+              return (
+                <LibraryPill
+                  key={lib.library_code}
+                  text={`${lib.library_code}${lib.library_code===library?" (this)":""}`}
+                  active={isActive}
+                  color={c}
+                  onClick={()=>{setSearchLib(lib.library_code);if(searchQ.trim().length>=2)doSearch({lib:lib.library_code});else{setSearchStudents([]);setSearchReceipts([]);}}}
+                />
+              );
+            })}
+            <Pill text="All Libraries" active={searchLib===""} onClick={()=>{setSearchLib("");if(searchQ.trim().length>=2)doSearch({lib:""});else{setSearchStudents([]);setSearchReceipts([]);}}} />
           </div>
 
           {/* Search type filter */}
@@ -1301,56 +1464,75 @@ function ReceiptTab({ showToast,showConfirm,startLoading,stopLoading,libraries,b
           <div style={{ display:"flex",gap:8,marginBottom:14 }}>
             <input value={searchQ} onChange={e=>setSearchQ(e.target.value)} placeholder={searchType==="name"?"Enter Name":searchType==="phone"?"Enter Phone":searchType==="student_id"?"Enter Student ID":searchType==="receipt_no"?"Enter Receipt No.":"Name / Phone / Student ID / Receipt No."} style={{ ...inp,flex:1 }} />
             <button onClick={()=>doSearch()} disabled={searching} style={{ padding:"11px 18px",borderRadius:12,border:"none",background:searching?"#94a3b8":"#6366f1",color:"#fff",fontWeight:700,cursor:searching?"wait":"pointer",fontFamily:"'DM Sans',sans-serif",fontSize:14,minWidth:80,display:"flex",alignItems:"center",justifyContent:"center",gap:6 }}>
-              {searching ? <><span style={{ width:12,height:12,border:"2px solid rgba(255,255,255,0.4)",borderTop:"2px solid #fff",borderRadius:"50%",display:"inline-block",animation:"spin 0.7s linear infinite" }} />Searching</> : "Search"}
+              {searching ? <><span style={{ width:12,height:12,borderTop:"2px solid #fff",borderRight:"2px solid rgba(255,255,255,0.4)",borderBottom:"2px solid rgba(255,255,255,0.4)",borderLeft:"2px solid rgba(255,255,255,0.4)",borderRadius:"50%",display:"inline-block",animation:"spin 0.7s linear infinite" }} />Searching</> : "Search"}
             </button>
           </div>
 
           {searchReceipts.length>0 && (
             <div style={{ marginBottom:12 }}>
               <div style={{ fontSize:11,fontWeight:700,color:"#6366f1",textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:8 }}>🧾 Receipts (tap to auto-fill)</div>
-              {searchReceipts.map((r,i)=>(
-                <div key={i} onClick={()=>pickReceipt(r)} style={{ ...card,cursor:"pointer",border:"1.5px solid #818cf833",background:"#eff6ff",marginBottom:8 }}>
-                  <div style={{ display:"flex",alignItems:"center",gap:10 }}>
-                    <div style={{ width:40,height:40,borderRadius:10,background:"linear-gradient(135deg,#6366f1,#8b5cf6)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,flexShrink:0 }}>🧾</div>
-                    <div style={{ flex:1,minWidth:0 }}>
-                      <div style={{ display:"flex",gap:6,alignItems:"center",flexWrap:"wrap" }}>
-                        <span style={{ fontWeight:700,fontSize:14,color:"#1e293b" }}>{r.name}</span>
-                        <Badge text={r.receipt_no} color="#6366f1" />
+              {searchReceipts.map((r,i)=>{
+                const c = resolveLibColor(r.library, r.branch||"", libraries, branches);
+                return (
+                  <div key={i} onClick={()=>pickReceipt(r)} style={{ ...card,cursor:"pointer",borderTop:`1.5px solid ${c}33`,borderRight:`1.5px solid ${c}33`,borderBottom:`1.5px solid ${c}33`,borderLeft:`4px solid ${c}`,background:`${c}08`,marginBottom:8 }}>
+                    <div style={{ display:"flex",alignItems:"center",gap:10 }}>
+                      <div style={{ width:40,height:40,borderRadius:10,background:`linear-gradient(135deg,${c},${c}cc)`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,flexShrink:0,color:pickTextColor(c) }}>🧾</div>
+                      <div style={{ flex:1,minWidth:0 }}>
+                        <div style={{ display:"flex",gap:6,alignItems:"center",flexWrap:"wrap" }}>
+                          <span style={{ fontWeight:700,fontSize:14,color:"#1e293b" }}>{r.name}</span>
+                          <LibraryBadge text={r.branch||r.library} color={c} />
+                        </div>
+                        <div style={{ display:"flex",gap:5,flexWrap:"wrap",marginTop:6 }}>
+                          <StudentIdChip id={r.student_id} />
+                          <ReceiptChip no={r.receipt_no} />
+                        </div>
+                        <div style={{ display:"flex",gap:5,flexWrap:"wrap",marginTop:5 }}>
+                          {r.seat_no && <SeatChip seat={r.seat_no} branch={r.branch} color={c} />}
+                          <FeeChip amount={r.fee} />
+                          <DateRangeChip from={r.booking_from} to={r.booking_to} />
+                        </div>
+                        <PayLinesDisplay r={r} />
+                        <div style={{ fontSize:11,color:c,marginTop:5,fontWeight:700 }}>📅 New from: {addOneDayDMY(normDate(r.booking_to)||r.booking_to)}</div>
                       </div>
-                      <div style={{ fontSize:12,color:"#64748b",marginTop:2 }}>{r.student_id} · {r.library}{r.branch?` (${r.branch})`:""}</div>
-                      <div style={{ fontSize:12,color:"#94a3b8",marginTop:2 }}>{fmtDate(r.booking_from)} → {fmtDate(r.booking_to)} · ₹{r.fee}</div>
-                      <PayLinesDisplay r={r} />
-                      <div style={{ fontSize:11,color:"#818cf8",marginTop:2,fontWeight:600 }}>📅 New from: {addOneDayDMY(normDate(r.booking_to)||r.booking_to)}</div>
+                      <span style={{ color:c,fontSize:18 }}>→</span>
                     </div>
-                    <span style={{ color:"#818cf8",fontSize:18 }}>→</span>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
 
           {searchStudents.length>0 && (
             <div style={{ marginBottom:12 }}>
               <div style={{ fontSize:11,fontWeight:700,color:"#64748b",textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:8 }}>👤 Students</div>
-              {searchStudents.map((st,i)=>(
-                <div key={i} onClick={()=>pickStudent(st)} style={{ ...card,cursor:"pointer",border:`1.5px solid ${toU(st.library)!==toU(library)?"#a78bfa33":"#e2e8f0"}`,marginBottom:8 }}>
-                  <div style={{ display:"flex",alignItems:"center",gap:10 }}>
-                    <div style={{ width:40,height:40,borderRadius:10,background:st.is_past?"linear-gradient(135deg,#f59e0b,#d97706)":"linear-gradient(135deg,#6366f1,#8b5cf6)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,flexShrink:0 }}>
-                      {st.is_past?"📁":"👤"}
-                    </div>
-                    <div style={{ flex:1,minWidth:0 }}>
-                      <div style={{ fontWeight:700,fontSize:14,color:"#1e293b" }}>{st.name}</div>
-                      <div style={{ fontSize:12,color:"#64748b",marginTop:2 }}>{st.student_id} · {st.phones?.[0]?.number||""}</div>
-                      <div style={{ display:"flex",gap:4,marginTop:4,flexWrap:"wrap" }}>
-                        {st.is_past && <Badge text="PAST" color="#f59e0b" />}
-                        {toU(st.library)!==toU(library) && <Badge text={`CROSS · FROM ${st.library}`} color="#8b5cf6" />}
-                        <Badge text={st.library} color="#6366f1" />
+              {searchStudents.map((st,i)=>{
+                const c = resolveLibColor(st.library, st.branch||"", libraries, branches);
+                const isCross = toU(st.library)!==toU(library);
+                const validPhones = st.phones?.filter(p=>p.number)||[];
+                return (
+                  <div key={i} onClick={()=>pickStudent(st)} style={{ ...card,cursor:"pointer",borderTop:`1.5px solid ${c}33`,borderRight:`1.5px solid ${c}33`,borderBottom:`1.5px solid ${c}33`,borderLeft:`4px solid ${c}`,background:`${c}08`,marginBottom:8 }}>
+                    <div style={{ display:"flex",alignItems:"center",gap:10 }}>
+                      <div style={{ width:40,height:40,borderRadius:10,background:st.is_past?"linear-gradient(135deg,#f59e0b,#d97706)":`linear-gradient(135deg,${c},${c}cc)`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,flexShrink:0,color:pickTextColor(c) }}>
+                        {st.is_past?"📁":"👤"}
                       </div>
+                      <div style={{ flex:1,minWidth:0 }}>
+                        <div style={{ display:"flex",alignItems:"center",gap:6,flexWrap:"wrap" }}>
+                          <span style={{ fontWeight:700,fontSize:14,color:"#1e293b" }}>{st.name}</span>
+                          <LibraryBadge text={st.branch||st.library} color={c} />
+                          {st.is_past && <Badge text="PAST" color="#f59e0b" />}
+                          {isCross && <Badge text="CROSS" color="#8b5cf6" />}
+                        </div>
+                        <div style={{ display:"flex",gap:5,flexWrap:"wrap",marginTop:6 }}>
+                          <StudentIdChip id={st.student_id} />
+                          {validPhones.slice(0,2).map((p,j)=><PhoneChip key={j} number={p.number} tag={p.tag} />)}
+                          {st.seat_no && <SeatChip seat={st.seat_no} branch={st.branch} color={c} />}
+                        </div>
+                      </div>
+                      <span style={{ color:c,fontSize:18 }}>→</span>
                     </div>
-                    <span style={{ color:"#94a3b8",fontSize:18 }}>→</span>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
 
@@ -1790,6 +1972,8 @@ function EditReceiptForm({ receipt, shifts, activeTags, libraries, branches, onC
 // STUDENTS TAB
 // ═══════════════════════════════════════════════════════════════════
 function StudentsTab({ showToast,showConfirm,startLoading,stopLoading,libraries,branches,shifts,activeTags,isSubmitting,jumpToStudent,setJumpToStudent }:any) {
+  const [counts, setCounts]     = useState<Record<string,number>>({});
+  const [totalCount, setTotalCount] = useState(0);
   const [view, setView]         = useState<"list"|"add"|"addPast"|"edit"|"editPast">("list");
   const [searchQ, setSearchQ]   = useState("");
   const [filterLib, setFilterLib] = useState("");
@@ -1799,6 +1983,7 @@ function StudentsTab({ showToast,showConfirm,startLoading,stopLoading,libraries,
   const [total, setTotal]       = useState(0);
   const [searched, setSearched] = useState(false);
   const [editSt, setEditSt]     = useState<Student|null>(null);
+  const [viewSt, setViewSt]     = useState<Student|null>(null);
   const [editPhones, setEditPhones] = useState<PhoneEntry[]>(emptyPhones());
   const [formLib, setFormLib]   = useState("");
   const [formBranch, setFormBranch] = useState("");
@@ -1833,6 +2018,16 @@ function StudentsTab({ showToast,showConfirm,startLoading,stopLoading,libraries,
     stopLoading();
   }
   useEffect(() => { loadAll(1); }, [filterLib]);
+
+  // Per-library counts for pill badges
+  async function loadCounts() {
+    try {
+      const r = await fetch(`${API}?action=getStudentCounts`);
+      const d = await r.json();
+      if (d.ok) { setCounts(d.counts||{}); setTotalCount(d.total||0); }
+    } catch {}
+  }
+  useEffect(() => { loadCounts(); }, []);
 
   // K: Handle deep-link from "View Student" button on receipt cards
   useEffect(() => {
@@ -2079,8 +2274,17 @@ function StudentsTab({ showToast,showConfirm,startLoading,stopLoading,libraries,
         <button onClick={()=>setView("addPast")} style={{ flex:1,padding:"11px",borderRadius:12,border:"2px dashed #f59e0b",background:"#fffbeb",color:"#d97706",fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"'DM Sans',sans-serif" }}>+ Past Student</button>
       </div>
       <div style={{ display:"flex",gap:6,overflowX:"auto",paddingBottom:4,marginBottom:12 }}>
-        <Pill text="All" active={filterLib===""} onClick={()=>setFilterLib("")} />
-        {(libraries as Library[]).filter((l:Library)=>l.active).map((l:Library)=><Pill key={l.library_code} text={l.library_code} active={filterLib===l.library_code} onClick={()=>setFilterLib(l.library_code)} />)}
+        <Pill text={`All (${totalCount})`} active={filterLib===""} onClick={()=>setFilterLib("")} />
+        {(libraries as Library[]).filter((l:Library)=>l.active).map((l:Library)=>{
+          const c = l.color || "#6366f1";
+          let n = counts[l.library_code] || 0;
+          if (l.has_branches) {
+            n = (branches as Branch[])
+              .filter((b:Branch)=>b.library_code===l.library_code)
+              .reduce((sum:number,b:Branch)=>sum + (counts[b.branch_code]||0), n);
+          }
+          return <LibraryPill key={l.library_code} text={`${l.library_code} (${n})`} active={filterLib===l.library_code} color={c} onClick={()=>setFilterLib(l.library_code)} />;
+        })}
       </div>
       <div style={{ display:"flex",gap:8,marginBottom:14 }}>
         <input value={searchQ} onChange={e=>setSearchQ(e.target.value)} placeholder="Name / Phone / ID" style={{ ...inp,flex:1 }} />
@@ -2089,6 +2293,7 @@ function StudentsTab({ showToast,showConfirm,startLoading,stopLoading,libraries,
       {searched && <div style={{ fontSize:12,color:"#94a3b8",marginBottom:10 }}>{total} students{filterLib&&` in ${filterLib}`}</div>}
       {students.map((st,i)=>(
         <StudentCard key={i} st={st} libraries={libraries} branches={branches}
+          onView={()=>setViewSt(st)}
           onEdit={()=>{
             setEditSt(st);
             setEditPhones([...(st.phones||[]),{number:"",tag:""},{number:"",tag:""},{number:"",tag:""}].slice(0,4));
@@ -2096,6 +2301,13 @@ function StudentsTab({ showToast,showConfirm,startLoading,stopLoading,libraries,
           }}
           onDelete={st.is_past?undefined:()=>deleteStudent(st)} />
       ))}
+      {viewSt && <ViewStudentModal student={viewSt} libraries={libraries} branches={branches} onClose={()=>setViewSt(null)} onEdit={()=>{
+        const st = viewSt;
+        setViewSt(null);
+        setEditSt(st);
+        setEditPhones([...(st.phones||[]),{number:"",tag:""},{number:"",tag:""},{number:"",tag:""}].slice(0,4));
+        setView(st.is_past?"editPast":"edit");
+      }} />}
       {students.length===0&&searched && (
         <div style={{ textAlign:"center",padding:"40px 0",color:"#94a3b8" }}>
           <div style={{ fontSize:36,marginBottom:8 }}>👥</div>
@@ -2284,25 +2496,33 @@ function BoardTab({ showToast,showConfirm,startLoading,stopLoading,libraries,shi
           {pending.map((entry,i)=>{
             const validPhones = entry.phones?.filter(p=>p.number)||[];
             const isSel = selected.has(entry.receipt_no);
+            const c = resolveLibColor(entry.library, entry.branch||"", libraries, branches);
             return (
-              <div key={i} style={{ ...card,marginBottom:10,border:isSel?"2px solid #6366f1":card.border,background:isSel?"#eff6ff":card.background }}>
+              <div key={i} style={{ ...card,marginBottom:10,borderTop:isSel?`2px solid ${c}`:`1px solid ${c}33`,borderRight:isSel?`2px solid ${c}`:`1px solid ${c}33`,borderBottom:isSel?`2px solid ${c}`:`1px solid ${c}33`,borderLeft:`4px solid ${c}`,background:isSel?`${c}10`:card.background }}>
                 <div style={{ marginBottom:10,display:"flex",alignItems:"flex-start",gap:10 }}>
                   {/* L: Selection checkbox */}
-                  <button onClick={()=>toggleSelect(entry.receipt_no)} aria-label="Select" style={{ width:24,height:24,borderRadius:6,border:`2px solid ${isSel?"#6366f1":"#cbd5e1"}`,background:isSel?"#6366f1":"#fff",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,marginTop:2,padding:0 }}>
-                    {isSel && <span style={{ color:"#fff",fontSize:14,fontWeight:900,lineHeight:1 }}>✓</span>}
+                  <button onClick={()=>toggleSelect(entry.receipt_no)} aria-label="Select" style={{ width:24,height:24,borderRadius:6,border:`2px solid ${isSel?c:"#cbd5e1"}`,background:isSel?c:"#fff",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,marginTop:2,padding:0 }}>
+                    {isSel && <span style={{ color:pickTextColor(c),fontSize:14,fontWeight:900,lineHeight:1 }}>✓</span>}
                   </button>
                   <div style={{ flex:1,minWidth:0 }}>
                     <div style={{ display:"flex",alignItems:"center",gap:6,flexWrap:"wrap" }}>
                       <span style={{ fontWeight:700,fontSize:15,color:"#1e293b" }}>{entry.name}</span>
+                      <LibraryBadge text={entry.branch||entry.library} color={c} />
                       <Badge text={entry.type} color={entry.type==="NEW"?"#10b981":"#6366f1"} />
-                      {(entry.fees_due_balance||0) > 0 && <Badge text={`DUE ₹${entry.fees_due_balance}`} color="#ef4444" />}
                       {entry.is_cross_library && entry.is_cross_library!=="NO" && entry.is_cross_library!=="YES" && <Badge text={`FROM ${entry.is_cross_library}`} color="#f59e0b" />}
                       {entry.is_cross_library==="YES"&&<Badge text="CROSS" color="#f59e0b" />}
                     </div>
-                    <div style={{ fontSize:12,color:"#64748b",marginTop:3 }}>{entry.receipt_no} · {entry.student_id}</div>
-                    <div style={{ fontSize:12,color:"#64748b",marginTop:2 }}>{validPhones.map(p=>p.tag&&toU(p.tag)!=="SELF"?`${p.number} (${p.tag})`:p.number).join(" · ")}</div>
-                    <div style={{ fontSize:12,color:"#94a3b8",marginTop:2 }}>{entry.library}{entry.branch?` (${entry.branch})`:""} · Seat <strong>{entry.seat_no||"—"}</strong> · ₹<strong>{entry.fee}</strong></div>
-                    <div style={{ fontSize:12,color:"#94a3b8",marginTop:2 }}>{fmtDate(entry.booking_from)} → {fmtDate(entry.booking_to)}</div>
+                    <div style={{ display:"flex",gap:5,flexWrap:"wrap",marginTop:6 }}>
+                      <StudentIdChip id={entry.student_id} />
+                      <ReceiptChip no={entry.receipt_no} />
+                      {validPhones.slice(0,2).map((p,j)=><PhoneChip key={j} number={p.number} tag={p.tag} />)}
+                    </div>
+                    <div style={{ display:"flex",gap:5,flexWrap:"wrap",marginTop:5 }}>
+                      <SeatChip seat={entry.seat_no} branch={entry.branch} color={c} />
+                      <FeeChip amount={entry.fee} />
+                      {(entry.fees_due_balance||0) > 0 && <FeeChip amount={entry.fees_due_balance!} due />}
+                      <DateRangeChip from={entry.booking_from} to={entry.booking_to} />
+                    </div>
                     <ShiftBadge shift_name={entry.shift_name} shift_time={entry.shift_time} />
                     <PayLinesDisplay r={entry} />
                     <div style={{ fontSize:12,color:"#94a3b8",marginTop:2,fontWeight:500 }}>{fmtDateTime(entry.generated_at)}</div>
@@ -2313,7 +2533,7 @@ function BoardTab({ showToast,showConfirm,startLoading,stopLoading,libraries,shi
                   {entry.registration_text&&<CopyBtn text={entry.registration_text} label="Group Copy" />}
                   {entry.receipt_text&&<CopyBtn text={entry.receipt_text} label="Student Copy" accent="#10b981" />}
                   <CopyBtn text={`${entry.name} ${entry.library} ${entry.student_id}`} label="Contact" accent="#f59e0b" />
-                  <button onClick={()=>setEditReceipt(entry)} style={{ padding:"12px 14px",borderRadius:12,border:"1.5px solid #6366f133",background:"#eff6ff",color:"#4f46e5",fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",minHeight:44 }}>✏️ Edit</button>
+                  <button onClick={()=>setEditReceipt(entry)} style={{ padding:"12px 14px",borderRadius:12,border:`1.5px solid ${c}55`,background:`${c}10`,color:c,fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",minHeight:44 }}>✏️ Edit</button>
                   {viewStudent && <button onClick={()=>viewStudent(entry.student_id, entry.library)} style={{ padding:"12px 14px",borderRadius:12,border:"1.5px solid #cbd5e1",background:"#f8fafc",color:"#475569",fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",minHeight:44 }}>👤 View Student</button>}
                   <button onClick={()=>markUpdated(entry.receipt_no)} style={{ padding:"12px 14px",borderRadius:12,border:"none",background:"#1e293b",color:"#fff",fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",flex:1,minHeight:44 }}>✓ Mark Updated</button>
                 </div>
@@ -2344,7 +2564,7 @@ function BoardTab({ showToast,showConfirm,startLoading,stopLoading,libraries,shi
           <div style={{ display:"flex",gap:8,marginBottom:12 }}>
             <input value={searchQ} onChange={e=>setSearchQ(e.target.value)} placeholder={searchType==="name"?"Enter Name":searchType==="phone"?"Enter Phone":searchType==="student_id"?"Enter Student ID":searchType==="receipt_no"?"Enter Receipt No.":"Name / Phone / Student ID / Receipt No."} style={{ ...inp,flex:1 }} />
             <button onClick={()=>loadHistory(1)} disabled={searching} style={{ padding:"11px 18px",borderRadius:12,border:"none",background:searching?"#94a3b8":"#6366f1",color:"#fff",fontWeight:700,cursor:searching?"wait":"pointer",fontFamily:"'DM Sans',sans-serif",fontSize:14,minWidth:80,display:"flex",alignItems:"center",justifyContent:"center",gap:6 }}>
-              {searching ? <><span style={{ width:12,height:12,border:"2px solid rgba(255,255,255,0.4)",borderTop:"2px solid #fff",borderRadius:"50%",display:"inline-block",animation:"spin 0.7s linear infinite" }} />Searching</> : "Search"}
+              {searching ? <><span style={{ width:12,height:12,borderTop:"2px solid #fff",borderRight:"2px solid rgba(255,255,255,0.4)",borderBottom:"2px solid rgba(255,255,255,0.4)",borderLeft:"2px solid rgba(255,255,255,0.4)",borderRadius:"50%",display:"inline-block",animation:"spin 0.7s linear infinite" }} />Searching</> : "Search"}
             </button>
             {searchQ && <button onClick={()=>{setSearchQ("");setSearchType("all");loadHistory(1,{q:"",type:"all"});}} style={{ ...ghostBtn,padding:"11px 14px",fontSize:13 }}>Clear</button>}
           </div>
@@ -2360,8 +2580,10 @@ function BoardTab({ showToast,showConfirm,startLoading,stopLoading,libraries,shi
 // ═══════════════════════════════════════════════════════════════════
 // DUES TAB
 // ═══════════════════════════════════════════════════════════════════
-function DuesTab({ showToast,showConfirm,startLoading,stopLoading,activeTags,libraries,isSubmitting }:any) {
+function DuesTab({ showToast,showConfirm,startLoading,stopLoading,activeTags,libraries,branches,isSubmitting }:any) {
   const [pending, setPending]   = useState<ReceiptEntry[]>([]);
+  const [allCounts, setAllCounts] = useState<Record<string,number>>({});
+  const [allTotalCount, setAllTotalCount] = useState(0);
   const [filterLib, setFilterLib] = useState("");
   const [quickQ, setQuickQ]     = useState("");
   const [loaded, setLoaded]     = useState(false);
@@ -2378,8 +2600,28 @@ function DuesTab({ showToast,showConfirm,startLoading,stopLoading,activeTags,lib
       const res = await fetch(`${API}?action=getPendingDues&library=${filterLib}`);
       const d   = await res.json();
       if (d.ok) { setPending(d.pending||[]); setLoaded(true); }
+      // Always also fetch all-library counts for pill counters
+      if (filterLib) {
+        try {
+          const r2 = await fetch(`${API}?action=getPendingDues&library=`);
+          const d2 = await r2.json();
+          if (d2.ok) computeCounts(d2.pending||[]);
+        } catch {}
+      } else {
+        computeCounts(d.pending||[]);
+      }
     } catch { showToast("Failed.","error"); }
     stopLoading();
+  }
+  function computeCounts(rows: ReceiptEntry[]) {
+    const m: Record<string,number> = {};
+    rows.forEach(r => {
+      const key = (r.branch||r.library||"").toUpperCase();
+      if (!key) return;
+      m[key] = (m[key]||0) + 1;
+    });
+    setAllCounts(m);
+    setAllTotalCount(rows.length);
   }
   useEffect(() => { load(); }, [filterLib]);
   useEffect(() => { setResultText(null); }, [filterLib]);
@@ -2430,8 +2672,17 @@ function DuesTab({ showToast,showConfirm,startLoading,stopLoading,activeTags,lib
         </div>
       </div>
       <div style={{ display:"flex",gap:6,overflowX:"auto",paddingBottom:4,marginBottom:10 }}>
-        <Pill text="All" active={filterLib===""} onClick={()=>setFilterLib("")} />
-        {(libraries as Library[]).filter((l:Library)=>l.active).map((l:Library)=><Pill key={l.library_code} text={l.library_code} active={filterLib===l.library_code} onClick={()=>setFilterLib(l.library_code)} />)}
+        <Pill text={`All (${allTotalCount})`} active={filterLib===""} onClick={()=>setFilterLib("")} />
+        {(libraries as Library[]).filter((l:Library)=>l.active).map((l:Library)=>{
+          const c = l.color || "#6366f1";
+          let n = allCounts[l.library_code] || 0;
+          if (l.has_branches) {
+            n = (branches as Branch[])
+              .filter((b:Branch)=>b.library_code===l.library_code)
+              .reduce((sum:number,b:Branch)=>sum + (allCounts[b.branch_code]||0), n);
+          }
+          return <LibraryPill key={l.library_code} text={`${l.library_code} (${n})`} active={filterLib===l.library_code} color={c} onClick={()=>setFilterLib(l.library_code)} />;
+        })}
       </div>
       {/* G: Quick filter — narrows visible dues list in real time */}
       <div style={{ position:"relative",marginBottom:12 }}>
@@ -2466,8 +2717,9 @@ function DuesTab({ showToast,showConfirm,startLoading,stopLoading,activeTags,lib
         const pf=payForm[entry.receipt_no]||{mode:"",amount:"",notes:"",date:todayDMY()};
         const entryPayments=payments[entry.receipt_no]||[];
         const validPhones = entry.phones?.filter(p=>p.number)||[];
+        const c = resolveLibColor(entry.library, entry.branch||"", libraries, branches);
         return (
-          <div key={i} style={{ ...card,marginBottom:10,overflow:"hidden" }}>
+          <div key={i} style={{ ...card,marginBottom:10,overflow:"hidden",borderLeft:`4px solid ${c}` }}>
             <div onClick={()=>toggleExpand(entry.receipt_no)} style={{ cursor:"pointer" }}>
               <div style={{ display:"flex",alignItems:"flex-start",gap:10 }}>
                 <div style={{ width:44,height:44,borderRadius:12,background:"linear-gradient(135deg,#ef4444,#dc2626)",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0 }}>
@@ -2476,14 +2728,22 @@ function DuesTab({ showToast,showConfirm,startLoading,stopLoading,activeTags,lib
                 <div style={{ flex:1,minWidth:0 }}>
                   <div style={{ display:"flex",alignItems:"center",gap:6,flexWrap:"wrap" }}>
                     <span style={{ fontWeight:700,fontSize:14,color:"#1e293b" }}>{entry.name}</span>
-                    <Badge text={`DUE ₹${entry.fees_due_balance}`} color="#ef4444" />
+                    <LibraryBadge text={entry.branch||entry.library} color={c} />
                   </div>
-                  <div style={{ fontSize:12,color:"#64748b",marginTop:3 }}>{entry.receipt_no} · {entry.student_id}</div>
-                  <div style={{ fontSize:12,color:"#64748b",marginTop:1 }}>{validPhones.map(p=>p.tag&&toU(p.tag)!=="SELF"?`${p.number} (${p.tag})`:p.number).join(" · ")}</div>
-                  <div style={{ fontSize:12,color:"#94a3b8",marginTop:2 }}>{entry.library}{entry.branch?` (${entry.branch})`:""} · Seat <strong>{entry.seat_no||"—"}</strong> · ₹<strong>{entry.fee}</strong></div>
+                  <div style={{ display:"flex",gap:5,flexWrap:"wrap",marginTop:6 }}>
+                    <StudentIdChip id={entry.student_id} />
+                    <ReceiptChip no={entry.receipt_no} />
+                    {validPhones.slice(0,2).map((p,j)=><PhoneChip key={j} number={p.number} tag={p.tag} />)}
+                  </div>
+                  <div style={{ display:"flex",gap:5,flexWrap:"wrap",marginTop:5 }}>
+                    <SeatChip seat={entry.seat_no} branch={entry.branch} color={c} />
+                    <FeeChip amount={entry.fee} />
+                    <FeeChip amount={entry.fees_due_balance!} due />
+                    <DateRangeChip from={entry.booking_from} to={entry.booking_to} />
+                  </div>
                   <ShiftBadge shift_name={entry.shift_name} shift_time={entry.shift_time} />
                   <PayLinesDisplay r={entry} />
-                  <div style={{ fontSize:12,color:"#94a3b8",marginTop:2,fontWeight:500 }}>{fmtDateTime(entry.generated_at)}</div>
+                  <div style={{ fontSize:11,color:"#94a3b8",marginTop:3,fontWeight:500 }}>{fmtDateTime(entry.generated_at)}</div>
                 </div>
                 <span style={{ color:"#94a3b8",fontSize:18,marginTop:2 }}>{isOpen?"▲":"▼"}</span>
               </div>
@@ -2545,11 +2805,13 @@ function DuesTab({ showToast,showConfirm,startLoading,stopLoading,activeTags,lib
 // ═══════════════════════════════════════════════════════════════════
 // PENDING OPTIONAL TAB
 // ═══════════════════════════════════════════════════════════════════
-function PendingTab({ showToast,startLoading,stopLoading,libraries,isSubmitting }:any) {
+function PendingTab({ showToast,startLoading,stopLoading,libraries,branches,isSubmitting }:any) {
   const [students, setStudents] = useState<Student[]>([]);
   const [filterLib, setFilterLib] = useState("");
   const [loaded, setLoaded]     = useState(false);
   const [editing, setEditing]   = useState<Record<string,any>>({});
+  const [allCounts, setAllCounts] = useState<Record<string,number>>({});
+  const [allTotalCount, setAllTotalCount] = useState(0);
 
   async function load() {
     startLoading("Loading...");
@@ -2557,8 +2819,28 @@ function PendingTab({ showToast,startLoading,stopLoading,libraries,isSubmitting 
       const res = await fetch(`${API}?action=getPendingOptional&library=${filterLib}`);
       const d   = await res.json();
       if (d.ok) { setStudents(d.students||[]); setLoaded(true); }
+      // All-library counts for pill counters
+      if (filterLib) {
+        try {
+          const r2 = await fetch(`${API}?action=getPendingOptional&library=`);
+          const d2 = await r2.json();
+          if (d2.ok) computeCounts(d2.students||[]);
+        } catch {}
+      } else {
+        computeCounts(d.students||[]);
+      }
     } catch { showToast("Failed.","error"); }
     stopLoading();
+  }
+  function computeCounts(rows: Student[]) {
+    const m: Record<string,number> = {};
+    rows.forEach((s:Student) => {
+      const key = (s.branch||s.library||"").toUpperCase();
+      if (!key) return;
+      m[key] = (m[key]||0) + 1;
+    });
+    setAllCounts(m);
+    setAllTotalCount(rows.length);
   }
   useEffect(() => { load(); }, [filterLib]);
 
@@ -2585,8 +2867,17 @@ function PendingTab({ showToast,startLoading,stopLoading,libraries,isSubmitting 
         </div>
       </div>
       <div style={{ display:"flex",gap:6,overflowX:"auto",paddingBottom:4,marginBottom:12 }}>
-        <Pill text="All" active={filterLib===""} onClick={()=>setFilterLib("")} />
-        {(libraries as Library[]).filter((l:Library)=>l.active).map((l:Library)=><Pill key={l.library_code} text={l.library_code} active={filterLib===l.library_code} onClick={()=>setFilterLib(l.library_code)} />)}
+        <Pill text={`All (${allTotalCount})`} active={filterLib===""} onClick={()=>setFilterLib("")} />
+        {(libraries as Library[]).filter((l:Library)=>l.active).map((l:Library)=>{
+          const c = l.color || "#6366f1";
+          let n = allCounts[l.library_code] || 0;
+          if (l.has_branches) {
+            n = (branches as Branch[])
+              .filter((b:Branch)=>b.library_code===l.library_code)
+              .reduce((sum:number,b:Branch)=>sum + (allCounts[b.branch_code]||0), n);
+          }
+          return <LibraryPill key={l.library_code} text={`${l.library_code} (${n})`} active={filterLib===l.library_code} color={c} onClick={()=>setFilterLib(l.library_code)} />;
+        })}
       </div>
       {loaded&&students.length===0 && (
         <div style={{ textAlign:"center",padding:"48px 0",color:"#94a3b8" }}>
@@ -2602,15 +2893,19 @@ function PendingTab({ showToast,startLoading,stopLoading,libraries,isSubmitting 
         if(!st.preparing_for)missing.push("Preparing For");
         if(!st.aadhaar_last4)missing.push("Aadhaar Last 4");
         if(!st.date_of_birth)missing.push("Date of Birth");
+        const c = resolveLibColor(st.library, st.branch||"", libraries, branches);
         return (
-          <div key={i} style={{ ...card,marginBottom:8 }}>
+          <div key={i} style={{ ...card,marginBottom:8,borderLeft:`4px solid ${c}` }}>
             <div style={{ display:"flex",justifyContent:"space-between",alignItems:"flex-start" }}>
               <div style={{ flex:1,minWidth:0 }}>
                 <div style={{ display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",marginBottom:4 }}>
                   <span style={{ fontWeight:700,fontSize:14,color:"#1e293b" }}>{st.name}</span>
-                  <Badge text={st.library} color="#6366f1" />
+                  <LibraryBadge text={st.branch||st.library} color={c} />
                 </div>
-                <div style={{ fontSize:12,color:"#64748b" }}>{st.student_id} · {st.phones?.[0]?.number||""}</div>
+                <div style={{ display:"flex",gap:5,flexWrap:"wrap",marginTop:6 }}>
+                  <StudentIdChip id={st.student_id} />
+                  {(st.phones?.filter(p=>p.number)||[]).slice(0,2).map((p,j)=><PhoneChip key={j} number={p.number} tag={p.tag} />)}
+                </div>
                 <div style={{ display:"flex",gap:4,flexWrap:"wrap",marginTop:6 }}>
                   {missing.map(m=><span key={m} style={{ fontSize:10,fontWeight:700,padding:"3px 8px",borderRadius:99,background:"#fef3c7",color:"#92400e" }}>Missing: {m}</span>)}
                 </div>
