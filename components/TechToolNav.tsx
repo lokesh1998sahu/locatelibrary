@@ -150,7 +150,7 @@ export default function TechToolNav() {
             <div style={{ width: 8, height: 8, background: "#e8a833" }} />
             <div style={{ width: 8, height: 8, background: "#f472b6" }} />
           </div>
-          <span className="ttn-label">Tech Tools</span>
+          <span className="ttn-label"></span>
         </div>
       </div>
 

@@ -3,25 +3,37 @@
 import { useState, useEffect, useRef } from "react";
 
 // ─── Types ─────────────────────────────────────────────────────────────────
-type StatusFilter = "" | "Pending" | "Receipt Made" | "Not Required";
+type StatusFilter = "" | "Pending" | "Receipt Made" | "Not Required" | "Deleted";
 
-// Format any date-like input (GMT string, ISO, D-M-YYYY) to "DD MMM YYYY"
+// Robust date formatter — handles GMT strings, ISO, D-M-YYYY, "d MMMM yyyy"
 function fmtDate(v: string): string {
   if (!v) return "—";
   const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
-  // Already "d MMMM yyyy" from Apps Script (e.g. "5 May 2026")
-  const longMatch = v.match(/^(\d{1,2}) (\w+) (\d{4})/);
+  // "d MMMM yyyy" from Apps Script (e.g. "5 May 2026")
+  const longMatch = v.match(/^(\d{1,2})\s+(\w+)\s+(\d{4})/);
   if (longMatch) return `${longMatch[1].padStart(2,"0")} ${longMatch[2].slice(0,3)} ${longMatch[3]}`;
-  // GMT or JS Date string
-  if (v.includes("GMT") || /^\w{3} \w{3}/.test(v)) {
-    const d = new Date(v);
-    if (!isNaN(d.getTime())) return `${String(d.getDate()).padStart(2,"0")} ${months[d.getMonth()]} ${d.getFullYear()}`;
+  // GMT or JS Date.toString() (e.g. "Sat May 02 2026 00:00:00 GMT+0530 (India Standard Time)")
+  if (v.includes("GMT") || /^\w{3}\s+\w{3}/.test(v)) {
+    try {
+      const d = new Date(v);
+      if (!isNaN(d.getTime())) return `${String(d.getDate()).padStart(2,"0")} ${months[d.getMonth()]} ${d.getFullYear()}`;
+    } catch {}
   }
   // ISO yyyy-mm-dd
-  if (/^\d{4}-\d{2}-\d{2}/.test(v)) {
+  if (/^\d{4}-\d{1,2}-\d{1,2}/.test(v)) {
     const p = v.split("T")[0].split("-");
     return `${p[2].padStart(2,"0")} ${months[parseInt(p[1])-1]||""} ${p[0]}`;
   }
+  // D-M-YYYY
+  if (/^\d{1,2}-\d{1,2}-\d{4}$/.test(v)) {
+    const p = v.split("-");
+    return `${p[0].padStart(2,"0")} ${months[parseInt(p[1])-1]||""} ${p[2]}`;
+  }
+  // Last resort: try parsing as Date
+  try {
+    const d = new Date(v);
+    if (!isNaN(d.getTime())) return `${String(d.getDate()).padStart(2,"0")} ${months[d.getMonth()]} ${d.getFullYear()}`;
+  } catch {}
   return v;
 }
 
@@ -54,6 +66,12 @@ export default function LibrariesPage() {
   const [statusCounts, setStatusCounts]       = useState<StatusCounts>({ Pending:0, "Receipt Made":0, "Not Required":0, Deleted:0 });
   const [libraryCounts, setLibraryCounts]     = useState<Record<string, number>>({});
   const [tagCounts, setTagCounts]             = useState<Record<string, number>>({});
+  // Base counts (unfiltered) — used for pill badges so they stay consistent
+  const [baseStatusCounts, setBaseStatusCounts] = useState<StatusCounts>({ Pending:0, "Receipt Made":0, "Not Required":0, Deleted:0 });
+  const [baseLibCounts, setBaseLibCounts]       = useState<Record<string, number>>({});
+  const [baseTagCounts, setBaseTagCounts]       = useState<Record<string, number>>({});
+  const [baseTotal, setBaseTotal]               = useState(0);
+  const baseCountsLoaded = useRef(false);
   const [page, setPage]                       = useState(1);
   const [totalPages, setTotalPages]           = useState(0);
   const [total, setTotal]                     = useState(0);
@@ -68,6 +86,7 @@ export default function LibrariesPage() {
   const [fAmountMin, setFAmountMin]           = useState("");
   const [fAmountMax, setFAmountMax]           = useState("");
   const [fQ, setFQ]                           = useState("");
+  const [fQCommitted, setFQCommitted]         = useState("");
   const [showFilters, setShowFilters]         = useState(false);
 
   // ── Edit state ──
@@ -122,7 +141,7 @@ export default function LibrariesPage() {
         dateTo: fDateTo,
         amountMin: fAmountMin,
         amountMax: fAmountMax,
-        q: fQ,
+        q: fQCommitted,
         page: String(pg),
         limit: "20",
       });
@@ -141,15 +160,33 @@ export default function LibrariesPage() {
     setLoadingEntries(false);
   };
 
+  // Load base counts (unfiltered) once when modal opens — pills always show these
+  const loadBaseCounts = async () => {
+    try {
+      const params = new URLSearchParams({ action: "getEntries", status: "", library: "", paymentTag: "", dateFrom: "", dateTo: "", amountMin: "", amountMax: "", q: "", page: "1", limit: "1" });
+      const res = await fetch(`${SCRIPT_URL}?${params}`);
+      const d = await res.json();
+      setBaseStatusCounts(d.statusCounts || { Pending:0, "Receipt Made":0, "Not Required":0, Deleted:0 });
+      setBaseLibCounts(d.libraryCounts || {});
+      setBaseTagCounts(d.tagCounts || {});
+      setBaseTotal(d.total || 0);
+      baseCountsLoaded.current = true;
+    } catch {}
+  };
+
   // Reload when filters change OR modal opens
   useEffect(() => {
-    if (entriesOpen) loadEntries(1);
-  }, [entriesOpen, fStatus, fLibrary, fPaymentTag, fDateFrom, fDateTo, fAmountMin, fAmountMax, fQ]);
+    if (entriesOpen) {
+      loadEntries(1);
+      if (!baseCountsLoaded.current) loadBaseCounts();
+    }
+  }, [entriesOpen, fStatus, fLibrary, fPaymentTag, fDateFrom, fDateTo, fAmountMin, fAmountMax, fQCommitted]);
 
   const clearFilters = () => {
     setFLibrary(""); setFPaymentTag(""); setFDateFrom(""); setFDateTo("");
-    setFAmountMin(""); setFAmountMax(""); setFQ("");
+    setFAmountMin(""); setFAmountMax(""); setFQ(""); setFQCommitted("");
   };
+  const hasAdvancedFilters = !!(fDateFrom||fDateTo||fAmountMin||fAmountMax);
 
   // ─── New Entry submit ─────────────────────────────────────────────────
   const handleSubmit = async (e: any) => {
@@ -168,7 +205,7 @@ export default function LibrariesPage() {
       });
       setForm({ date: "", amount: "", paymentTag: "", libraryCode: "", remark: "", receipt: "Pending" });
       showMsg("Entry saved successfully");
-      loadData();
+      loadData(); baseCountsLoaded.current = false;
     } catch {
       showMsg("Something went wrong, please retry", "error");
     } finally {
@@ -190,7 +227,7 @@ export default function LibrariesPage() {
           receipt_no: newStatus === "Not Required" ? "N/A" : entry.receipt_no || "",
         }),
       });
-      loadEntries(page); loadData();
+      loadEntries(page); loadData(); baseCountsLoaded.current = false; loadBaseCounts();
       showMsg(newStatus === "Receipt Made" ? "Marked Receipt Made" : "Marked Not Required");
     } catch { showMsg("Failed to update", "error"); }
   };
@@ -203,7 +240,7 @@ export default function LibrariesPage() {
         method: "POST",
         body: JSON.stringify({ action: "deleteEntry", row: entry.row, remark: entry.remark || "" }),
       });
-      loadEntries(page); loadData();
+      loadEntries(page); loadData(); baseCountsLoaded.current = false; loadBaseCounts();
       showMsg("Entry deleted");
     } catch { showMsg("Failed to delete", "error"); }
   };
@@ -223,13 +260,14 @@ export default function LibrariesPage() {
         }),
       });
       setEditing(null);
-      loadEntries(page); loadData();
+      loadEntries(page); loadData(); baseCountsLoaded.current = false; loadBaseCounts();
       showMsg("Entry updated");
     } catch { showMsg("Failed to update", "error"); }
   };
 
   // ─── Library colors ───────────────────────────────────────────────────
-  const LIBRARY_COLORS = [
+  const LIBRARY_COLORS: Record<string, { border:string; bg:string; badge:string; text:string }> = {};
+  const PALETTE = [
     { border: "#60a5fa", bg: "rgba(96,165,250,0.07)",  badge: "rgba(96,165,250,0.15)",  text: "#60a5fa"  },
     { border: "#f472b6", bg: "rgba(244,114,182,0.07)", badge: "rgba(244,114,182,0.15)", text: "#f472b6"  },
     { border: "#34d399", bg: "rgba(52,211,153,0.07)",  badge: "rgba(52,211,153,0.15)",  text: "#34d399"  },
@@ -239,9 +277,9 @@ export default function LibrariesPage() {
     { border: "#a3e635", bg: "rgba(163,230,53,0.07)",  badge: "rgba(163,230,53,0.15)",  text: "#a3e635"  },
     { border: "#fbbf24", bg: "rgba(251,191,36,0.07)",  badge: "rgba(251,191,36,0.15)",  text: "#fbbf24"  },
   ];
+  codes.forEach((c, i) => { LIBRARY_COLORS[c.code] = PALETTE[i % PALETTE.length]; });
   const getLibraryColor = (libraryCode: string) => {
-    const idx = codes.findIndex((c) => c.code === libraryCode);
-    return LIBRARY_COLORS[(idx >= 0 ? idx : 0) % LIBRARY_COLORS.length];
+    return LIBRARY_COLORS[libraryCode] || PALETTE[0];
   };
 
   const STATUS_COLORS: Record<string, { bg: string; color: string; border: string }> = {
@@ -250,6 +288,93 @@ export default function LibrariesPage() {
     "Not Required": { bg: "rgba(148,163,184,0.15)", color: "#94a3b8", border: "rgba(148,163,184,0.3)" },
     "Deleted":      { bg: "rgba(240,82,82,0.15)",   color: "#f05252", border: "rgba(240,82,82,0.3)"  },
   };
+
+  // ─── TAG COLORS ────────────────────────────────────────────────────────
+  const TAG_PALETTE = ["#22d3ee","#f472b6","#a78bfa","#fb923c","#34d399","#60a5fa","#fbbf24","#a3e635"];
+  const getTagColor = (tag: string) => {
+    const idx = tags.indexOf(tag);
+    return TAG_PALETTE[(idx >= 0 ? idx : 0) % TAG_PALETTE.length];
+  };
+
+  // ─── Clickable Date Input wrapper ─────────────────────────────────────
+  function DateField({ value, onChange, className }: { value:string; onChange:(v:string)=>void; className?:string }) {
+    const ref = useRef<HTMLInputElement>(null);
+    const display = fmtDate(value);
+    return (
+      <div onClick={() => { ref.current?.showPicker?.(); ref.current?.focus(); }}
+        style={{ position:"relative",cursor:"pointer" }} className={className}>
+        <div style={{
+          width:"100%",background:"var(--surface2)",border:"1px solid var(--border2)",borderRadius:10,
+          padding:"12px 14px",fontFamily:"var(--font-ui)",fontSize:14,color: value ? "var(--cream)" : "var(--muted)",
+          display:"flex",alignItems:"center",justifyContent:"space-between",cursor:"pointer",
+          transition:"border-color 0.2s,box-shadow 0.2s",
+        }}>
+          <span style={{ fontFamily:"var(--font-mono)",fontSize:13,letterSpacing:0.3 }}>{display === "—" ? "Tap to pick date" : display}</span>
+          <span style={{ fontSize:14,opacity:0.5 }}>📅</span>
+        </div>
+        <input
+          ref={ref}
+          type="date"
+          value={value}
+          onChange={e => onChange(e.target.value)}
+          style={{ position:"absolute",inset:0,opacity:0,width:"100%",height:"100%",cursor:"pointer",border:"none",padding:0 }}
+        />
+      </div>
+    );
+  }
+
+  // ─── Filter Date (smaller variant) ────────────────────────────────────
+  function FilterDateField({ value, onChange }: { value:string; onChange:(v:string)=>void }) {
+    const ref = useRef<HTMLInputElement>(null);
+    const display = fmtDate(value);
+    return (
+      <div onClick={() => { ref.current?.showPicker?.(); ref.current?.focus(); }}
+        style={{ position:"relative",cursor:"pointer",flex:1 }}>
+        <div style={{
+          width:"100%",background:"var(--surface)",border:"1px solid var(--border)",borderRadius:8,
+          padding:"8px 10px",fontFamily:"var(--font-mono)",fontSize:12,color: value ? "var(--cream)" : "var(--muted)",
+          display:"flex",alignItems:"center",justifyContent:"space-between",cursor:"pointer",
+        }}>
+          <span>{display === "—" ? "Pick date" : display}</span>
+          <span style={{ fontSize:11,opacity:0.4 }}>📅</span>
+        </div>
+        <input
+          ref={ref}
+          type="date"
+          value={value}
+          onChange={e => onChange(e.target.value)}
+          style={{ position:"absolute",inset:0,opacity:0,width:"100%",height:"100%",cursor:"pointer",border:"none",padding:0 }}
+        />
+      </div>
+    );
+  }
+
+  // ─── Pill component (reusable) ────────────────────────────────────────
+  function Pill({ text, count, active, color, onClick }: { text:string; count?:number; active:boolean; color?:string; onClick:()=>void }) {
+    const c = color || "var(--gold)";
+    return (
+      <button onClick={onClick} style={{
+        display:"inline-flex",alignItems:"center",gap:6,padding:"6px 12px",borderRadius:100,
+        fontSize:12,fontWeight:600,fontFamily:"var(--font-mono)",cursor:"pointer",
+        border: active ? "none" : "1px solid var(--border2)",
+        background: active ? c : "transparent",
+        color: active ? "#0c0e14" : "var(--muted2)",
+        transition:"all 0.15s",letterSpacing:0.3,minHeight:32,whiteSpace:"nowrap",
+      }}>
+        {text}
+        {count !== undefined && (
+          <span style={{
+            fontFamily:"var(--font-mono)",fontSize:10,fontWeight:600,padding:"2px 6px",borderRadius:20,lineHeight:1.4,letterSpacing:0,
+            background: active ? "rgba(12,14,20,0.25)" : "rgba(46,52,72,0.8)",
+            color: active ? "rgba(12,14,20,0.7)" : "var(--muted)",
+            border: active ? "1px solid rgba(0,0,0,0.12)" : "1px solid var(--border2)",
+          }}>
+            {count}
+          </span>
+        )}
+      </button>
+    );
+  }
 
   return (
     <>
@@ -312,8 +437,6 @@ export default function LibrariesPage() {
         }
         .input::placeholder { color:var(--muted); }
         .input:focus,.select:focus { border-color:var(--gold-dim);box-shadow:0 0 0 3px var(--gold-glow); }
-        .input[type="date"] { cursor:pointer; }
-        .input[type="date"]::-webkit-calendar-picker-indicator { filter:invert(0.4) sepia(1) saturate(2) hue-rotate(5deg);cursor:pointer; }
         .select { cursor:pointer; }
         .select option { background:#1c2030;color:var(--cream); }
         .select-wrapper { position:relative; }
@@ -322,7 +445,7 @@ export default function LibrariesPage() {
         .pass-toggle { position:absolute;right:12px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:var(--muted);font-size:16px;padding:4px;transition:color 0.2s; }
         .pass-toggle:hover { color:var(--cream); }
         .date-row { display:flex;gap:8px; }
-        .date-row .input { flex:1; }
+        .date-row > div { flex:1; }
         .today-btn { background:var(--surface2);border:1px solid var(--border2);border-radius:10px;padding:12px 14px;font-family:var(--font-ui);font-size:12px;font-weight:600;color:var(--gold);cursor:pointer;white-space:nowrap;transition:all 0.2s;letter-spacing:0.3px; }
         .today-btn:hover { border-color:var(--gold-dim);background:var(--gold-glow); }
         .btn-primary {
@@ -372,44 +495,8 @@ export default function LibrariesPage() {
         .modal-close { background:var(--surface2);border:1px solid var(--border2);border-radius:8px;width:32px;height:32px;display:flex;align-items:center;justify-content:center;cursor:pointer;color:var(--muted2);font-size:16px;transition:all 0.2s;line-height:1; }
         .modal-close:hover { color:var(--cream);border-color:var(--muted2); }
         .modal-body { padding:16px 20px 24px;overflow-y:auto;flex:1; }
-        .filter-tabs { display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px; }
-        .filter-tab {
-          display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border-radius:100px;
-          font-size:12px;font-weight:600;font-family:var(--font-mono);cursor:pointer;
-          border:1px solid var(--border2);background:transparent;color:var(--muted2);
-          transition:all 0.15s;letter-spacing:0.3px;min-height:32px;
-        }
-        .filter-tab:hover { border-color:var(--muted2);color:var(--cream); }
-        .filter-tab.active { background:var(--gold);border-color:var(--gold);color:#0c0e14; }
-        .tab-count { font-family:var(--font-mono);font-size:10px;font-weight:600;padding:2px 6px;border-radius:20px;background:rgba(46,52,72,0.8);color:var(--muted);border:1px solid var(--border2);line-height:1.4;letter-spacing:0; }
-        .filter-tab.active .tab-count { background:rgba(12,14,20,0.25);color:rgba(12,14,20,0.7);border-color:rgba(0,0,0,0.12); }
-        .filter-toggle { display:flex;align-items:center;justify-content:space-between;padding:8px 12px;background:var(--surface2);border:1px solid var(--border2);border-radius:8px;cursor:pointer;font-size:12px;color:var(--muted2);font-weight:600;margin-bottom:10px; }
-        .filter-toggle:hover { color:var(--cream); }
-        .filter-grid { display:grid;grid-template-columns:1fr 1fr;gap:10px;padding:12px;background:var(--surface2);border:1px solid var(--border2);border-radius:10px;margin-bottom:12px; }
-        .filter-grid .full { grid-column:1/-1; }
-        .filter-input,.filter-select {
-          width:100%;background:var(--surface);border:1px solid var(--border);border-radius:8px;
-          padding:8px 10px;font-family:var(--font-ui);font-size:12px;color:var(--cream);outline:none;
-          appearance:none;-webkit-appearance:none;
-        }
-        .filter-input::placeholder { color:var(--muted); }
-        .filter-input:focus,.filter-select:focus { border-color:var(--gold-dim); }
-        .filter-input[type="date"] { cursor:pointer; }
-        .filter-input[type="date"]::-webkit-calendar-picker-indicator { filter:invert(0.4) sepia(1) saturate(2) hue-rotate(5deg);cursor:pointer; }
-        .filter-row-label { font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:3px;font-weight:600; }
-        .clear-filters { background:none;border:none;color:var(--gold);cursor:pointer;font-size:11px;font-weight:600;text-decoration:underline;padding:2px 4px;font-family:var(--font-ui); }
         .entry-card { background:var(--surface2);border:1px solid var(--border);border-radius:14px;padding:14px;margin-bottom:10px;transition:border-color 0.2s; }
         .entry-card:hover { border-color:var(--border2); }
-        .entry-header { display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;gap:8px;flex-wrap:wrap; }
-        .entry-badges { display:flex;gap:6px;flex-wrap:wrap;align-items:center; }
-        .sno-badge { font-family:var(--font-mono);font-size:11px;font-weight:600;color:var(--gold);background:var(--gold-glow);border:1px solid rgba(232,168,51,0.2);border-radius:6px;padding:3px 8px;letter-spacing:0.5px; }
-        .lib-badge { font-family:var(--font-mono);font-size:11px;font-weight:700;letter-spacing:0.5px;text-transform:uppercase;padding:3px 8px;border-radius:6px;border:1px solid; }
-        .status-badge { font-size:10px;font-weight:700;padding:3px 8px;border-radius:6px;border:1px solid;letter-spacing:0.4px; }
-        .receipt-badge { font-family:var(--font-mono);font-size:10px;font-weight:700;color:var(--blue);background:var(--blue-dim);border:1px solid rgba(96,165,250,0.25);border-radius:6px;padding:3px 8px;letter-spacing:0.5px; }
-        .entry-info { display:flex;flex-direction:column;gap:4px;margin-bottom:10px; }
-        .entry-meta { font-size:12px;color:var(--muted2); }
-        .entry-amount { font-family:var(--font-mono);font-size:18px;font-weight:700;color:var(--cream); }
-        .entry-remark { font-size:12px;color:var(--muted2);font-style:italic;line-height:1.4;padding-top:4px;border-top:1px dashed var(--border); }
         .entry-actions { display:flex;flex-wrap:wrap;gap:6px;margin-top:10px; }
         .btn-action {
           flex:1;min-width:fit-content;border:none;border-radius:8px;padding:9px 12px;
@@ -431,6 +518,11 @@ export default function LibrariesPage() {
         .pagination .page-info { font-size:12px;color:var(--muted2);font-weight:600; }
         .empty-state { text-align:center;padding:40px 20px;color:var(--muted);font-size:14px; }
         .empty-icon { font-size:40px;margin-bottom:10px;opacity:0.4; }
+        input[type=number]::-webkit-inner-spin-button,input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}
+        input[type=number]{-moz-appearance:textfield}
+        ::-webkit-scrollbar{width:4px;height:4px}
+        ::-webkit-scrollbar-track{background:transparent}
+        ::-webkit-scrollbar-thumb{background:var(--border2);border-radius:4px}
       `}</style>
 
       <div className="page">
@@ -461,8 +553,8 @@ export default function LibrariesPage() {
             </div>
             {authorized && (
               <div className="header-actions">
-                <a href="/admissions" target="_blank" rel="noopener noreferrer" className="header-link">🎓 Admissions ↗</a>
-                <button className="logout-btn" onClick={() => { setAuthorized(false); localStorage.removeItem("librariesAuthorized"); }}>Sign out</button>
+                <a href="/admissions" target="_blank" rel="noopener noreferrer" className="header-link">🎓</a>
+                <button className="logout-btn" onClick={() => { setAuthorized(false); localStorage.removeItem("librariesAuthorized"); }}>⏻</button>
               </div>
             )}
           </div>
@@ -492,7 +584,7 @@ export default function LibrariesPage() {
                   <div className="field-group">
                     <label className="field-label">Date <span className="req">*</span></label>
                     <div className="date-row">
-                      <input type="date" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} onClick={(e) => (e.target as HTMLInputElement).showPicker?.()} className="input" />
+                      <DateField value={form.date} onChange={(v) => setForm({ ...form, date: v })} />
                       <button type="button" className="today-btn" onClick={() => setForm({ ...form, date: new Date().toISOString().split("T")[0] })}>Today</button>
                     </div>
                   </div>
@@ -500,6 +592,7 @@ export default function LibrariesPage() {
                     <label className="field-label">Amount <span className="req">*</span></label>
                     <input type="number" placeholder="₹ 0.00" value={form.amount}
                       onChange={(e) => setForm({ ...form, amount: e.target.value })}
+                      onWheel={e => (e.target as HTMLInputElement).blur()}
                       className="input" style={{ fontFamily: "var(--font-mono)", fontSize: "16px" }} />
                   </div>
                   <div className="field-group">
@@ -538,7 +631,7 @@ export default function LibrariesPage() {
               </form>
             )}
 
-            {/* Entries Banner — replaces old Pending banner */}
+            {/* Entries Banner */}
             {authorized && (
               <div className="entries-banner" onClick={() => { setEntriesOpen(true); }}>
                 <div>
@@ -556,7 +649,7 @@ export default function LibrariesPage() {
           </div>
         </div>
 
-        {/* All Entries Modal */}
+        {/* ═══ ALL ENTRIES MODAL ═══ */}
         {entriesOpen && (
           <div className="modal-overlay" onClick={(e) => { if (e.target === e.currentTarget) setEntriesOpen(false); }}>
             <div className="modal">
@@ -565,121 +658,111 @@ export default function LibrariesPage() {
                 <button className="modal-close" onClick={() => setEntriesOpen(false)}>✕</button>
               </div>
               <div className="modal-body">
-                {/* Status pills */}
-                <div className="filter-tabs">
-                  {(["", "Pending", "Receipt Made", "Not Required"] as StatusFilter[]).map((s) => {
-                    const isActive = fStatus === s;
-                    const count = s === "" ? (statusCounts.Pending + statusCounts["Receipt Made"] + statusCounts["Not Required"]) : (statusCounts[s as keyof StatusCounts] || 0);
+                {/* ── Status pills ── */}
+                <div style={{ display:"flex",flexWrap:"wrap",gap:6,marginBottom:14 }}>
+                  {(["", "Pending", "Receipt Made", "Not Required", "Deleted"] as StatusFilter[]).map((s) => {
+                    const count = s === "" ? (baseStatusCounts.Pending + baseStatusCounts["Receipt Made"] + baseStatusCounts["Not Required"] + (baseStatusCounts.Deleted||0)) : (baseStatusCounts[s as keyof StatusCounts] || 0);
+                    const sc = s ? STATUS_COLORS[s] : null;
                     return (
-                      <button key={s} className={`filter-tab ${isActive ? "active" : ""}`} onClick={() => setFStatus(s)}>
-                        {s || "All"}
-                        <span className="tab-count">{count}</span>
-                      </button>
+                      <Pill key={s||"all"} text={s || "All"} count={count} active={fStatus === s}
+                        color={sc?.color || "var(--gold)"} onClick={() => setFStatus(s)} />
                     );
                   })}
                 </div>
 
-                {/* Filter — Library pills */}
-                <div style={{ marginBottom:10 }}>
+                {/* ── Library pills ── */}
+                <div style={{ marginBottom:12 }}>
                   <div style={{ fontSize:10,fontWeight:700,color:"var(--muted)",textTransform:"uppercase",letterSpacing:0.5,marginBottom:6 }}>Library</div>
                   <div style={{ display:"flex",gap:6,overflowX:"auto",paddingBottom:4 }}>
-                    <button className={`filter-tab ${fLibrary===""?"active":""}`} onClick={() => setFLibrary("")}>
-                      All
-                      <span className="tab-count">{Object.values(libraryCounts).reduce((sum, count) => sum + count, 0)}</span>
-                    </button>
-                    {codes.map((c, i) => (
-                      <button key={i} className={`filter-tab ${fLibrary===c.code?"active":""}`} onClick={() => setFLibrary(c.code)}>
-                        {c.code}
-                        <span className="tab-count">{libraryCounts[c.code] || 0}</span>
-                      </button>
-                    ))}
+                    <Pill text="All" count={Object.values(baseLibCounts).reduce((s,c) => s+c, 0)} active={fLibrary===""} onClick={() => setFLibrary("")} />
+                    {codes.map((c, i) => {
+                      const col = getLibraryColor(c.code);
+                      return (
+                        <Pill key={i} text={c.code} count={baseLibCounts[c.code]||0} active={fLibrary===c.code}
+                          color={col.border} onClick={() => setFLibrary(c.code)} />
+                      );
+                    })}
                   </div>
                 </div>
 
-                {/* Filter — Payment Tag pills */}
-                <div style={{ marginBottom:10 }}>
+                {/* ── Payment Tag pills ── */}
+                <div style={{ marginBottom:12 }}>
                   <div style={{ fontSize:10,fontWeight:700,color:"var(--muted)",textTransform:"uppercase",letterSpacing:0.5,marginBottom:6 }}>Payment Tag</div>
                   <div style={{ display:"flex",gap:6,overflowX:"auto",paddingBottom:4 }}>
-                    <button className={`filter-tab ${fPaymentTag===""?"active":""}`} onClick={() => setFPaymentTag("")}>
-                      All
-                      <span className="tab-count">{Object.values(tagCounts).reduce((sum, count) => sum + count, 0)}</span>
-                    </button>
+                    <Pill text="All" count={Object.values(baseTagCounts).reduce((s,c) => s+c, 0)} active={fPaymentTag===""} onClick={() => setFPaymentTag("")} />
                     {tags.map((t, i) => (
-                      <button key={i} className={`filter-tab ${fPaymentTag===t?"active":""}`} onClick={() => setFPaymentTag(t)}>
-                        {t}
-                        <span className="tab-count">{tagCounts[t] || 0}</span>
-                      </button>
+                      <Pill key={i} text={t} count={baseTagCounts[t]||0} active={fPaymentTag===t}
+                        color={getTagColor(t)} onClick={() => setFPaymentTag(t)} />
                     ))}
                   </div>
                 </div>
 
-                {/* Search bar — always visible (most-used filter) */}
-                <div style={{ position:"relative",marginBottom:10 }}>
-                  <input
-                    className="filter-input"
-                    placeholder="🔍 Search remarks…"
-                    value={fQ}
-                    onChange={(e) => setFQ(e.target.value)}
-                    style={{ padding:"10px 32px 10px 12px",fontSize:13 }}
-                  />
-                  {fQ && (
-                    <button onClick={()=>setFQ("")} style={{ position:"absolute",right:6,top:"50%",transform:"translateY(-50%)",background:"var(--border2)",border:"none",borderRadius:"50%",width:22,height:22,cursor:"pointer",fontSize:13,fontWeight:700,color:"var(--muted2)",display:"flex",alignItems:"center",justifyContent:"center" }}>×</button>
-                  )}
+                {/* ── Search bar ── */}
+                <div style={{ display:"flex",gap:8,marginBottom:10 }}>
+                  <div style={{ position:"relative",flex:1 }}>
+                    <input
+                      className="input"
+                      placeholder="🔍 Search remarks…"
+                      value={fQ}
+                      onChange={(e) => setFQ(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === "Enter") setFQCommitted(fQ); }}
+                      style={{ padding:"10px 32px 10px 12px",fontSize:13,background:"var(--surface2)" }}
+                    />
+                    {fQ && (
+                      <button onClick={()=>{setFQ("");setFQCommitted("");}} style={{ position:"absolute",right:6,top:"50%",transform:"translateY(-50%)",background:"var(--border2)",border:"none",borderRadius:"50%",width:22,height:22,cursor:"pointer",fontSize:13,fontWeight:700,color:"var(--muted2)",display:"flex",alignItems:"center",justifyContent:"center" }}>×</button>
+                    )}
+                  </div>
+                  <button onClick={()=>setFQCommitted(fQ)} style={{ padding:"10px 16px",borderRadius:10,border:"none",background:"var(--gold)",color:"#0c0e14",fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"var(--font-ui)",letterSpacing:0.3,whiteSpace:"nowrap" }}>Search</button>
                 </div>
 
-                {/* Advanced filters toggle (date range + amount range) */}
-                <div className="filter-toggle" onClick={() => setShowFilters(!showFilters)}>
-                  <span>🎛 Advanced Filters {(fDateFrom||fDateTo||fAmountMin||fAmountMax) ? "· active" : ""}</span>
+                {/* ── Advanced filters toggle ── */}
+                <button onClick={() => setShowFilters(!showFilters)} style={{
+                  display:"flex",alignItems:"center",justifyContent:"space-between",width:"100%",
+                  padding:"8px 12px",background:"var(--surface2)",border:"1px solid var(--border2)",borderRadius:8,
+                  cursor:"pointer",fontSize:12,color: hasAdvancedFilters ? "var(--gold)" : "var(--muted2)",fontWeight:600,
+                  marginBottom:10,fontFamily:"var(--font-ui)",
+                }}>
+                  <span>🎛 {hasAdvancedFilters ? "Filters active" : "Date & Amount"}</span>
                   <span>{showFilters ? "▲" : "▼"}</span>
-                </div>
+                </button>
 
                 {showFilters && (
                   <div style={{ display:"flex",flexDirection:"column",gap:10,padding:12,background:"var(--surface2)",border:"1px solid var(--border2)",borderRadius:10,marginBottom:12 }}>
                     <div>
-                      <div className="filter-row-label">Date Range</div>
-                      <div style={{ display:"flex",gap:8 }}>
-                        <input
-                          type="date"
-                          className="filter-input"
-                          value={fDateFrom}
-                          onChange={(e) => setFDateFrom(e.target.value)}
-                          onClick={(e) => (e.target as HTMLInputElement).showPicker?.()}
-                          style={{ flex:1 }}
-                        />
-                        <span style={{ alignSelf:"center",color:"var(--muted)",fontSize:12 }}>→</span>
-                        <input
-                          type="date"
-                          className="filter-input"
-                          value={fDateTo}
-                          onChange={(e) => setFDateTo(e.target.value)}
-                          onClick={(e) => (e.target as HTMLInputElement).showPicker?.()}
-                          style={{ flex:1 }}
-                        />
+                      <div style={{ fontSize:10,fontWeight:700,color:"var(--muted)",textTransform:"uppercase",letterSpacing:0.5,marginBottom:4 }}>Date Range</div>
+                      <div style={{ display:"flex",gap:8,alignItems:"center" }}>
+                        <FilterDateField value={fDateFrom} onChange={setFDateFrom} />
+                        <span style={{ color:"var(--muted)",fontSize:12 }}>→</span>
+                        <FilterDateField value={fDateTo} onChange={setFDateTo} />
                       </div>
                     </div>
                     <div>
-                      <div className="filter-row-label">Amount Range (₹)</div>
-                      <div style={{ display:"flex",gap:8 }}>
-                        <input type="number" className="filter-input" placeholder="Min" value={fAmountMin} onChange={(e) => setFAmountMin(e.target.value)} style={{ flex:1 }} />
-                        <span style={{ alignSelf:"center",color:"var(--muted)",fontSize:12 }}>→</span>
-                        <input type="number" className="filter-input" placeholder="Max" value={fAmountMax} onChange={(e) => setFAmountMax(e.target.value)} style={{ flex:1 }} />
+                      <div style={{ fontSize:10,fontWeight:700,color:"var(--muted)",textTransform:"uppercase",letterSpacing:0.5,marginBottom:4 }}>Amount Range (₹)</div>
+                      <div style={{ display:"flex",gap:8,alignItems:"center" }}>
+                        <input type="number" className="input" placeholder="Min" value={fAmountMin}
+                          onChange={(e) => setFAmountMin(e.target.value)} onWheel={e => (e.target as HTMLInputElement).blur()}
+                          style={{ flex:1,fontSize:12,padding:"8px 10px",background:"var(--surface)" }} />
+                        <span style={{ color:"var(--muted)",fontSize:12 }}>→</span>
+                        <input type="number" className="input" placeholder="Max" value={fAmountMax}
+                          onChange={(e) => setFAmountMax(e.target.value)} onWheel={e => (e.target as HTMLInputElement).blur()}
+                          style={{ flex:1,fontSize:12,padding:"8px 10px",background:"var(--surface)" }} />
                       </div>
                     </div>
                   </div>
                 )}
 
-                {(fLibrary||fPaymentTag||fDateFrom||fDateTo||fAmountMin||fAmountMax||fQ) && (
+                {(fLibrary||fPaymentTag||fDateFrom||fDateTo||fAmountMin||fAmountMax||fQCommitted) && (
                   <div style={{ textAlign:"right",marginBottom:8 }}>
-                    <button className="clear-filters" onClick={clearFilters}>× Clear all filters</button>
+                    <button onClick={clearFilters} style={{ background:"none",border:"none",color:"var(--gold)",cursor:"pointer",fontSize:11,fontWeight:600,textDecoration:"underline",padding:"2px 4px",fontFamily:"var(--font-ui)" }}>× Clear all filters</button>
                   </div>
                 )}
 
-                {/* Result count */}
+                {/* ── Result count ── */}
                 <div style={{ fontSize:11,color:"var(--muted)",marginBottom:10,letterSpacing:0.4 }}>
-                  {loadingEntries ? "Loading…" : `${total} ${total===1?"entry":"entries"}`}
+                  {loadingEntries ? "Loading…" : total === baseTotal || !baseTotal ? `${total} ${total===1?"entry":"entries"}` : `${total} matching of ${baseTotal} total`}
                 </div>
 
-                {/* Entries list */}
+                {/* ═══ ENTRIES LIST ═══ */}
                 {!loadingEntries && entries.length === 0 ? (
                   <div className="empty-state">
                     <div className="empty-icon">📭</div>
@@ -689,34 +772,60 @@ export default function LibrariesPage() {
                   entries.map((entry) => {
                     const col = getLibraryColor(entry.library);
                     const sCol = STATUS_COLORS[entry.status] || STATUS_COLORS["Pending"];
+                    const tCol = getTagColor(entry.paymentTag);
                     const isSyncedFromAdmissions = !!entry.source_key;
                     return (
-                      <div key={entry.row} className="entry-card" style={{ borderLeftWidth:"3px",borderLeftColor:col.border,background:col.bg }}>
-                        <div className="entry-header">
-                          <div className="entry-badges">
-                            <span className="sno-badge">SNO {entry.sno}</span>
-                            <span className="lib-badge" style={{ color:col.text,background:col.badge,borderColor:`${col.border}44` }}>{entry.library}</span>
-                            <span className="status-badge" style={{ background:sCol.bg,color:sCol.color,borderColor:sCol.border }}>{entry.status}</span>
-                            {entry.receipt_no && entry.receipt_no !== "N/A" && (
-                              <span className="receipt-badge">🔗 {entry.receipt_no}</span>
-                            )}
-                            {isSyncedFromAdmissions && (
-                              <span style={{ fontSize:9,color:"var(--blue)",fontWeight:600,letterSpacing:0.4 }}>SYNCED FROM ADMISSIONS</span>
-                            )}
+                      <div key={entry.row} className="entry-card" style={{ borderLeftWidth:3,borderLeftStyle:"solid",borderLeftColor:col.border,background:col.bg }}>
+                        {/* Row 1: SNO + Library + Status + Receipt badges */}
+                        <div style={{ display:"flex",alignItems:"center",gap:6,flexWrap:"wrap",marginBottom:10 }}>
+                          <span style={{ fontFamily:"var(--font-mono)",fontSize:11,fontWeight:600,color:"var(--gold)",background:"var(--gold-glow)",border:"1px solid rgba(232,168,51,0.2)",borderRadius:6,padding:"3px 8px",letterSpacing:0.5 }}>
+                            #{entry.sno}
+                          </span>
+                          <span style={{ fontFamily:"var(--font-mono)",fontSize:11,fontWeight:700,letterSpacing:0.5,textTransform:"uppercase",padding:"3px 8px",borderRadius:6,border:`1px solid ${col.border}44`,color:col.text,background:col.badge }}>
+                            {entry.library}
+                          </span>
+                          <span style={{ fontSize:10,fontWeight:700,padding:"3px 8px",borderRadius:6,border:`1px solid ${sCol.border}`,background:sCol.bg,color:sCol.color,letterSpacing:0.4 }}>
+                            {entry.status}
+                          </span>
+                          {entry.receipt_no && entry.receipt_no !== "N/A" && (
+                            <span style={{ fontFamily:"var(--font-mono)",fontSize:10,fontWeight:700,color:"var(--blue)",background:"var(--blue-dim)",border:"1px solid rgba(96,165,250,0.25)",borderRadius:6,padding:"3px 8px",letterSpacing:0.5 }}>
+                              🔗 {entry.receipt_no}
+                            </span>
+                          )}
+                          {isSyncedFromAdmissions && (
+                            <span style={{ fontSize:9,color:"var(--blue)",fontWeight:600,letterSpacing:0.4 }}>SYNCED</span>
+                          )}
+                        </div>
+
+                        {/* Row 2: Date + Payment Tag + Amount — clean layout */}
+                        <div style={{ display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,marginBottom:6 }}>
+                          <div style={{ display:"flex",alignItems:"center",gap:8,flexWrap:"wrap" }}>
+                            <span style={{ fontSize:13,fontWeight:700,color:"var(--cream)",fontFamily:"var(--font-mono)",letterSpacing:0.3 }}>
+                              {fmtDate(entry.date)}
+                            </span>
+                            <span style={{
+                              fontSize:10,fontWeight:700,padding:"4px 10px",borderRadius:99,letterSpacing:0.5,textTransform:"uppercase",
+                              color:tCol,background:`${tCol}18`,border:`1px solid ${tCol}44`,
+                            }}>
+                              {entry.paymentTag}
+                            </span>
+                          </div>
+                          <div style={{
+                            fontFamily:"var(--font-mono)",fontSize:18,fontWeight:700,letterSpacing:-0.5,
+                            color: entry.amount < 0 ? "var(--red)" : "var(--cream)",
+                          }}>
+                            {entry.amount < 0 ? "−" : ""}₹{Math.abs(entry.amount)}
                           </div>
                         </div>
-                        <div className="entry-info">
-                          <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",gap:10 }}>
-                            <div style={{ display:"flex",alignItems:"center",gap:8,flexWrap:"wrap" }}>
-                              <span style={{ fontSize:12,fontWeight:600,color:"var(--cream)",fontFamily:"var(--font-mono)",letterSpacing:0.3 }}>{fmtDate(entry.date)}</span>
-                              <span style={{ fontSize:10,fontWeight:700,color:"var(--gold)",background:"var(--gold-glow)",border:"1px solid rgba(232,168,51,0.25)",borderRadius:6,padding:"3px 8px",letterSpacing:0.5,textTransform:"uppercase" }}>{entry.paymentTag}</span>
-                            </div>
-                            <div className="entry-amount" style={{ color: entry.amount<0?"var(--red)":"var(--cream)" }}>
-                              {entry.amount<0?"−":""}₹{Math.abs(entry.amount)}
-                            </div>
+
+                        {/* Row 3: Remark (if any) */}
+                        {entry.remark && (
+                          <div style={{ fontSize:12,color:"var(--muted2)",fontStyle:"italic",lineHeight:1.4,paddingTop:6,borderTop:"1px dashed var(--border)" }}>
+                            "{entry.remark}"
                           </div>
-                          {entry.remark && <div className="entry-remark">"{entry.remark}"</div>}
-                        </div>
+                        )}
+
+                        {/* Row 4: Actions */}
                         <div className="entry-actions">
                           <button className="btn-action edit" onClick={() => setEditing(entry)}>✏️ Edit</button>
                           {entry.status === "Pending" && (
@@ -726,10 +835,10 @@ export default function LibrariesPage() {
                             </>
                           )}
                           {entry.status === "Receipt Made" && (
-                            <button className="btn-action unmark" onClick={() => updateReceiptStatus(entry, "Pending")}>↶ Move to Pending</button>
+                            <button className="btn-action unmark" onClick={() => updateReceiptStatus(entry, "Pending")}>↶ Pending</button>
                           )}
                           {entry.status === "Not Required" && (
-                            <button className="btn-action unmark" onClick={() => updateReceiptStatus(entry, "Pending")}>↶ Move to Pending</button>
+                            <button className="btn-action unmark" onClick={() => updateReceiptStatus(entry, "Pending")}>↶ Pending</button>
                           )}
                           <button className="btn-action delete" onClick={() => deleteEntry(entry)}>🗑</button>
                         </div>
@@ -750,7 +859,7 @@ export default function LibrariesPage() {
           </div>
         )}
 
-        {/* Edit Entry Modal */}
+        {/* ═══ EDIT ENTRY MODAL ═══ */}
         {editing && (
           <div className="modal-overlay" onClick={(e) => { if (e.target === e.currentTarget) setEditing(null); }}>
             <div className="modal" style={{ maxWidth:440 }}>
@@ -762,7 +871,7 @@ export default function LibrariesPage() {
                 <div className="form-grid">
                   <div className="field-group">
                     <label className="field-label">Date</label>
-                    <input type="date" className="input" value={editing.dateRaw} onChange={(e) => setEditing({ ...editing, dateRaw: e.target.value })} onClick={(e) => (e.target as HTMLInputElement).showPicker?.()} />
+                    <DateField value={editing.dateRaw} onChange={(v) => setEditing({ ...editing, dateRaw: v })} />
                   </div>
                   <div className="field-group">
                     <label className="field-label">Library</label>
@@ -774,7 +883,10 @@ export default function LibrariesPage() {
                   </div>
                   <div className="field-group">
                     <label className="field-label">Amount</label>
-                    <input type="number" className="input" value={editing.amount} onChange={(e) => setEditing({ ...editing, amount: Number(e.target.value) })} style={{ fontFamily:"var(--font-mono)" }} />
+                    <input type="number" className="input" value={editing.amount}
+                      onChange={(e) => setEditing({ ...editing, amount: Number(e.target.value) })}
+                      onWheel={e => (e.target as HTMLInputElement).blur()}
+                      style={{ fontFamily:"var(--font-mono)" }} />
                   </div>
                   <div className="field-group">
                     <label className="field-label">Payment Tag</label>
@@ -802,7 +914,7 @@ export default function LibrariesPage() {
                   </div>
                   {editing.source_key && (
                     <div style={{ background:"rgba(96,165,250,0.08)",border:"1px solid rgba(96,165,250,0.2)",borderRadius:10,padding:"10px 12px",fontSize:11,color:"var(--blue)",lineHeight:1.5 }}>
-                      🔗 This entry was synced from Admissions (source: {editing.source_key}). Editing here will not update the linked receipt in Admissions.
+                      🔗 Synced from Admissions (source: {editing.source_key}). Editing here won't update the linked receipt.
                     </div>
                   )}
                   <div style={{ display:"flex",gap:8 }}>
