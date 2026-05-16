@@ -203,7 +203,7 @@ function LibraryPill({ text, active, color, onClick }: { text:string;active:bool
 function LibraryBranchFilter({ filterLib, setFilterLib, filterBranch, setFilterBranch, libraries, branches, counts, totalCount }: { filterLib:string;setFilterLib:(v:string)=>void;filterBranch:string;setFilterBranch:(v:string)=>void;libraries:Library[];branches:Branch[];counts:Record<string,number>;totalCount:number }) {
   const activeBranches = filterLib ? (branches||[]).filter((b:Branch)=>b.library_code===filterLib&&b.active) : [];
   const libHasBranches = filterLib ? (libraries||[]).find(l=>l.library_code===filterLib)?.has_branches : false;
-  function getLibCount(lc:string):number { const lib=libraries.find(l=>l.library_code===lc); if(lib?.has_branches){ return branches.filter(b=>b.library_code===lc).reduce((s,b)=>s+(counts[b.branch_code]||0),counts[lc]||0); } return counts[lc]||0; }
+  function getLibCount(lc:string):number { const lib=libraries.find(l=>l.library_code===lc); if(lib?.has_branches){ return branches.filter(b=>b.library_code===lc).reduce((s,b)=>s+(counts[b.branch_code]||0),0); } return counts[lc]||0; }
   return (<div style={{ marginBottom:12 }}>
     <div style={{ display:"flex",gap:6,overflowX:"auto",paddingBottom:4 }}>
       <Pill text={`All (${totalCount})`} active={filterLib===""} onClick={()=>{setFilterLib("");setFilterBranch("");}} />
@@ -433,8 +433,8 @@ export default function AdmissionsPage() {
           <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",paddingBottom:14 }}>
             <div><div style={{ fontSize:11,color:"#94a3b8",letterSpacing:2,textTransform:"uppercase",fontWeight:600 }}>Locate Library</div><div style={{ fontSize:20,fontWeight:800,color:"#fff",marginTop:2 }}>Library Admissions</div></div>
             <div style={{ display:"flex",gap:8,alignItems:"center" }}>
-              <a href="/libraries-9608" target="_blank" rel="noopener noreferrer" style={{ fontSize:12,color:"#fbbf24",background:"rgba(251,191,36,0.1)",border:"1px solid rgba(251,191,36,0.25)",borderRadius:8,padding:"6px 12px",cursor:"pointer",fontWeight:600,fontFamily:"'DM Sans',sans-serif",textDecoration:"none" }}>💰 Fee Panel ↗</a>
-              <button onClick={logout} style={{ fontSize:12,color:"#f87171",background:"rgba(239,68,68,0.1)",border:"1px solid rgba(239,68,68,0.2)",borderRadius:8,padding:"6px 12px",cursor:"pointer",fontWeight:600,fontFamily:"'DM Sans',sans-serif" }}>Logout</button>
+              <a href="/libraries-9608" target="_blank" rel="noopener noreferrer" style={{ fontSize:12,color:"#fbbf24",background:"rgba(251,191,36,0.1)",border:"1px solid rgba(251,191,36,0.25)",borderRadius:8,padding:"6px 12px",cursor:"pointer",fontWeight:600,fontFamily:"'DM Sans',sans-serif",textDecoration:"none" }}>💰</a>
+              <button onClick={logout} style={{ fontSize:12,color:"#f87171",background:"rgba(239,68,68,0.1)",border:"1px solid rgba(239,68,68,0.2)",borderRadius:8,padding:"6px 12px",cursor:"pointer",fontWeight:600,fontFamily:"'DM Sans',sans-serif" }}>⏻</button>
             </div>
           </div>
           <div style={{ display:"flex",borderTop:"1px solid rgba(255,255,255,0.06)" }}>
