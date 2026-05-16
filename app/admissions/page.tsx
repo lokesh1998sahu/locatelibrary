@@ -5,7 +5,7 @@ const API      = "/api/admissions";
 const PASSWORD = process.env.NEXT_PUBLIC_ADMISSIONS_PASSWORD!;
 
 // ── TYPES ─────────────────────────────────────────────────────────────────────
-type Tab         = "receipt" | "students" | "board" | "dues" | "pending" | "settings";
+type Tab         = "receipt" | "records" | "board" | "dues" | "pending" | "settings";
 type ReceiptStep = "library" | "type" | "search" | "form" | "result";
 type EntryType   = "NEW" | "RENEWAL";
 
@@ -200,6 +200,23 @@ function LibraryHeader({ library, branch, libraries, branches, prefix }: { libra
 }
 function Pill({ text, active, onClick }: { text:string;active:boolean;onClick:()=>void }) { return (<button onClick={onClick} style={{ padding:"7px 14px",borderRadius:99,border:"none",background:active?"#6366f1":"#f1f5f9",color:active?"#fff":"#64748b",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",transition:"all 0.15s",whiteSpace:"nowrap" }}>{text}</button>); }
 function LibraryPill({ text, active, color, onClick }: { text:string;active:boolean;color:string;onClick:()=>void }) { const fg=active?pickTextColor(color):"#64748b"; return (<button onClick={onClick} style={{ padding:"7px 14px",borderRadius:99,border:active?"none":`1.5px solid ${color}55`,background:active?color:`${color}10`,color:active?fg:color,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",transition:"all 0.15s",whiteSpace:"nowrap",boxShadow:active?`0 2px 8px ${color}44`:"none" }}>{text}</button>); }
+function LibraryBranchFilter({ filterLib, setFilterLib, filterBranch, setFilterBranch, libraries, branches, counts, totalCount }: { filterLib:string;setFilterLib:(v:string)=>void;filterBranch:string;setFilterBranch:(v:string)=>void;libraries:Library[];branches:Branch[];counts:Record<string,number>;totalCount:number }) {
+  const activeBranches = filterLib ? (branches||[]).filter((b:Branch)=>b.library_code===filterLib&&b.active) : [];
+  const libHasBranches = filterLib ? (libraries||[]).find(l=>l.library_code===filterLib)?.has_branches : false;
+  function getLibCount(lc:string):number { const lib=libraries.find(l=>l.library_code===lc); if(lib?.has_branches){ return branches.filter(b=>b.library_code===lc).reduce((s,b)=>s+(counts[b.branch_code]||0),counts[lc]||0); } return counts[lc]||0; }
+  return (<div style={{ marginBottom:12 }}>
+    <div style={{ display:"flex",gap:6,overflowX:"auto",paddingBottom:4 }}>
+      <Pill text={`All (${totalCount})`} active={filterLib===""} onClick={()=>{setFilterLib("");setFilterBranch("");}} />
+      {libraries.filter((l:Library)=>l.active).map((l:Library)=>{const c=l.color||"#6366f1";const isActive=filterLib===l.library_code&&!filterBranch;return <LibraryPill key={l.library_code} text={`${l.library_code} (${getLibCount(l.library_code)})`} active={isActive} color={c} onClick={()=>{if(filterLib===l.library_code&&!filterBranch){setFilterLib("");setFilterBranch("");}else{setFilterLib(l.library_code);setFilterBranch("");}}} />;})}
+    </div>
+    {filterLib&&libHasBranches&&activeBranches.length>0&&(
+      <div style={{ display:"flex",gap:6,overflowX:"auto",paddingBottom:4,marginTop:8,paddingLeft:12,borderLeft:"3px solid "+(libraries.find(l=>l.library_code===filterLib)?.color||"#6366f1")+"55" }}>
+        <Pill text={`All ${filterLib}`} active={filterBranch===""} onClick={()=>setFilterBranch("")} />
+        {activeBranches.map((b:Branch)=>{const bc=b.color||(libraries.find(l=>l.library_code===filterLib)?.color)||"#6366f1";return <LibraryPill key={b.branch_code} text={`${b.branch_code} (${counts[b.branch_code]||0})`} active={filterBranch===b.branch_code} color={bc} onClick={()=>setFilterBranch(filterBranch===b.branch_code?"":b.branch_code)} />;})}
+      </div>
+    )}
+  </div>);
+}
 function Field({ label, children, required }: { label:string;children:React.ReactNode;required?:boolean }) { return (<div style={{ display:"flex",flexDirection:"column",gap:5 }}><span style={{ fontSize:12,fontWeight:700,color:"#64748b",textTransform:"uppercase",letterSpacing:"0.06em" }}>{label}{required&&<span style={{ color:"#f43f5e",marginLeft:2 }}>*</span>}</span>{children}</div>); }
 function DateInput({ value, onChange }: { value:string;onChange:(v:string)=>void }) {
   const months=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
@@ -227,51 +244,44 @@ function PaymentHistoryInline({ receiptNo, enabled=true }: { receiptNo:string;en
 
 // ── RECEIPT CARD ──────────────────────────────────────────────────────────────
 function ReceiptCard({ r, showCopy=true, libraries=[], branches=[], onEditReceipt, onViewStudent }: { r:ReceiptEntry;showCopy?:boolean;libraries:Library[];branches?:Branch[];onEditReceipt?:(r:ReceiptEntry)=>void;onViewStudent?:(studentId:string,library:string)=>void }) {
-  const [open, setOpen] = useState(false);
   const hasDue = (r.fees_due_balance||0) > 0;
   const validPhones = r.phones?.filter(p=>p.number)||[];
   const libColor = resolveLibColor(r.library, r.branch||"", libraries, branches||[]);
+  const [copied, setCopied] = useState<string|null>(null);
+  function cp(text:string,label:string){navigator.clipboard.writeText(text).then(()=>{setCopied(label);setTimeout(()=>setCopied(null),1500);});}
   return (
-    <div style={{ ...card,marginBottom:8,overflow:"hidden",borderLeft:`4px solid ${libColor}` }}>
-      <div onClick={()=>setOpen(e=>!e)} style={{ cursor:"pointer" }}>
-        <div style={{ display:"flex",alignItems:"flex-start",gap:10 }}>
-          <div style={{ width:44,height:44,borderRadius:12,background:r.type==="NEW"?"linear-gradient(135deg,#10b981,#059669)":"linear-gradient(135deg,#6366f1,#8b5cf6)",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0 }}><span style={{ fontSize:20 }}>{r.type==="NEW"?"✨":"🔄"}</span></div>
-          <div style={{ flex:1,minWidth:0 }}>
-            <div style={{ display:"flex",alignItems:"center",gap:6,flexWrap:"wrap" }}>
-              <span style={{ fontWeight:700,fontSize:14,color:"#1e293b" }}>{r.name}</span>
-              <LibraryBadge text={r.branch||r.library} color={libColor} />
-              <Badge text={r.type} color={r.type==="NEW"?"#10b981":"#6366f1"} />
-              {r.is_cross_library&&r.is_cross_library!=="NO"&&r.is_cross_library!=="YES"&&<Badge text={`FROM ${r.is_cross_library}`} color="#f59e0b" />}
-              {r.is_cross_library==="YES"&&<Badge text="CROSS" color="#f59e0b" />}
-            </div>
-            <div style={{ display:"flex",gap:5,flexWrap:"wrap",marginTop:6 }}>
-              <StudentIdChip id={r.student_id} /><ReceiptChip no={r.receipt_no} />
-              {validPhones.slice(0,2).map((p,i)=><PhoneChip key={i} number={p.number} tag={p.tag} />)}
-            </div>
-            <div style={{ display:"flex",gap:5,flexWrap:"wrap",marginTop:5 }}>
-              <SeatChip seat={r.seat_no} branch={r.branch} color={libColor} />
-              <FeeChip amount={r.fee} />{hasDue&&<FeeChip amount={r.fees_due_balance!} due />}
-              <DateRangeChip from={r.booking_from} to={r.booking_to} />
-            </div>
-            <ShiftBadge shift_name={r.shift_name} shift_time={r.shift_time} />
-            <PayLinesDisplay r={r} />
-            <div style={{ fontSize:11,color:"#94a3b8",marginTop:3,fontWeight:500 }}>{fmtDateTime(r.generated_at)}</div>
+    <div style={{ ...card,marginBottom:8,borderLeft:`4px solid ${libColor}`,padding:"12px 14px" }}>
+      <div style={{ display:"flex",alignItems:"flex-start",gap:10 }}>
+        <div style={{ flex:1,minWidth:0 }}>
+          <div style={{ display:"flex",alignItems:"center",gap:6,flexWrap:"wrap" }}>
+            <span style={{ fontWeight:700,fontSize:14,color:"#1e293b" }}>{r.name}</span>
+            <LibraryBadge text={r.branch||r.library} color={libColor} />
+            <Badge text={r.type} color={r.type==="NEW"?"#10b981":"#6366f1"} />
+            {r.is_cross_library&&r.is_cross_library!=="NO"&&r.is_cross_library!=="YES"&&<Badge text={`FROM ${r.is_cross_library}`} color="#f59e0b" />}
+            {r.is_cross_library==="YES"&&<Badge text="CROSS" color="#f59e0b" />}
           </div>
-          <span style={{ color:"#94a3b8",fontSize:18,marginTop:2 }}>{open?"▲":"▼"}</span>
+          <div style={{ display:"flex",gap:5,flexWrap:"wrap",marginTop:5 }}>
+            <StudentIdChip id={r.student_id} /><ReceiptChip no={r.receipt_no} />
+            {validPhones.slice(0,1).map((p,i)=><PhoneChip key={i} number={p.number} tag={p.tag} />)}
+          </div>
+          <div style={{ display:"flex",gap:5,flexWrap:"wrap",marginTop:4 }}>
+            <SeatChip seat={r.seat_no} branch={r.branch} color={libColor} />
+            <FeeChip amount={r.fee} />{hasDue&&<FeeChip amount={r.fees_due_balance!} due />}
+            <DateRangeChip from={r.booking_from} to={r.booking_to} />
+          </div>
+          <ShiftBadge shift_name={r.shift_name} shift_time={r.shift_time} />
+          <PayLinesDisplay r={r} />
+          <div style={{ fontSize:10,color:"#94a3b8",marginTop:3,fontWeight:500 }}>{fmtDateTime(r.generated_at)}</div>
+        </div>
+        <div style={{ display:"flex",flexDirection:"column",gap:4,flexShrink:0 }}>
+          {showCopy&&r.registration_text&&<button onClick={()=>cp(r.registration_text,"grp")} title="Copy Group" style={{ ...ghostBtn,padding:"5px 8px",fontSize:10,minHeight:28,background:copied==="grp"?"#ecfdf5":"#eff6ff",color:copied==="grp"?"#059669":"#6366f1",borderColor:copied==="grp"?"#10b981":"#c7d2fe",fontWeight:700 }}>{copied==="grp"?"✓":"📢"}</button>}
+          {showCopy&&r.receipt_text&&<button onClick={()=>cp(r.receipt_text,"stu")} title="Copy Student" style={{ ...ghostBtn,padding:"5px 8px",fontSize:10,minHeight:28,background:copied==="stu"?"#ecfdf5":"#f0fdf4",color:copied==="stu"?"#059669":"#10b981",borderColor:copied==="stu"?"#10b981":"#a7f3d0",fontWeight:700 }}>{copied==="stu"?"✓":"📋"}</button>}
+          {showCopy&&<button onClick={()=>cp(`${r.name} ${r.library} ${r.student_id}`,"con")} title="Copy Contact" style={{ ...ghostBtn,padding:"5px 8px",fontSize:10,minHeight:28,background:copied==="con"?"#ecfdf5":"#fffbeb",color:copied==="con"?"#059669":"#d97706",borderColor:copied==="con"?"#10b981":"#fde68a",fontWeight:700 }}>{copied==="con"?"✓":"📇"}</button>}
+          {onEditReceipt&&<button onClick={()=>onEditReceipt(r)} title="Edit" style={{ ...ghostBtn,padding:"5px 8px",fontSize:10,minHeight:28,fontWeight:700 }}>✏️</button>}
+          {onViewStudent&&<button onClick={()=>onViewStudent(r.student_id,r.library)} title="View Student" style={{ ...ghostBtn,padding:"5px 8px",fontSize:10,minHeight:28,background:`${libColor}10`,color:libColor,borderColor:`${libColor}55`,fontWeight:700 }}>👤</button>}
         </div>
       </div>
-      {open && (
-        <div style={{ marginTop:14,paddingTop:14,borderTop:"1px solid #f1f5f9" }}>
-          <PaymentHistoryInline receiptNo={r.receipt_no} enabled={(r.fees_due||0)>0} />
-          <div style={{ display:"flex",gap:8,flexWrap:"wrap",marginTop:12 }}>
-            {showCopy&&r.registration_text&&<CopyBtn text={r.registration_text} label="Group Copy" />}
-            {showCopy&&r.receipt_text&&<CopyBtn text={r.receipt_text} label="Student Copy" accent="#10b981" />}
-            {showCopy&&<CopyBtn text={`${r.name} ${r.library} ${r.student_id}`} label="Contact" accent="#f59e0b" />}
-            {onEditReceipt&&<button onClick={()=>onEditReceipt(r)} style={{ padding:"12px 14px",borderRadius:12,border:"1.5px solid #6366f133",background:"#eff6ff",color:"#4f46e5",fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",flex:1,minHeight:44 }}>✏️ Edit</button>}
-            {onViewStudent&&<button onClick={()=>onViewStudent(r.student_id,r.library)} style={{ padding:"12px 14px",borderRadius:12,border:"1.5px solid #cbd5e1",background:"#f8fafc",color:"#475569",fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",flex:1,minHeight:44 }}>👤 View</button>}
-          </div>
-        </div>
-      )}
+      <PaymentHistoryInline receiptNo={r.receipt_no} enabled={(r.fees_due||0)>0} />
     </div>
   );
 }
@@ -360,7 +370,7 @@ export default function AdmissionsPage() {
   const [pwError, setPwError] = useState(false);
   const [activeTab, setActiveTab] = useState<Tab>("receipt");
   const [jumpToStudent, setJumpToStudent] = useState<{id:string;library:string}|null>(null);
-  function viewStudent(studentId: string, library: string) { setJumpToStudent({id:studentId,library}); setActiveTab("students"); }
+  function viewStudent(studentId: string, library: string) { setJumpToStudent({id:studentId,library}); setActiveTab("records"); }
   const [loading, setLoading] = useState(false);
   const [loadingLabel, setLoadingLabel] = useState("Loading...");
   const [toast, setToast] = useState<{msg:string;type:"success"|"error"}|null>(null);
@@ -423,12 +433,12 @@ export default function AdmissionsPage() {
           <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",paddingBottom:14 }}>
             <div><div style={{ fontSize:11,color:"#94a3b8",letterSpacing:2,textTransform:"uppercase",fontWeight:600 }}>Locate Library</div><div style={{ fontSize:20,fontWeight:800,color:"#fff",marginTop:2 }}>Library Admissions</div></div>
             <div style={{ display:"flex",gap:8,alignItems:"center" }}>
-              <a href="/libraries-9608" target="_blank" rel="noopener noreferrer" style={{ fontSize:12,color:"#fbbf24",background:"rgba(251,191,36,0.1)",border:"1px solid rgba(251,191,36,0.25)",borderRadius:8,padding:"6px 12px",cursor:"pointer",fontWeight:600,fontFamily:"'DM Sans',sans-serif",textDecoration:"none" }}>💰</a>
-              <button onClick={logout} style={{ fontSize:12,color:"#f87171",background:"rgba(239,68,68,0.1)",border:"1px solid rgba(239,68,68,0.2)",borderRadius:8,padding:"6px 12px",cursor:"pointer",fontWeight:600,fontFamily:"'DM Sans',sans-serif" }}>⏻</button>
+              <a href="/libraries-9608" target="_blank" rel="noopener noreferrer" style={{ fontSize:12,color:"#fbbf24",background:"rgba(251,191,36,0.1)",border:"1px solid rgba(251,191,36,0.25)",borderRadius:8,padding:"6px 12px",cursor:"pointer",fontWeight:600,fontFamily:"'DM Sans',sans-serif",textDecoration:"none" }}>💰 Fee Panel ↗</a>
+              <button onClick={logout} style={{ fontSize:12,color:"#f87171",background:"rgba(239,68,68,0.1)",border:"1px solid rgba(239,68,68,0.2)",borderRadius:8,padding:"6px 12px",cursor:"pointer",fontWeight:600,fontFamily:"'DM Sans',sans-serif" }}>Logout</button>
             </div>
           </div>
           <div style={{ display:"flex",borderTop:"1px solid rgba(255,255,255,0.06)" }}>
-            {([{id:"receipt",icon:"🧾",label:"Receipt"},{id:"students",icon:"👥",label:"Students"},{id:"board",icon:"📋",label:"Board"},{id:"dues",icon:"💰",label:"Dues"},{id:"pending",icon:"📝",label:"Pending"},{id:"settings",icon:"⚙️",label:"Settings"}] as {id:Tab;icon:string;label:string}[]).map(t=>(
+            {([{id:"receipt",icon:"🧾",label:"Receipt"},{id:"records",icon:"📜",label:"Records"},{id:"board",icon:"📋",label:"Board"},{id:"dues",icon:"💰",label:"Dues"},{id:"pending",icon:"📝",label:"Pending"},{id:"settings",icon:"⚙️",label:"Settings"}] as {id:Tab;icon:string;label:string}[]).map(t=>(
               <button key={t.id} onClick={()=>setActiveTab(t.id)} style={{ flex:1,padding:"10px 2px 12px",border:"none",background:"none",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:2,color:activeTab===t.id?"#a5b4fc":"#475569",borderBottom:`2px solid ${activeTab===t.id?"#6366f1":"transparent"}`,fontFamily:"'DM Sans',sans-serif" }}><span style={{ fontSize:15 }}>{t.icon}</span><span style={{ fontSize:10,fontWeight:activeTab===t.id?700:600 }}>{t.label}</span></button>
             ))}
           </div>
@@ -437,7 +447,7 @@ export default function AdmissionsPage() {
       <div style={{ maxWidth:480,margin:"0 auto",padding:"16px 14px 0" }}>
         {initLoading ? (<div style={{ display:"flex",flexDirection:"column",alignItems:"center",padding:"60px 0",gap:16 }}><div style={{ width:32,height:32,borderTop:"3px solid #6366f1",borderRight:"3px solid #e2e8f0",borderBottom:"3px solid #e2e8f0",borderLeft:"3px solid #e2e8f0",borderRadius:"50%",animation:"spin 0.7s linear infinite" }} /><div style={{ fontSize:13,color:"#94a3b8" }}>Loading data…</div></div>) : (<>
           {activeTab==="receipt"&&<ReceiptTab {...tabProps} />}
-          {activeTab==="students"&&<StudentsTab {...tabProps} />}
+          {activeTab==="records"&&<RecordsTab {...tabProps} />}
           {activeTab==="board"&&<BoardTab {...tabProps} />}
           {activeTab==="dues"&&<DuesTab {...tabProps} />}
           {activeTab==="pending"&&<PendingTab {...tabProps} />}
@@ -684,7 +694,7 @@ function ReceiptTab({ showToast,showConfirm,startLoading,stopLoading,libraries,b
         <div style={{ display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8 }}><button onClick={()=>setStep(entryType==="RENEWAL"?"search":"type")} style={ghostBtn}>← Back</button><div style={{ display:"flex",gap:6 }}><Badge text={entryType} color={entryType==="NEW"?"#10b981":"#6366f1"} />{isCrossLib&&crossLibOrigin&&<Badge text={`FROM ${crossLibOrigin}`} color="#f59e0b" />}</div></div>
         <LibraryHeader library={library} branch={branch} libraries={libraries} branches={branches} prefix={entryType==="NEW"?"New Admission":"Renewal"} />
         <div style={{ display:"flex",flexDirection:"column",gap:12 }}>
-          <div style={card}><div style={{ fontSize:13,fontWeight:700,color:"#1e293b",marginBottom:12 }}>👤 Student Details</div><div style={{ display:"flex",flexDirection:"column",gap:10 }}><Field label="Full Name" required><input value={f.name} onChange={e=>setF(p=>({...p,name:e.target.value.toUpperCase()}))} placeholder="FULL NAME" style={inp} /></Field><PhoneFields phones={phones} onChange={setPhones} /><div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:10 }}><Field label="Student ID"><input value={f.manualStudentId||f.studentId} onChange={e=>setF(p=>({...p,manualStudentId:e.target.value.toUpperCase()}))} placeholder="Auto" style={{ ...inp,fontSize:13 }} /></Field><Field label="Seat No."><input value={f.seatNo} onChange={e=>setF(p=>({...p,seatNo:e.target.value.toUpperCase()}))} placeholder="Seat" style={{ ...inp,fontSize:13 }} /></Field></div></div></div>
+          <div style={card}><div style={{ fontSize:13,fontWeight:700,color:"#1e293b",marginBottom:12 }}>👤 Student Details</div><div style={{ display:"flex",flexDirection:"column",gap:10 }}><Field label="Full Name" required><input value={f.name} onChange={e=>setF(p=>({...p,name:e.target.value.toUpperCase()}))} placeholder="FULL NAME" style={inp} /></Field><PhoneFields phones={phones} onChange={setPhones} /><div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:10 }}><Field label="Student ID"><input value={f.manualStudentId||f.studentId} onChange={e=>setF(p=>({...p,manualStudentId:e.target.value.toUpperCase()}))} placeholder="Auto" style={{ ...inp,fontSize:13 }} /></Field><Field label="💺 Seat No." required><input value={f.seatNo} onChange={e=>setF(p=>({...p,seatNo:e.target.value.toUpperCase()}))} placeholder="Enter Seat No." style={{ ...inp,fontSize:14,fontWeight:700,borderColor:"#0891b2",borderWidth:2,background:"#f0fdfa",borderLeft:"5px solid #0891b2" }} /></Field></div></div></div>
           <div style={card}><div style={{ fontSize:13,fontWeight:700,color:"#1e293b",marginBottom:12 }}>⏰ Shift <span style={{ color:"#f43f5e" }}>*</span></div><div style={{ display:"flex",gap:8,flexWrap:"wrap",marginBottom:12 }}>{activeShifts.map((sh:Shift)=>{const fee=(fees as any)[feeKey]?.[sh.shift_key];const isAct=f.shift===sh.shift_key;return (<button key={sh.shift_key} onClick={()=>{setFeeEdited(false);setF(p=>({...p,shift:sh.shift_key}));}} style={{ flex:1,minWidth:90,padding:"12px 8px",borderRadius:12,border:`2px solid ${isAct?"#6366f1":"#e2e8f0"}`,background:isAct?"#eff6ff":"#fff",cursor:"pointer",fontFamily:"'DM Sans',sans-serif",textAlign:"center" }}><div style={{ fontWeight:700,fontSize:13,color:isAct?"#4f46e5":"#1e293b" }}>{sh.shift_name}</div><div style={{ fontSize:10,color:"#94a3b8",marginTop:2 }}>{sh.shift_time}</div><div style={{ fontSize:12,fontWeight:700,color:isAct?"#6366f1":"#64748b",marginTop:4 }}>₹{fee!==undefined?fee:"—"}</div></button>);})}</div>{f.shift&&(<div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,paddingTop:10,borderTop:"1px solid #f1f5f9" }}><Field label="Shift Name"><input value={f.customShiftName} onChange={e=>setF(p=>({...p,customShiftName:e.target.value.toUpperCase()}))} style={{ ...inp,fontSize:13 }} /></Field><Field label="Time"><input value={f.customShiftTime} onChange={e=>setF(p=>({...p,customShiftTime:e.target.value.toUpperCase()}))} style={{ ...inp,fontSize:13 }} /></Field></div>)}</div>
           <div style={card}><div style={{ fontSize:13,fontWeight:700,color:"#1e293b",marginBottom:12 }}>📅 Booking Period <span style={{ color:"#f43f5e" }}>*</span></div><div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10 }}><Field label="From"><DateInput value={f.bookingFrom} onChange={v=>{setBookingToEdited(false);setF(p=>({...p,bookingFrom:v}));}} /></Field><Field label="To"><DateInput value={f.bookingTo} onChange={v=>{setBookingToEdited(true);setF(p=>({...p,bookingTo:v}));}} /></Field></div><Field label="Receipt Date"><DateInput value={f.receiptDate} onChange={v=>setF(p=>({...p,receiptDate:v}))} /></Field></div>
           <div style={card}><div style={{ fontSize:13,fontWeight:700,color:"#1e293b",marginBottom:12 }}>💰 Fees <span style={{ color:"#f43f5e" }}>*</span></div><div style={{ display:"flex",flexDirection:"column",gap:10 }}><Field label="Total Fee (₹)"><NumInput value={f.fee} onChange={v=>{setFeeEdited(true);setF(p=>({...p,fee:v}));}} style={{ fontSize:18,fontWeight:700 }} /></Field>{!multiPay?(<div style={{ display:"flex",gap:8 }}><div style={{ flex:2 }}><Field label="Payment Mode"><select value={f.payMode1} onChange={e=>setF(p=>({...p,payMode1:e.target.value}))} style={selS}><option value="">Select</option>{(activeTags as string[]).map(t=><option key={t} value={t}>{t}</option>)}</select></Field></div><button onClick={()=>setMultiPay(true)} style={{ marginTop:22,padding:"11px 14px",borderRadius:12,border:"1.5px dashed #6366f1",background:"#eff6ff",color:"#6366f1",fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",whiteSpace:"nowrap" }}>+ Split</button></div>):(<div style={{ display:"flex",flexDirection:"column",gap:8 }}><div style={{ display:"flex",justifyContent:"space-between" }}><span style={{ fontSize:12,fontWeight:700,color:"#64748b" }}>Split / Refund</span><button onClick={()=>{setMultiPay(false);setF(p=>({...p,payAmount1:"",payAmount2:"",payAmount3:"",payMode2:"",payMode3:"",feesDue:"0"}));}} style={{ fontSize:11,color:"#ef4444",background:"none",border:"none",cursor:"pointer" }}>Remove</button></div>{([[f.payMode1,f.payAmount1,"payMode1","payAmount1"],[f.payMode2,f.payAmount2,"payMode2","payAmount2"],[f.payMode3,f.payAmount3,"payMode3","payAmount3"]] as [string,string,string,string][]).map(([mode,amt,mK,aK],i)=>(<div key={i} style={{ display:"flex",gap:8 }}><select value={mode} onChange={e=>setF(p=>({...p,[mK]:e.target.value}))} style={{ ...selS,flex:2,fontSize:13 }}><option value="">Mode {i+1}</option>{(activeTags as string[]).map(t=><option key={t} value={t}>{t}</option>)}</select><NumInput value={amt} onChange={v=>setF(p=>({...p,[aK]:v}))} placeholder="₹" style={{ flex:1,fontSize:12 }} /></div>))}<Field label="Fees Due (₹)"><NumInput value={f.feesDue} onChange={v=>setF(p=>({...p,feesDue:v}))} style={{ color:Number(f.feesDue)>0?"#ef4444":"#1e293b" }} /></Field></div>)}</div></div>
@@ -734,12 +744,90 @@ function EditReceiptForm({ receipt, shifts, activeTags, libraries, branches, onC
   return (<div style={{ animation:"slideUp 0.25s ease" }}>
     <div style={{ display:"flex",alignItems:"center",gap:12,marginBottom:16 }}><button onClick={onClose} style={ghostBtn}>← Cancel</button><div style={{ flex:1 }}><div style={{ fontSize:16,fontWeight:800,color:"#1e293b" }}>Edit Receipt</div><div style={{ fontSize:12,color:"#6366f1",fontWeight:600,marginTop:3 }}>{r.receipt_no} · {r.student_id}</div></div></div>
     <div style={{ display:"flex",flexDirection:"column",gap:12 }}>
-      <div style={card}><div style={{ fontSize:13,fontWeight:700,color:"#1e293b",marginBottom:12 }}>👤 Student</div><div style={{ display:"flex",flexDirection:"column",gap:10 }}><Field label="Name *"><input value={f.name} onChange={e=>setF(p=>({...p,name:e.target.value.toUpperCase()}))} style={inp} /></Field><PhoneFields phones={phones} onChange={setPhones} /><Field label="Seat No."><input value={f.seatNo} onChange={e=>setF(p=>({...p,seatNo:e.target.value.toUpperCase()}))} style={inp} /></Field>{libData?.has_branches&&libBranches.length>0&&(<Field label="Branch"><select value={branch} onChange={e=>setBranch(e.target.value)} style={selS}><option value="">— No Branch —</option>{libBranches.map((b:Branch)=><option key={b.branch_code} value={b.branch_code}>{b.branch_code} — {b.branch_display}</option>)}</select></Field>)}</div></div>
+      <div style={card}><div style={{ fontSize:13,fontWeight:700,color:"#1e293b",marginBottom:12 }}>👤 Student</div><div style={{ display:"flex",flexDirection:"column",gap:10 }}><Field label="Name *"><input value={f.name} onChange={e=>setF(p=>({...p,name:e.target.value.toUpperCase()}))} style={inp} /></Field><PhoneFields phones={phones} onChange={setPhones} /><Field label="💺 Seat No."><input value={f.seatNo} onChange={e=>setF(p=>({...p,seatNo:e.target.value.toUpperCase()}))} placeholder="Enter Seat No." style={{ ...inp,fontSize:14,fontWeight:700,borderColor:"#0891b2",borderWidth:2,background:"#f0fdfa",borderLeft:"5px solid #0891b2" }} /></Field>{libData?.has_branches&&libBranches.length>0&&(<Field label="Branch"><select value={branch} onChange={e=>setBranch(e.target.value)} style={selS}><option value="">— No Branch —</option>{libBranches.map((b:Branch)=><option key={b.branch_code} value={b.branch_code}>{b.branch_code} — {b.branch_display}</option>)}</select></Field>)}</div></div>
       <div style={card}><div style={{ fontSize:13,fontWeight:700,color:"#1e293b",marginBottom:12 }}>⏰ Shift</div><div style={{ display:"flex",gap:8,flexWrap:"wrap",marginBottom:8 }}>{(shifts as Shift[]).filter((s:Shift)=>s.active).map((sh:Shift)=>(<button key={sh.shift_key} onClick={()=>pickShift(sh)} style={{ flex:1,minWidth:80,padding:"10px 6px",borderRadius:10,border:`2px solid ${f.shift===sh.shift_key?"#6366f1":"#e2e8f0"}`,background:f.shift===sh.shift_key?"#eff6ff":"#fff",cursor:"pointer",fontFamily:"'DM Sans',sans-serif",textAlign:"center",fontSize:12,fontWeight:700,color:f.shift===sh.shift_key?"#4f46e5":"#1e293b" }}>{sh.shift_name}</button>))}</div><div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:10 }}><Field label="Shift Name"><input value={f.customShiftName} onChange={e=>setF(p=>({...p,customShiftName:e.target.value.toUpperCase()}))} style={{ ...inp,fontSize:13 }} /></Field><Field label="Time"><input value={f.customShiftTime} onChange={e=>setF(p=>({...p,customShiftTime:e.target.value.toUpperCase()}))} style={{ ...inp,fontSize:13 }} /></Field></div></div>
       <div style={card}><div style={{ fontSize:13,fontWeight:700,color:"#1e293b",marginBottom:12 }}>📅 Booking</div><div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10 }}><Field label="From"><DateInput value={f.bookingFrom} onChange={v=>setF(p=>({...p,bookingFrom:v}))} /></Field><Field label="To"><DateInput value={f.bookingTo} onChange={v=>setF(p=>({...p,bookingTo:v}))} /></Field></div><Field label="Receipt Date"><DateInput value={f.receiptDate} onChange={v=>setF(p=>({...p,receiptDate:v}))} /></Field></div>
       <div style={card}><div style={{ fontSize:13,fontWeight:700,color:"#1e293b",marginBottom:12 }}>💰 Fees</div><div style={{ display:"flex",flexDirection:"column",gap:10 }}><Field label="Total Fee (₹)"><NumInput value={f.fee} onChange={v=>setF(p=>({...p,fee:v}))} style={{ fontSize:18,fontWeight:700 }} /></Field>{!multiPay?(<div style={{ display:"flex",gap:8 }}><div style={{ flex:2 }}><Field label="Payment Mode"><select value={f.payMode1} onChange={e=>setF(p=>({...p,payMode1:e.target.value}))} style={selS}><option value="">Select</option>{(activeTags as string[]).map(t=><option key={t} value={t}>{t}</option>)}</select></Field></div><button onClick={()=>setMultiPay(true)} style={{ marginTop:22,padding:"11px 14px",borderRadius:12,border:"1.5px dashed #6366f1",background:"#eff6ff",color:"#6366f1",fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"'DM Sans',sans-serif" }}>+ Split</button></div>):(<div style={{ display:"flex",flexDirection:"column",gap:8 }}><div style={{ display:"flex",justifyContent:"space-between" }}><span style={{ fontSize:12,fontWeight:700,color:"#64748b" }}>Split / Refund</span><button onClick={()=>{setMultiPay(false);setF(p=>({...p,payAmount1:"",payAmount2:"",payAmount3:"",payMode2:"",payMode3:"",feesDue:"0"}));}} style={{ fontSize:11,color:"#ef4444",background:"none",border:"none",cursor:"pointer" }}>Remove</button></div>{([[f.payMode1,f.payAmount1,"payMode1","payAmount1"],[f.payMode2,f.payAmount2,"payMode2","payAmount2"],[f.payMode3,f.payAmount3,"payMode3","payAmount3"]] as [string,string,string,string][]).map(([mode,amt,mK,aK],i)=>(<div key={i} style={{ display:"flex",gap:8 }}><select value={mode} onChange={e=>setF(p=>({...p,[mK]:e.target.value}))} style={{ ...selS,flex:2,fontSize:13 }}><option value="">Mode {i+1}</option>{(activeTags as string[]).map(t=><option key={t} value={t}>{t}</option>)}</select><NumInput value={amt} onChange={v=>setF(p=>({...p,[aK]:v}))} placeholder="₹" style={{ flex:1,fontSize:12 }} /></div>))}<Field label="Fees Due (₹)"><NumInput value={f.feesDue} onChange={v=>setF(p=>({...p,feesDue:v}))} /></Field></div>)}</div></div>
       <button onClick={save} style={primaryBtn}>Save Receipt Changes →</button>
     </div>
+  </div>);
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// RECORDS TAB — contains Receipts (history) + Students sub-views
+// ═══════════════════════════════════════════════════════════════════
+function RecordsTab(props:any) {
+  const [view, setView] = useState<"receipts"|"students">(props.jumpToStudent?"students":"receipts");
+  useEffect(()=>{if(props.jumpToStudent) setView("students");},[props.jumpToStudent]);
+  return (<div>
+    <div style={{ display:"flex",gap:8,marginBottom:14 }}>
+      <Pill text="🧾 Receipts" active={view==="receipts"} onClick={()=>setView("receipts")} />
+      <Pill text="👥 Students" active={view==="students"} onClick={()=>setView("students")} />
+    </div>
+    {view==="receipts"&&<ReceiptsHistoryView {...props} />}
+    {view==="students"&&<StudentsTab {...props} />}
+  </div>);
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// RECEIPTS HISTORY VIEW (moved from BoardTab)
+// ═══════════════════════════════════════════════════════════════════
+function ReceiptsHistoryView({ showToast,startLoading,stopLoading,libraries,shifts,activeTags,branches,viewStudent,showConfirm }:any) {
+  const [receipts, setReceipts] = useState<ReceiptEntry[]>([]);
+  const [filterLib, setFilterLib] = useState("");
+  const [filterBranch, setFilterBranch] = useState("");
+  const [searchQ, setSearchQ] = useState("");
+  const [searchType, setSearchType] = useState<"name"|"phone"|"student_id"|"receipt_no">("name");
+  const [searching, setSearching] = useState(false);
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(0);
+  const [historyTotal, setHistoryTotal] = useState(0);
+  const [historyCounts, setHistoryCounts] = useState<Record<string,number>>({});
+  const [historyTotalCount, setHistoryTotalCount] = useState(0);
+  const [editReceipt, setEditReceipt] = useState<ReceiptEntry|null>(null);
+  const isSubmitting = useRef(false);
+  const effectiveLib = filterBranch || filterLib;
+
+  async function loadHistory(pg=1, opts?:{lib?:string;type?:string;q?:string}) {
+    const useLib=opts?.lib!==undefined?opts.lib:effectiveLib;const useQ=opts?.q!==undefined?opts.q:searchQ;
+    const useType=opts?.type||searchType;
+    const trimmedQ=useQ.trim();const isSearch=trimmedQ.length>=2;
+    if(isSearch) setSearching(true); else startLoading("Loading receipts...");
+    try {
+      const params=new URLSearchParams({action:"getReceiptLog",library:useLib,q:trimmedQ,search_type:useType,page:String(pg),limit:"20"});
+      const res=await fetch(`${API}?${params}`);const d=await res.json();
+      if(d.ok){setReceipts(d.receipts||[]);setPage(d.page);setTotalPages(d.totalPages);setHistoryTotal(d.total||0);if(isSearch&&(d.receipts||[]).length===0)showToast("No matches.","error");}else showToast(d.error||"Failed.","error");
+    } catch{showToast("Network error.","error");}
+    if(isSearch) setSearching(false); else stopLoading();
+  }
+
+  async function loadHistoryCounts() {
+    try{const r0=await fetch(`${API}?action=getReceiptLog&library=&q=&page=1&limit=1`);const d0=await r0.json();if(d0.ok)setHistoryTotalCount(d0.total||0);}catch{}
+    const ct:Record<string,number>={};
+    for(const lib of (libraries as Library[]).filter((l:Library)=>l.active)){try{const r2=await fetch(`${API}?action=getReceiptLog&library=${lib.library_code}&q=&page=1&limit=1`);const d2=await r2.json();if(d2.ok)ct[lib.library_code]=d2.total||0;}catch{}}
+    for(const br of (branches as Branch[]).filter((b:Branch)=>b.active)){try{const r3=await fetch(`${API}?action=getReceiptLog&library=${br.branch_code}&q=&page=1&limit=1`);const d3=await r3.json();if(d3.ok)ct[br.branch_code]=d3.total||0;}catch{}}
+    setHistoryCounts(ct);
+  }
+
+  useEffect(()=>{loadHistory(1);loadHistoryCounts();},[filterLib,filterBranch]);
+
+  if(editReceipt) return <EditReceiptForm receipt={editReceipt} shifts={shifts} activeTags={activeTags} libraries={libraries} branches={branches} onClose={()=>{setEditReceipt(null);loadHistory(page);}} showToast={showToast} showConfirm={showConfirm} startLoading={startLoading} stopLoading={stopLoading} isSubmitting={isSubmitting} />;
+
+  return (<div>
+    <LibraryBranchFilter filterLib={filterLib} setFilterLib={setFilterLib} filterBranch={filterBranch} setFilterBranch={setFilterBranch} libraries={libraries} branches={branches} counts={historyCounts} totalCount={historyTotalCount} />
+    <div style={{ fontSize:12,color:"#94a3b8",marginBottom:10 }}>{historyTotal} receipts{effectiveLib?` in ${effectiveLib}`:""}{searchQ.trim()?` matching "${searchQ.trim()}"`:""}</div>
+    <div style={{ fontSize:12,fontWeight:700,color:"#94a3b8",textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:6 }}>Search By</div>
+    <div style={{ display:"flex",gap:6,overflowX:"auto",paddingBottom:4,marginBottom:10 }}>
+      {([{k:"name",label:"Name"},{k:"phone",label:"Phone"},{k:"student_id",label:"Student ID"},{k:"receipt_no",label:"Receipt No."}] as {k:typeof searchType;label:string}[]).map(t=>(<button key={t.k} onClick={()=>{setSearchType(t.k);if(searchQ.trim().length>=2)loadHistory(1,{type:t.k});}} style={{ padding:"6px 12px",borderRadius:99,border:"none",background:searchType===t.k?"#0f766e":"#f1f5f9",color:searchType===t.k?"#fff":"#64748b",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",whiteSpace:"nowrap",minHeight:30 }}>{t.label}</button>))}
+    </div>
+    <div style={{ display:"flex",gap:8,marginBottom:12 }}>
+      <input value={searchQ} onChange={e=>setSearchQ(e.target.value)} placeholder={searchType==="name"?"Enter Name":searchType==="phone"?"Enter Phone":searchType==="student_id"?"Enter Student ID":searchType==="receipt_no"?"Enter Receipt No.":"Name / Phone / ID / Receipt"} style={{ ...inp,flex:1 }} />
+      <button onClick={()=>loadHistory(1)} disabled={searching} style={{ padding:"11px 18px",borderRadius:12,border:"none",background:searching?"#94a3b8":"#6366f1",color:"#fff",fontWeight:700,cursor:searching?"wait":"pointer",fontFamily:"'DM Sans',sans-serif",fontSize:14,minWidth:80 }}>{searching?"...":"Go"}</button>
+      {searchQ&&<button onClick={()=>{setSearchQ("");setSearchType("name");loadHistory(1,{q:"",type:"name"});}} style={{ ...ghostBtn,padding:"11px 14px",fontSize:13 }}>Clear</button>}
+    </div>
+    {receipts.map((r,i)=><ReceiptCard key={i} r={r} libraries={libraries} branches={branches} onEditReceipt={setEditReceipt} onViewStudent={viewStudent} />)}
+    {receipts.length===0&&<div style={{ textAlign:"center",padding:"40px 0",color:"#94a3b8" }}><div style={{ fontSize:36,marginBottom:8 }}>📜</div><div style={{ fontSize:14,color:"#1e293b" }}>No receipts found.</div></div>}
+    <Pagination page={page} totalPages={totalPages} onChange={pg=>loadHistory(pg)} />
   </div>);
 }
 
@@ -753,6 +841,8 @@ function StudentsTab({ showToast,showConfirm,startLoading,stopLoading,libraries,
   const [searchQ, setSearchQ] = useState("");
   const [searchType, setSearchType] = useState<"name"|"phone"|"student_id">("name");
   const [filterLib, setFilterLib] = useState("");
+  const [filterBranch, setFilterBranch] = useState("");
+  const effectiveLibS = filterBranch || filterLib;
   const [students, setStudents] = useState<Student[]>([]);
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(0);
@@ -772,7 +862,7 @@ function StudentsTab({ showToast,showConfirm,startLoading,stopLoading,libraries,
 
   async function loadAll(pg=1) {
     startLoading("Loading students..."); try {
-      const params=new URLSearchParams({action:"getAllStudents",library:filterLib,page:String(pg),limit:"20"});
+      const params=new URLSearchParams({action:"getAllStudents",library:effectiveLibS,page:String(pg),limit:"20"});
       const res=await fetch(`${API}?${params}`); const d=await res.json();
       if(d.ok){setStudents(d.students||[]);setPage(d.page);setTotalPages(d.totalPages);setTotal(d.total);setSearched(true);}
     } catch{showToast("Failed.","error");} stopLoading();
@@ -780,12 +870,12 @@ function StudentsTab({ showToast,showConfirm,startLoading,stopLoading,libraries,
   async function doSearch(pg=1) {
     if(!searchQ.trim()){loadAll(pg);return;}
     startLoading("Searching..."); try {
-      const params=new URLSearchParams({action:"searchStudents",q:searchQ.trim(),library:filterLib,search_type:searchType});
+      const params=new URLSearchParams({action:"searchStudents",q:searchQ.trim(),library:effectiveLibS,search_type:searchType});
       const res=await fetch(`${API}?${params}`); const d=await res.json();
       if(d.ok){setStudents(d.results||[]);setPage(1);setTotalPages(1);setTotal(d.results?.length||0);setSearched(true);}
     } catch{showToast("Failed.","error");} stopLoading();
   }
-  useEffect(()=>{loadAll(1);},[filterLib]);
+  useEffect(()=>{loadAll(1);},[filterLib,filterBranch]);
   async function loadCounts(){try{const r=await fetch(`${API}?action=getStudentCounts`);const d=await r.json();if(d.ok){setCounts(d.counts||{});setTotalCount(d.total||0);}}catch{}}
   useEffect(()=>{loadCounts();},[]);
 
@@ -912,10 +1002,7 @@ function StudentsTab({ showToast,showConfirm,startLoading,stopLoading,libraries,
       <button onClick={()=>setView("add")} style={{ flex:1,padding:"11px",borderRadius:12,border:"2px dashed #6366f1",background:"#eff6ff",color:"#4f46e5",fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"'DM Sans',sans-serif" }}>+ New Student</button>
       <button onClick={()=>setView("addPast")} style={{ flex:1,padding:"11px",borderRadius:12,border:"2px dashed #f59e0b",background:"#fffbeb",color:"#d97706",fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"'DM Sans',sans-serif" }}>+ Past Student</button>
     </div>
-    <div style={{ display:"flex",gap:6,overflowX:"auto",paddingBottom:4,marginBottom:12 }}>
-      <Pill text={`All (${totalCount})`} active={filterLib===""} onClick={()=>setFilterLib("")} />
-      {(libraries as Library[]).filter((l:Library)=>l.active).map((l:Library)=>{const c=l.color||"#6366f1";let n=counts[l.library_code]||0;if(l.has_branches){n=(branches as Branch[]).filter((b:Branch)=>b.library_code===l.library_code).reduce((sum:number,b:Branch)=>sum+(counts[b.branch_code]||0),n);}return <LibraryPill key={l.library_code} text={`${l.library_code} (${n})`} active={filterLib===l.library_code} color={c} onClick={()=>setFilterLib(l.library_code)} />;})}
-    </div>
+    <LibraryBranchFilter filterLib={filterLib} setFilterLib={setFilterLib} filterBranch={filterBranch} setFilterBranch={setFilterBranch} libraries={libraries} branches={branches} counts={counts} totalCount={totalCount} />
     {/* Search type pills */}
     <div style={{ fontSize:12,fontWeight:700,color:"#94a3b8",textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:6 }}>Search By</div>
     <div style={{ display:"flex",gap:6,overflowX:"auto",paddingBottom:4,marginBottom:10 }}>
@@ -925,7 +1012,7 @@ function StudentsTab({ showToast,showConfirm,startLoading,stopLoading,libraries,
       <input value={searchQ} onChange={e=>setSearchQ(e.target.value)} placeholder={searchType==="name"?"Enter Name":searchType==="phone"?"Enter Phone":searchType==="student_id"?"Enter Student ID":"Name / Phone / ID"} style={{ ...inp,flex:1 }} />
       <button onClick={()=>doSearch(1)} style={{ padding:"11px 18px",borderRadius:12,border:"none",background:"#6366f1",color:"#fff",fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",fontSize:14,minWidth:80 }}>Go</button>
     </div>
-    {searched&&<div style={{ fontSize:12,color:"#94a3b8",marginBottom:10 }}>{total} students{filterLib&&` in ${filterLib}`}</div>}
+    {searched&&<div style={{ fontSize:12,color:"#94a3b8",marginBottom:10 }}>{total} students{effectiveLibS&&` in ${effectiveLibS}`}</div>}
     {students.map((st,i)=>(
       <StudentCard key={i} st={st} libraries={libraries} branches={branches}
         onView={()=>setViewSt(st)}
@@ -942,130 +1029,92 @@ function StudentsTab({ showToast,showConfirm,startLoading,stopLoading,libraries,
 // BOARD TAB — FIXED: history pill counters + total receipts count
 // ═══════════════════════════════════════════════════════════════════
 function BoardTab({ showToast,showConfirm,startLoading,stopLoading,libraries,shifts,activeTags,branches,viewStudent }:any) {
-  const [view, setView] = useState<"pending"|"history">("pending");
   const [pending, setPending] = useState<ReceiptEntry[]>([]);
   const [pendingCounts, setPendingCounts] = useState<Record<string,number>>({});
   const [pendingTotalCount, setPendingTotalCount] = useState(0);
-  const [receipts, setReceipts] = useState<ReceiptEntry[]>([]);
   const [filterLib, setFilterLib] = useState("");
-  const [searchQ, setSearchQ] = useState("");
-  const [searchType, setSearchType] = useState<"name"|"phone"|"student_id"|"receipt_no">("name");
-  const [searching, setSearching] = useState(false);
-  const [page, setPage] = useState(1);
-  const [totalPages, setTotalPages] = useState(0);
+  const [filterBranch, setFilterBranch] = useState("");
+  const effectiveLibB = filterBranch || filterLib;
   const [loaded, setLoaded] = useState(false);
   const [editReceipt, setEditReceipt] = useState<ReceiptEntry|null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [historyTotal, setHistoryTotal] = useState(0);
-  const [historyCounts, setHistoryCounts] = useState<Record<string,number>>({});
-  const [historyTotalCount, setHistoryTotalCount] = useState(0);
   const isSubmitting = useRef(false);
 
   function toggleSelect(rno:string){setSelected(s=>{const ns=new Set(s);ns.has(rno)?ns.delete(rno):ns.add(rno);return ns;});}
   function selectAll(){setSelected(new Set(pending.map(p=>p.receipt_no)));}
   function clearSelect(){setSelected(new Set());}
-  useEffect(()=>{setSelected(new Set());},[view,filterLib]);
+  useEffect(()=>{setSelected(new Set());},[filterLib,filterBranch]);
 
   async function loadPending() {
     startLoading("Loading board..."); try {
-      const res=await fetch(`${API}?action=getPendingBoard&library=${filterLib}`);const d=await res.json();
+      const res=await fetch(`${API}?action=getPendingBoard&library=${effectiveLibB}`);const d=await res.json();
       if(d.ok){setPending(d.pending||[]);setLoaded(true);}
-      if(filterLib){try{const r2=await fetch(`${API}?action=getPendingBoard&library=`);const d2=await r2.json();if(d2.ok)updatePendingCounts(d2.pending||[]);}catch{}}else updatePendingCounts(d.pending||[]);
+      if(effectiveLibB){try{const r2=await fetch(`${API}?action=getPendingBoard&library=`);const d2=await r2.json();if(d2.ok)updatePendingCounts(d2.pending||[]);}catch{}}else updatePendingCounts(d.pending||[]);
     } catch{showToast("Failed.","error");} stopLoading();
   }
-  function updatePendingCounts(allP:ReceiptEntry[]){const ct:Record<string,number>={};allP.forEach(p=>{const k=String(p.library||"").toUpperCase();ct[k]=(ct[k]||0)+1;});setPendingCounts(ct);setPendingTotalCount(allP.length);}
+  function updatePendingCounts(allP:ReceiptEntry[]){const ct:Record<string,number>={};allP.forEach(p=>{const lib=String(p.library||"").toUpperCase();const br=String(p.branch||"").toUpperCase();if(lib)ct[lib]=(ct[lib]||0)+1;if(br)ct[br]=(ct[br]||0)+1;});setPendingCounts(ct);setPendingTotalCount(allP.length);}
 
-  async function loadHistory(pg=1, opts?:{lib?:string;type?:string;q?:string}) {
-    const useLib=opts?.lib!==undefined?opts.lib:filterLib;const useQ=opts?.q!==undefined?opts.q:searchQ;
-    const useType=opts?.type||searchType;
-    const trimmedQ=useQ.trim();const isSearch=trimmedQ.length>=2;
-    if(isSearch) setSearching(true); else startLoading("Loading receipts...");
-    try {
-      const params=new URLSearchParams({action:"getReceiptLog",library:useLib,q:trimmedQ,search_type:useType,page:String(pg),limit:"20"});
-      const res=await fetch(`${API}?${params}`);const d=await res.json();
-      if(d.ok){setReceipts(d.receipts||[]);setPage(d.page);setTotalPages(d.totalPages);setHistoryTotal(d.total||0);if(isSearch&&(d.receipts||[]).length===0)showToast("No matches.","error");}else showToast(d.error||"Failed.","error");
-    } catch{showToast("Network error.","error");}
-    if(isSearch) setSearching(false); else stopLoading();
-  }
-
-  async function loadHistoryCounts() {
-    try{const r0=await fetch(`${API}?action=getReceiptLog&library=&q=&page=1&limit=1`);const d0=await r0.json();if(d0.ok)setHistoryTotalCount(d0.total||0);}catch{}
-    const ct:Record<string,number>={};
-    for(const lib of (libraries as Library[]).filter((l:Library)=>l.active)){try{const r2=await fetch(`${API}?action=getReceiptLog&library=${lib.library_code}&q=&page=1&limit=1`);const d2=await r2.json();if(d2.ok)ct[lib.library_code]=d2.total||0;}catch{}}
-    setHistoryCounts(ct);
-  }
-
-  useEffect(()=>{if(view==="pending")loadPending();else{loadHistory(1);loadHistoryCounts();}},[filterLib,view]);
+  useEffect(()=>{loadPending();},[filterLib,filterBranch]);
 
   async function markUpdated(rno:string){showConfirm(`Mark ${rno} as updated?`,async()=>{startLoading("Updating...");try{const res=await fetch(API,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"markBoardUpdated",payload:{receipt_no:rno}})});const d=await res.json();if(d.ok){showToast("Marked!");loadPending();}else showToast(d.error||"Failed.","error");}catch{showToast("Network error.","error");}stopLoading();});}
   async function bulkMarkUpdated(){const list=Array.from(selected);if(!list.length) return;showConfirm(`Mark ${list.length} receipt${list.length===1?"":"s"} as updated?`,async()=>{startLoading(`Updating ${list.length}...`);let ok=0,fail=0;for(const rno of list){try{const res=await fetch(API,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"markBoardUpdated",payload:{receipt_no:rno}})});const d=await res.json();if(d.ok)ok++;else fail++;}catch{fail++;}}stopLoading();if(fail===0)showToast(`✓ ${ok} marked!`);else showToast(`${ok} done, ${fail} failed.`,"error");clearSelect();loadPending();});}
 
-  if(editReceipt) return <EditReceiptForm receipt={editReceipt} shifts={shifts} activeTags={activeTags} libraries={libraries} branches={branches} onClose={()=>{setEditReceipt(null);view==="pending"?loadPending():loadHistory(page);}} showToast={showToast} showConfirm={showConfirm} startLoading={startLoading} stopLoading={stopLoading} isSubmitting={isSubmitting} />;
+  if(editReceipt) return <EditReceiptForm receipt={editReceipt} shifts={shifts} activeTags={activeTags} libraries={libraries} branches={branches} onClose={()=>{setEditReceipt(null);loadPending();}} showToast={showToast} showConfirm={showConfirm} startLoading={startLoading} stopLoading={stopLoading} isSubmitting={isSubmitting} />;
 
   return (<div>
-    <div style={{ display:"flex",gap:8,marginBottom:14 }}>
-      <Pill text={`📋 Pending (${pending.length})`} active={view==="pending"} onClick={()=>setView("pending")} />
-      <Pill text="📜 History" active={view==="history"} onClick={()=>setView("history")} />
-    </div>
-    <div style={{ display:"flex",gap:6,overflowX:"auto",paddingBottom:4,marginBottom:12 }}>
-      <Pill text={view==="pending"?`All (${pendingTotalCount})`:`All (${historyTotalCount})`} active={filterLib===""} onClick={()=>setFilterLib("")} />
-      {(libraries as Library[]).filter((l:Library)=>l.active).map((l:Library)=>{const c=l.color||"#6366f1";const count=view==="pending"?(pendingCounts[l.library_code]||0):(historyCounts[l.library_code]||0);return <LibraryPill key={l.library_code} text={`${l.library_code} (${count})`} active={filterLib===l.library_code} color={c} onClick={()=>setFilterLib(l.library_code)} />;})}
-    </div>
+    <div style={{ fontSize:16,fontWeight:800,color:"#1e293b",marginBottom:14 }}>📋 Board Pending <span style={{ fontSize:12,color:"#94a3b8",fontWeight:500 }}>({pendingTotalCount} total)</span></div>
+    <LibraryBranchFilter filterLib={filterLib} setFilterLib={setFilterLib} filterBranch={filterBranch} setFilterBranch={setFilterBranch} libraries={libraries} branches={branches} counts={pendingCounts} totalCount={pendingTotalCount} />
 
-    {view==="pending"&&(<>
-      {pending.length>0&&(<div style={{ display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,padding:"10px 14px",background:selected.size>0?"#1e293b":"#f8fafc",borderRadius:12,marginBottom:12,border:`1px solid ${selected.size>0?"#1e293b":"#e2e8f0"}` }}><div style={{ fontSize:13,fontWeight:700,color:selected.size>0?"#fff":"#64748b" }}>{selected.size>0?`${selected.size} selected`:`${pending.length} pending`}</div><div style={{ display:"flex",gap:8 }}>{selected.size===0&&<button onClick={selectAll} style={{ padding:"7px 14px",borderRadius:10,border:"1.5px solid #cbd5e1",background:"#fff",color:"#475569",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif" }}>Select All</button>}{selected.size>0&&<><button onClick={clearSelect} style={{ padding:"7px 14px",borderRadius:10,border:"1.5px solid rgba(255,255,255,0.2)",background:"transparent",color:"#cbd5e1",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif" }}>Clear</button><button onClick={bulkMarkUpdated} style={{ padding:"7px 14px",borderRadius:10,border:"none",background:"#10b981",color:"#fff",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif" }}>✓ Mark {selected.size}</button></>}</div></div>)}
-      {loaded&&pending.length===0&&(<div style={{ textAlign:"center",padding:"48px 0",color:"#94a3b8" }}><div style={{ fontSize:48,marginBottom:10 }}>✅</div><div style={{ fontSize:16,fontWeight:700,color:"#1e293b" }}>All Clear!</div></div>)}
-      {pending.map((entry,i)=>{const isSel=selected.has(entry.receipt_no);const c=resolveLibColor(entry.library,entry.branch||"",libraries,branches);return (
-        <div key={i} style={{ ...card,marginBottom:10,borderLeft:`4px solid ${c}`,background:isSel?`${c}10`:card.background }}>
-          <div style={{ marginBottom:10,display:"flex",alignItems:"flex-start",gap:10 }}>
-            <button onClick={()=>toggleSelect(entry.receipt_no)} style={{ width:24,height:24,borderRadius:6,border:`2px solid ${isSel?c:"#cbd5e1"}`,background:isSel?c:"#fff",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,marginTop:2,padding:0 }}>{isSel&&<span style={{ color:pickTextColor(c),fontSize:14,fontWeight:900 }}>✓</span>}</button>
-            <div style={{ flex:1,minWidth:0 }}>
-              <div style={{ display:"flex",alignItems:"center",gap:6,flexWrap:"wrap" }}><span style={{ fontWeight:700,fontSize:15,color:"#1e293b" }}>{entry.name}</span><LibraryBadge text={entry.branch||entry.library} color={c} /><Badge text={entry.type} color={entry.type==="NEW"?"#10b981":"#6366f1"} /></div>
-              <div style={{ display:"flex",gap:5,flexWrap:"wrap",marginTop:6 }}><StudentIdChip id={entry.student_id} /><ReceiptChip no={entry.receipt_no} /></div>
-              <div style={{ display:"flex",gap:5,flexWrap:"wrap",marginTop:5 }}><SeatChip seat={entry.seat_no} branch={entry.branch} color={c} /><FeeChip amount={entry.fee} />{(entry.fees_due_balance||0)>0&&<FeeChip amount={entry.fees_due_balance!} due />}<DateRangeChip from={entry.booking_from} to={entry.booking_to} /></div>
-              <ShiftBadge shift_name={entry.shift_name} shift_time={entry.shift_time} /><PayLinesDisplay r={entry} />
-              <div style={{ fontSize:11,color:"#94a3b8",marginTop:2 }}>{fmtDateTime(entry.generated_at)}</div>
-            </div>
+    {pending.length>0&&(<div style={{ display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,padding:"10px 14px",background:selected.size>0?"#1e293b":"#f8fafc",borderRadius:12,marginBottom:12,border:`1px solid ${selected.size>0?"#1e293b":"#e2e8f0"}` }}><div style={{ fontSize:13,fontWeight:700,color:selected.size>0?"#fff":"#64748b" }}>{selected.size>0?`${selected.size} selected`:`${pending.length} pending`}</div><div style={{ display:"flex",gap:8 }}>{selected.size===0&&<button onClick={selectAll} style={{ padding:"7px 14px",borderRadius:10,border:"1.5px solid #cbd5e1",background:"#fff",color:"#475569",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif" }}>Select All</button>}{selected.size>0&&<><button onClick={clearSelect} style={{ padding:"7px 14px",borderRadius:10,border:"1.5px solid rgba(255,255,255,0.2)",background:"transparent",color:"#cbd5e1",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif" }}>Clear</button><button onClick={bulkMarkUpdated} style={{ padding:"7px 14px",borderRadius:10,border:"none",background:"#10b981",color:"#fff",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif" }}>✓ Mark {selected.size}</button></>}</div></div>)}
+    {loaded&&pending.length===0&&(<div style={{ textAlign:"center",padding:"48px 0",color:"#94a3b8" }}><div style={{ fontSize:48,marginBottom:10 }}>✅</div><div style={{ fontSize:16,fontWeight:700,color:"#1e293b" }}>All Clear!</div></div>)}
+    {pending.map((entry,i)=>{const isSel=selected.has(entry.receipt_no);const c=resolveLibColor(entry.library,entry.branch||"",libraries,branches);const [cpd,setCpd]=useState<string|null>(null);function cpB(t:string,l:string){navigator.clipboard.writeText(t).then(()=>{setCpd(l);setTimeout(()=>setCpd(null),1500);});}return (
+      <div key={i} style={{ ...card,marginBottom:8,borderLeft:`4px solid ${c}`,background:isSel?`${c}10`:card.background,padding:"12px 14px" }}>
+        <div style={{ display:"flex",alignItems:"flex-start",gap:8 }}>
+          <button onClick={()=>toggleSelect(entry.receipt_no)} style={{ width:22,height:22,borderRadius:6,border:`2px solid ${isSel?c:"#cbd5e1"}`,background:isSel?c:"#fff",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,marginTop:2,padding:0 }}>{isSel&&<span style={{ color:pickTextColor(c),fontSize:12,fontWeight:900 }}>✓</span>}</button>
+          <div style={{ flex:1,minWidth:0 }}>
+            <div style={{ display:"flex",alignItems:"center",gap:6,flexWrap:"wrap" }}><span style={{ fontWeight:700,fontSize:14,color:"#1e293b" }}>{entry.name}</span><LibraryBadge text={entry.branch||entry.library} color={c} /><Badge text={entry.type} color={entry.type==="NEW"?"#10b981":"#6366f1"} /></div>
+            <div style={{ display:"flex",gap:5,flexWrap:"wrap",marginTop:5 }}><StudentIdChip id={entry.student_id} /><ReceiptChip no={entry.receipt_no} /></div>
+            <div style={{ display:"flex",gap:5,flexWrap:"wrap",marginTop:4 }}><SeatChip seat={entry.seat_no} branch={entry.branch} color={c} /><FeeChip amount={entry.fee} />{(entry.fees_due_balance||0)>0&&<FeeChip amount={entry.fees_due_balance!} due />}<DateRangeChip from={entry.booking_from} to={entry.booking_to} /></div>
+            <ShiftBadge shift_name={entry.shift_name} shift_time={entry.shift_time} /><PayLinesDisplay r={entry} />
+            <div style={{ fontSize:10,color:"#94a3b8",marginTop:3 }}>{fmtDateTime(entry.generated_at)}</div>
           </div>
-          <PaymentHistoryInline receiptNo={entry.receipt_no} enabled={(entry.fees_due||0)>0} />
-          <div style={{ display:"flex",gap:8,flexWrap:"wrap",marginTop:12 }}>
-            {entry.registration_text&&<CopyBtn text={entry.registration_text} label="Group" />}
-            {entry.receipt_text&&<CopyBtn text={entry.receipt_text} label="Student" accent="#10b981" />}
-            <CopyBtn text={`${entry.name} ${entry.library} ${entry.student_id}`} label="Contact" accent="#f59e0b" />
-            <button onClick={()=>setEditReceipt(entry)} style={{ padding:"12px 14px",borderRadius:12,border:`1.5px solid ${c}55`,background:`${c}10`,color:c,fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",minHeight:44 }}>✏️</button>
-            {viewStudent&&<button onClick={()=>viewStudent(entry.student_id,entry.library)} style={{ padding:"12px 14px",borderRadius:12,border:"1.5px solid #cbd5e1",background:"#f8fafc",color:"#475569",fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",minHeight:44 }}>👤</button>}
-            <button onClick={()=>markUpdated(entry.receipt_no)} style={{ padding:"12px 14px",borderRadius:12,border:"none",background:"#1e293b",color:"#fff",fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",flex:1,minHeight:44 }}>✓ Mark Updated</button>
+          <div style={{ display:"flex",flexDirection:"column",gap:4,flexShrink:0 }}>
+            {entry.registration_text&&<button onClick={()=>cpB(entry.registration_text,"grp")} title="Group" style={{ ...ghostBtn,padding:"5px 8px",fontSize:10,minHeight:28,background:cpd==="grp"?"#ecfdf5":"#eff6ff",color:cpd==="grp"?"#059669":"#6366f1",borderColor:cpd==="grp"?"#10b981":"#c7d2fe",fontWeight:700 }}>{cpd==="grp"?"✓":"📢"}</button>}
+            {entry.receipt_text&&<button onClick={()=>cpB(entry.receipt_text,"stu")} title="Student" style={{ ...ghostBtn,padding:"5px 8px",fontSize:10,minHeight:28,background:cpd==="stu"?"#ecfdf5":"#f0fdf4",color:cpd==="stu"?"#059669":"#10b981",borderColor:cpd==="stu"?"#10b981":"#a7f3d0",fontWeight:700 }}>{cpd==="stu"?"✓":"📋"}</button>}
+            <button onClick={()=>cpB(`${entry.name} ${entry.library} ${entry.student_id}`,"con")} title="Contact" style={{ ...ghostBtn,padding:"5px 8px",fontSize:10,minHeight:28,background:cpd==="con"?"#ecfdf5":"#fffbeb",color:cpd==="con"?"#059669":"#d97706",borderColor:cpd==="con"?"#10b981":"#fde68a",fontWeight:700 }}>{cpd==="con"?"✓":"📇"}</button>
+            <button onClick={()=>setEditReceipt(entry)} title="Edit" style={{ ...ghostBtn,padding:"5px 8px",fontSize:10,minHeight:28,fontWeight:700 }}>✏️</button>
+            {viewStudent&&<button onClick={()=>viewStudent(entry.student_id,entry.library)} title="View" style={{ ...ghostBtn,padding:"5px 8px",fontSize:10,minHeight:28,background:`${c}10`,color:c,borderColor:`${c}55`,fontWeight:700 }}>👤</button>}
           </div>
         </div>
-      );})}
-    </>)}
-
-    {view==="history"&&(<>
-      <div style={{ fontSize:12,color:"#94a3b8",marginBottom:10 }}>{historyTotal} receipts{filterLib?` in ${filterLib}`:""}{searchQ.trim()?` matching "${searchQ.trim()}"`:""}</div>
-      <div style={{ fontSize:12,fontWeight:700,color:"#94a3b8",textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:6 }}>Search By</div>
-      <div style={{ display:"flex",gap:6,overflowX:"auto",paddingBottom:4,marginBottom:10 }}>
-        {([{k:"name",label:"Name"},{k:"phone",label:"Phone"},{k:"student_id",label:"Student ID"},{k:"receipt_no",label:"Receipt No."}] as {k:typeof searchType;label:string}[]).map(t=>(<button key={t.k} onClick={()=>{setSearchType(t.k);if(searchQ.trim().length>=2)loadHistory(1,{type:t.k});}} style={{ padding:"6px 12px",borderRadius:99,border:"none",background:searchType===t.k?"#0f766e":"#f1f5f9",color:searchType===t.k?"#fff":"#64748b",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",whiteSpace:"nowrap",minHeight:30 }}>{t.label}</button>))}
+        <PaymentHistoryInline receiptNo={entry.receipt_no} enabled={(entry.fees_due||0)>0} />
+        <button onClick={()=>markUpdated(entry.receipt_no)} style={{ width:"100%",padding:"10px",borderRadius:10,border:"none",background:"#1e293b",color:"#fff",fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",marginTop:10,minHeight:38 }}>✓ Mark Updated</button>
       </div>
-      <div style={{ display:"flex",gap:8,marginBottom:12 }}>
-        <input value={searchQ} onChange={e=>setSearchQ(e.target.value)} placeholder={searchType==="name"?"Enter Name":searchType==="phone"?"Enter Phone":searchType==="student_id"?"Enter Student ID":searchType==="receipt_no"?"Enter Receipt No.":"Name / Phone / ID / Receipt"} style={{ ...inp,flex:1 }} />
-        <button onClick={()=>loadHistory(1)} disabled={searching} style={{ padding:"11px 18px",borderRadius:12,border:"none",background:searching?"#94a3b8":"#6366f1",color:"#fff",fontWeight:700,cursor:searching?"wait":"pointer",fontFamily:"'DM Sans',sans-serif",fontSize:14,minWidth:80 }}>{searching?"...":"Go"}</button>
-        {searchQ&&<button onClick={()=>{setSearchQ("");setSearchType("name");loadHistory(1,{q:"",type:"name"});}} style={{ ...ghostBtn,padding:"11px 14px",fontSize:13 }}>Clear</button>}
-      </div>
-      {receipts.map((r,i)=><ReceiptCard key={i} r={r} libraries={libraries} branches={branches} onEditReceipt={setEditReceipt} onViewStudent={viewStudent} />)}
-      {receipts.length===0&&<div style={{ textAlign:"center",padding:"40px 0",color:"#94a3b8" }}><div style={{ fontSize:36,marginBottom:8 }}>📜</div><div style={{ fontSize:14 }}>No receipts found.</div></div>}
-      <Pagination page={page} totalPages={totalPages} onChange={pg=>loadHistory(pg)} />
-    </>)}
+    );})}
   </div>);
 }
 
 // ═══════════════════════════════════════════════════════════════════
 // DUES TAB
 // ═══════════════════════════════════════════════════════════════════
-function DuesTab({ showToast,showConfirm,startLoading,stopLoading,activeTags,libraries,branches,isSubmitting }:any) {
+function DuesTab(props:any) {
+  const [view, setView] = useState<"dues"|"received">("dues");
+  return (<div>
+    <div style={{ display:"flex",gap:8,marginBottom:14 }}>
+      <Pill text="💸 Dues" active={view==="dues"} onClick={()=>setView("dues")} />
+      <Pill text="📜 Received Records" active={view==="received"} onClick={()=>setView("received")} />
+    </div>
+    {view==="dues"&&<DuesOutstandingView {...props} />}
+    {view==="received"&&<ReceivedRecordsView {...props} />}
+  </div>);
+}
+
+function DuesOutstandingView({ showToast,showConfirm,startLoading,stopLoading,activeTags,libraries,branches,isSubmitting }:any) {
   const [pending, setPending] = useState<ReceiptEntry[]>([]);
   const [allCounts, setAllCounts] = useState<Record<string,number>>({});
   const [allTotalCount, setAllTotalCount] = useState(0);
   const [filterLib, setFilterLib] = useState("");
+  const [filterBranch, setFilterBranch] = useState("");
+  const effectiveLibD = filterBranch || filterLib;
   const [quickQ, setQuickQ] = useState("");
   const [quickSearchType, setQuickSearchType] = useState<"name"|"phone"|"student_id"|"receipt_no">("name");
   const [loaded, setLoaded] = useState(false);
@@ -1074,10 +1123,10 @@ function DuesTab({ showToast,showConfirm,startLoading,stopLoading,activeTags,lib
   const [payForm, setPayForm] = useState<Record<string,{mode:string;amount:string;notes:string;date:string}>>({});
   const [resultText, setResultText] = useState<{receiptNo:string;text:string}|null>(null);
 
-  async function load(){startLoading("Loading dues...");try{const res=await fetch(`${API}?action=getPendingDues&library=${filterLib}`);const d=await res.json();if(d.ok){setPending(d.pending||[]);setLoaded(true);}if(filterLib){try{const r2=await fetch(`${API}?action=getPendingDues&library=`);const d2=await r2.json();if(d2.ok)computeCounts(d2.pending||[]);}catch{}}else computeCounts(d.pending||[]);}catch{showToast("Failed.","error");}stopLoading();}
-  function computeCounts(rows:ReceiptEntry[]){const m:Record<string,number>={};rows.forEach(r=>{const key=(r.branch||r.library||"").toUpperCase();if(key)m[key]=(m[key]||0)+1;});setAllCounts(m);setAllTotalCount(rows.length);}
-  useEffect(()=>{load();},[filterLib]);
-  useEffect(()=>{setResultText(null);},[filterLib]);
+  async function load(){startLoading("Loading dues...");try{const res=await fetch(`${API}?action=getPendingDues&library=${effectiveLibD}`);const d=await res.json();if(d.ok){setPending(d.pending||[]);setLoaded(true);}if(effectiveLibD){try{const r2=await fetch(`${API}?action=getPendingDues&library=`);const d2=await r2.json();if(d2.ok)computeCounts(d2.pending||[]);}catch{}}else computeCounts(d.pending||[]);}catch{showToast("Failed.","error");}stopLoading();}
+  function computeCounts(rows:ReceiptEntry[]){const m:Record<string,number>={};rows.forEach(r=>{const lib=(r.library||"").toUpperCase();const br=(r.branch||"").toUpperCase();if(lib)m[lib]=(m[lib]||0)+1;if(br)m[br]=(m[br]||0)+1;});setAllCounts(m);setAllTotalCount(rows.length);}
+  useEffect(()=>{load();},[filterLib,filterBranch]);
+  useEffect(()=>{setResultText(null);},[filterLib,filterBranch]);
 
   async function loadPayments(rno:string){try{const res=await fetch(`${API}?action=getDuePayments&receipt_no=${encodeURIComponent(rno)}`);const d=await res.json();if(d.ok)setPayments(p=>({...p,[rno]:d.payments||[]}));}catch{}}
   function toggleExpand(rno:string){if(expanded===rno){setExpanded(null);return;}setExpanded(rno);loadPayments(rno);if(!payForm[rno])setPayForm(f=>({...f,[rno]:{mode:"",amount:"",notes:"",date:todayDMY()}}));}
@@ -1095,10 +1144,7 @@ function DuesTab({ showToast,showConfirm,startLoading,stopLoading,activeTags,lib
 
   return (<div>
     <div style={{ fontSize:16,fontWeight:800,color:"#1e293b",marginBottom:14 }}>Fee Dues <span style={{ fontSize:12,color:"#94a3b8",fontWeight:500 }}>({pending.length} outstanding)</span></div>
-    <div style={{ display:"flex",gap:6,overflowX:"auto",paddingBottom:4,marginBottom:10 }}>
-      <Pill text={`All (${allTotalCount})`} active={filterLib===""} onClick={()=>setFilterLib("")} />
-      {(libraries as Library[]).filter((l:Library)=>l.active).map((l:Library)=>{const c=l.color||"#6366f1";let n=allCounts[l.library_code]||0;if(l.has_branches)n=(branches as Branch[]).filter((b:Branch)=>b.library_code===l.library_code).reduce((sum:number,b:Branch)=>sum+(allCounts[b.branch_code]||0),n);return <LibraryPill key={l.library_code} text={`${l.library_code} (${n})`} active={filterLib===l.library_code} color={c} onClick={()=>setFilterLib(l.library_code)} />;})}
-    </div>
+    <LibraryBranchFilter filterLib={filterLib} setFilterLib={setFilterLib} filterBranch={filterBranch} setFilterBranch={setFilterBranch} libraries={libraries} branches={branches} counts={allCounts} totalCount={allTotalCount} />
     <div style={{ fontSize:12,fontWeight:700,color:"#94a3b8",textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:6 }}>Search By</div>
     <div style={{ display:"flex",gap:6,overflowX:"auto",paddingBottom:4,marginBottom:10 }}>
       {([{k:"name",label:"Name"},{k:"phone",label:"Phone"},{k:"student_id",label:"Student ID"},{k:"receipt_no",label:"Receipt No."}] as {k:typeof quickSearchType;label:string}[]).map(t=>(<button key={t.k} onClick={()=>setQuickSearchType(t.k)} style={{ padding:"5px 12px",borderRadius:99,border:"none",background:quickSearchType===t.k?"#0f766e":"#f1f5f9",color:quickSearchType===t.k?"#fff":"#64748b",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",whiteSpace:"nowrap" }}>{t.label}</button>))}
@@ -1111,18 +1157,17 @@ function DuesTab({ showToast,showConfirm,startLoading,stopLoading,activeTags,lib
       return (<div key={i} style={{ ...card,marginBottom:10,borderLeft:`4px solid ${c}` }}>
         <div onClick={()=>toggleExpand(entry.receipt_no)} style={{ cursor:"pointer" }}>
           <div style={{ display:"flex",alignItems:"flex-start",gap:10 }}>
-            <div style={{ width:44,height:44,borderRadius:12,background:"linear-gradient(135deg,#ef4444,#dc2626)",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0 }}><span style={{ fontSize:20 }}>💸</span></div>
             <div style={{ flex:1,minWidth:0 }}>
               <div style={{ display:"flex",alignItems:"center",gap:6,flexWrap:"wrap" }}><span style={{ fontWeight:700,fontSize:14,color:"#1e293b" }}>{entry.name}</span><LibraryBadge text={entry.branch||entry.library} color={c} /><Badge text={entry.type} color={entry.type==="NEW"?"#10b981":"#6366f1"} /></div>
-              <div style={{ display:"flex",gap:5,flexWrap:"wrap",marginTop:6 }}><StudentIdChip id={entry.student_id} /><ReceiptChip no={entry.receipt_no} /></div>
-              <div style={{ display:"flex",gap:5,flexWrap:"wrap",marginTop:5 }}><FeeChip amount={entry.fee} /><FeeChip amount={entry.fees_due_balance!} due /><DateRangeChip from={entry.booking_from} to={entry.booking_to} /></div>
+              <div style={{ display:"flex",gap:5,flexWrap:"wrap",marginTop:5 }}><StudentIdChip id={entry.student_id} /><ReceiptChip no={entry.receipt_no} /></div>
+              <div style={{ display:"flex",gap:5,flexWrap:"wrap",marginTop:4 }}><FeeChip amount={entry.fee} /><FeeChip amount={entry.fees_due_balance!} due /><DateRangeChip from={entry.booking_from} to={entry.booking_to} /></div>
               <ShiftBadge shift_name={entry.shift_name} shift_time={entry.shift_time} /><PayLinesDisplay r={entry} />
             </div>
             <span style={{ color:"#94a3b8",fontSize:18,marginTop:2 }}>{isOpen?"▲":"▼"}</span>
           </div>
         </div>
         {isOpen&&(<div style={{ marginTop:14,paddingTop:14,borderTop:"1px solid #f1f5f9" }}>
-          {entryPayments.length>0&&(<div style={{ marginBottom:14 }}><div style={{ fontSize:12,fontWeight:700,color:"#64748b",textTransform:"uppercase",marginBottom:8 }}>Payment History</div>{entryPayments.map((pay,j)=>(<div key={j} style={{ background:"#f8fafc",borderRadius:10,padding:"10px 12px",marginBottom:6 }}><div style={{ display:"flex",justifyContent:"space-between" }}><span><strong>₹{pay.amount_received}</strong> via {pay.payment_mode}</span><span style={{ fontSize:11,color:"#94a3b8" }}>Bal: ₹{pay.balance_after}</span></div><div style={{ fontSize:11,color:"#94a3b8",marginTop:4 }}>{fmtDateOnly(pay.received_on)}</div></div>))}</div>)}
+          {entryPayments.length>0&&(<div style={{ marginBottom:14 }}><div style={{ fontSize:12,fontWeight:700,color:"#64748b",textTransform:"uppercase",marginBottom:8 }}>Payment History</div>{entryPayments.map((pay,j)=>(<div key={j} style={{ background:"#f8fafc",borderRadius:10,padding:"10px 12px",marginBottom:6 }}><div style={{ display:"flex",justifyContent:"space-between" }}><span style={{ color:"#1e293b" }}><strong>₹{pay.amount_received}</strong> via {pay.payment_mode}</span><span style={{ fontSize:11,color:"#94a3b8" }}>Bal: ₹{pay.balance_after}</span></div><div style={{ fontSize:11,color:"#94a3b8",marginTop:4 }}>{fmtDateOnly(pay.received_on)}</div></div>))}</div>)}
           <div style={{ background:"#fef2f2",borderRadius:10,padding:"10px 14px",marginBottom:12,display:"flex",justifyContent:"space-between",alignItems:"center" }}><span style={{ fontSize:13,fontWeight:700,color:"#dc2626" }}>Outstanding</span><span style={{ fontSize:18,fontWeight:800,color:"#dc2626",fontFamily:"'DM Mono',monospace" }}>₹{entry.fees_due_balance}</span></div>
           <div style={{ display:"flex",flexDirection:"column",gap:10 }}>
             <div style={{ fontSize:12,fontWeight:700,textTransform:"uppercase",color:"#1e293b" }}>Record Payment</div>
@@ -1137,29 +1182,119 @@ function DuesTab({ showToast,showConfirm,startLoading,stopLoading,activeTags,lib
   </div>);
 }
 
+function ReceivedRecordsView({ showToast,showConfirm,startLoading,stopLoading,libraries,branches,activeTags,isSubmitting }:any) {
+  const [records, setRecords] = useState<DuePayment[]>([]);
+  const [filterLib, setFilterLib] = useState("");
+  const [filterBranch, setFilterBranch] = useState("");
+  const effectiveLibR = filterBranch || filterLib;
+  const [searchQ, setSearchQ] = useState("");
+  const [searchType, setSearchType] = useState<"name"|"phone"|"student_id"|"receipt_no">("name");
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(0);
+  const [total, setTotal] = useState(0);
+  const [counts, setCounts] = useState<Record<string,number>>({});
+  const [totalCount, setTotalCount] = useState(0);
+  const [searching, setSearching] = useState(false);
+  const [editPay, setEditPay] = useState<DuePayment|null>(null);
+  const [editForm, setEditForm] = useState({mode:"",amount:"",notes:"",date:""});
+
+  async function load(pg=1) {
+    const trimQ=searchQ.trim();const isSearch=trimQ.length>=2;
+    if(isSearch) setSearching(true); else startLoading("Loading records...");
+    try {
+      const params=new URLSearchParams({action:"getDuePaymentLog",library:effectiveLibR,q:trimQ,search_type:searchType,page:String(pg),limit:"20"});
+      const res=await fetch(`${API}?${params}`);const d=await res.json();
+      if(d.ok){setRecords(d.payments||[]);setPage(d.page||1);setTotalPages(d.totalPages||0);setTotal(d.total||0);if(isSearch&&(d.payments||[]).length===0)showToast("No matches.","error");}else showToast(d.error||"Failed.","error");
+    } catch{showToast("Network error.","error");}
+    if(isSearch) setSearching(false); else stopLoading();
+  }
+  async function loadCounts(){try{const r0=await fetch(`${API}?action=getDuePaymentLog&library=&q=&page=1&limit=1`);const d0=await r0.json();if(d0.ok){setTotalCount(d0.total||0);setCounts(d0.counts||{});}}catch{}}
+  useEffect(()=>{load(1);loadCounts();},[filterLib,filterBranch]);
+
+  function startEdit(pay:DuePayment){setEditPay(pay);setEditForm({mode:pay.payment_mode||"",amount:String(pay.amount_received||""),notes:pay.notes||"",date:pay.received_on?pay.received_on.split(" (")[0]:""});}
+  async function saveEdit(){
+    if(!editPay||isSubmitting.current) return;
+    isSubmitting.current=true;startLoading("Saving...");
+    try{const res=await fetch(API,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"updateDuePayment",payload:{payment_id:editPay.payment_id,receipt_no:editPay.receipt_no,payment_mode:toU(editForm.mode),amount_received:Number(editForm.amount),notes:toU(editForm.notes),received_on:editForm.date}})});const d=await res.json();
+      if(d.ok){showToast("Updated & receipt regenerated!");setEditPay(null);load(page);}else showToast(d.error||"Failed.","error");
+    }catch{showToast("Network error.","error");}finally{stopLoading();isSubmitting.current=false;}
+  }
+
+  if(editPay) return (<div style={{ animation:"slideUp 0.25s ease" }}>
+    <button onClick={()=>setEditPay(null)} style={{ ...ghostBtn,marginBottom:12 }}>← Back</button>
+    <div style={{ fontSize:16,fontWeight:800,color:"#1e293b",marginBottom:4 }}>Edit Payment</div>
+    <div style={{ fontSize:12,color:"#6366f1",fontWeight:600,marginBottom:14 }}>{editPay.receipt_no} · {editPay.payment_id}</div>
+    <div style={card}><div style={{ display:"flex",flexDirection:"column",gap:10 }}>
+      <Field label="Payment Mode"><select value={editForm.mode} onChange={e=>setEditForm(f=>({...f,mode:e.target.value}))} style={selS}><option value="">Select</option>{(activeTags as string[]).map((t:string)=><option key={t} value={t}>{t}</option>)}</select></Field>
+      <Field label="Amount (₹)"><NumInput value={editForm.amount} onChange={v=>setEditForm(f=>({...f,amount:v}))} style={{ fontSize:16,fontWeight:700 }} /></Field>
+      <Field label="Received On"><input value={editForm.date} onChange={e=>setEditForm(f=>({...f,date:e.target.value}))} style={inp} /></Field>
+      <Field label="Notes"><input value={editForm.notes} onChange={e=>setEditForm(f=>({...f,notes:e.target.value.toUpperCase()}))} style={inp} /></Field>
+    </div></div>
+    <button onClick={saveEdit} style={{ ...primaryBtn,marginTop:4 }}>Save & Regenerate Receipt →</button>
+  </div>);
+
+  return (<div>
+    <div style={{ fontSize:16,fontWeight:800,color:"#1e293b",marginBottom:14 }}>Received Records <span style={{ fontSize:12,color:"#94a3b8",fontWeight:500 }}>({total} payments)</span></div>
+    <LibraryBranchFilter filterLib={filterLib} setFilterLib={setFilterLib} filterBranch={filterBranch} setFilterBranch={setFilterBranch} libraries={libraries} branches={branches} counts={counts} totalCount={totalCount} />
+    <div style={{ fontSize:12,fontWeight:700,color:"#94a3b8",textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:6 }}>Search By</div>
+    <div style={{ display:"flex",gap:6,overflowX:"auto",paddingBottom:4,marginBottom:10 }}>
+      {([{k:"name",label:"Name"},{k:"phone",label:"Phone"},{k:"student_id",label:"Student ID"},{k:"receipt_no",label:"Receipt No."}] as {k:typeof searchType;label:string}[]).map(t=>(<button key={t.k} onClick={()=>setSearchType(t.k)} style={{ padding:"5px 12px",borderRadius:99,border:"none",background:searchType===t.k?"#0f766e":"#f1f5f9",color:searchType===t.k?"#fff":"#64748b",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",whiteSpace:"nowrap" }}>{t.label}</button>))}
+    </div>
+    <div style={{ display:"flex",gap:8,marginBottom:12 }}>
+      <input value={searchQ} onChange={e=>setSearchQ(e.target.value)} placeholder={searchType==="name"?"Enter Name":searchType==="phone"?"Enter Phone":searchType==="student_id"?"Enter Student ID":"Enter Receipt No."} style={{ ...inp,flex:1 }} />
+      <button onClick={()=>load(1)} disabled={searching} style={{ padding:"11px 18px",borderRadius:12,border:"none",background:searching?"#94a3b8":"#6366f1",color:"#fff",fontWeight:700,cursor:searching?"wait":"pointer",fontFamily:"'DM Sans',sans-serif",fontSize:14,minWidth:80 }}>{searching?"...":"Go"}</button>
+      {searchQ&&<button onClick={()=>{setSearchQ("");setSearchType("name");load(1);}} style={{ ...ghostBtn,padding:"11px 14px",fontSize:13 }}>Clear</button>}
+    </div>
+    {records.length===0&&<div style={{ textAlign:"center",padding:"40px 0",color:"#94a3b8" }}><div style={{ fontSize:36,marginBottom:8 }}>📜</div><div style={{ fontSize:14,color:"#1e293b" }}>No received records found.</div></div>}
+    {records.map((pay,i)=>{const c=resolveLibColorFromCode((pay as any).library||"",libraries,branches);return (
+      <div key={i} style={{ ...card,marginBottom:8,borderLeft:`4px solid ${c}`,padding:"12px 14px" }}>
+        <div style={{ display:"flex",alignItems:"flex-start",gap:10 }}>
+          <div style={{ flex:1,minWidth:0 }}>
+            <div style={{ display:"flex",alignItems:"center",gap:6,flexWrap:"wrap" }}>
+              <span style={{ fontWeight:700,fontSize:14,color:"#1e293b" }}>{(pay as any).name||"—"}</span>
+              {(pay as any).library&&<LibraryBadge text={(pay as any).branch||(pay as any).library} color={c} />}
+            </div>
+            <div style={{ display:"flex",gap:5,flexWrap:"wrap",marginTop:5 }}>
+              <ReceiptChip no={pay.receipt_no} /><StudentIdChip id={(pay as any).student_id||""} />
+              <FeeChip amount={pay.amount_received} />
+              <span style={{ fontSize:11,fontWeight:700,padding:"3px 9px",borderRadius:8,background:"#f0fdf4",color:"#059669",border:"1px solid #bbf7d0" }}>via {pay.payment_mode}</span>
+            </div>
+            <div style={{ fontSize:11,color:"#94a3b8",marginTop:4 }}>Bal: ₹{pay.balance_after} · {fmtDateOnly(pay.received_on)}</div>
+            {pay.notes&&<div style={{ fontSize:11,color:"#64748b",fontStyle:"italic",marginTop:3 }}>"{pay.notes}"</div>}
+          </div>
+          <div style={{ display:"flex",flexDirection:"column",gap:4,flexShrink:0 }}>
+            {pay.whatsapp_text&&<CopyBtn text={pay.whatsapp_text} label="📋" accent="#10b981" />}
+            <button onClick={()=>startEdit(pay)} style={{ ...ghostBtn,padding:"5px 8px",fontSize:10,minHeight:28,fontWeight:700 }}>✏️</button>
+          </div>
+        </div>
+      </div>
+    );})}
+    <Pagination page={page} totalPages={totalPages} onChange={pg=>load(pg)} />
+  </div>);
+}
+
 // ═══════════════════════════════════════════════════════════════════
 // PENDING OPTIONAL TAB
 // ═══════════════════════════════════════════════════════════════════
 function PendingTab({ showToast,startLoading,stopLoading,libraries,branches,isSubmitting }:any) {
   const [students, setStudents] = useState<Student[]>([]);
   const [filterLib, setFilterLib] = useState("");
+  const [filterBranch, setFilterBranch] = useState("");
+  const effectiveLibP = filterBranch || filterLib;
   const [loaded, setLoaded] = useState(false);
   const [editing, setEditing] = useState<Record<string,any>>({});
   const [allCounts, setAllCounts] = useState<Record<string,number>>({});
   const [allTotalCount, setAllTotalCount] = useState(0);
 
-  async function load(){startLoading("Loading...");try{const res=await fetch(`${API}?action=getPendingOptional&library=${filterLib}`);const d=await res.json();if(d.ok){setStudents(d.students||[]);setLoaded(true);}if(filterLib){try{const r2=await fetch(`${API}?action=getPendingOptional&library=`);const d2=await r2.json();if(d2.ok)computeCounts(d2.students||[]);}catch{}}else computeCounts(d.students||[]);}catch{showToast("Failed.","error");}stopLoading();}
-  function computeCounts(rows:Student[]){const m:Record<string,number>={};rows.forEach((s:Student)=>{const key=(s.branch||s.library||"").toUpperCase();if(key)m[key]=(m[key]||0)+1;});setAllCounts(m);setAllTotalCount(rows.length);}
-  useEffect(()=>{load();},[filterLib]);
+  async function load(){startLoading("Loading...");try{const res=await fetch(`${API}?action=getPendingOptional&library=${effectiveLibP}`);const d=await res.json();if(d.ok){setStudents(d.students||[]);setLoaded(true);}if(effectiveLibP){try{const r2=await fetch(`${API}?action=getPendingOptional&library=`);const d2=await r2.json();if(d2.ok)computeCounts(d2.students||[]);}catch{}}else computeCounts(d.students||[]);}catch{showToast("Failed.","error");}stopLoading();}
+  function computeCounts(rows:Student[]){const m:Record<string,number>={};rows.forEach((s:Student)=>{const lib=(s.library||"").toUpperCase();const br=(s.branch||"").toUpperCase();if(lib)m[lib]=(m[lib]||0)+1;if(br)m[br]=(m[br]||0)+1;});setAllCounts(m);setAllTotalCount(rows.length);}
+  useEffect(()=>{load();},[filterLib,filterBranch]);
 
   async function save(studentId:string){if(isSubmitting.current) return;const data=editing[studentId];if(!data) return;const stLib=(students as Student[]).find((s:Student)=>s.student_id===studentId)?.library||"";isSubmitting.current=true;startLoading("Saving...");try{const payload={student_id:studentId,library:stLib,...Object.fromEntries(Object.entries(data).map(([k,v])=>[k,String(v).toUpperCase()]))};const res=await fetch(API,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"updateOptional",payload})});const d=await res.json();if(d.ok){showToast("Saved!");load();setEditing(e=>{const ne={...e};delete ne[studentId];return ne;});}else showToast(d.error||"Failed.","error");}catch{showToast("Network error.","error");}finally{stopLoading();isSubmitting.current=false;}}
 
   return (<div>
     <div style={{ fontSize:16,fontWeight:800,color:"#1e293b",marginBottom:14 }}>Pending Details <span style={{ fontSize:12,color:"#94a3b8",fontWeight:500 }}>({students.length} missing)</span></div>
-    <div style={{ display:"flex",gap:6,overflowX:"auto",paddingBottom:4,marginBottom:12 }}>
-      <Pill text={`All (${allTotalCount})`} active={filterLib===""} onClick={()=>setFilterLib("")} />
-      {(libraries as Library[]).filter((l:Library)=>l.active).map((l:Library)=>{const c=l.color||"#6366f1";let n=allCounts[l.library_code]||0;if(l.has_branches)n=(branches as Branch[]).filter((b:Branch)=>b.library_code===l.library_code).reduce((sum:number,b:Branch)=>sum+(allCounts[b.branch_code]||0),n);return <LibraryPill key={l.library_code} text={`${l.library_code} (${n})`} active={filterLib===l.library_code} color={c} onClick={()=>setFilterLib(l.library_code)} />;})}
-    </div>
+    <LibraryBranchFilter filterLib={filterLib} setFilterLib={setFilterLib} filterBranch={filterBranch} setFilterBranch={setFilterBranch} libraries={libraries} branches={branches} counts={allCounts} totalCount={allTotalCount} />
     {loaded&&students.length===0&&(<div style={{ textAlign:"center",padding:"48px 0",color:"#94a3b8" }}><div style={{ fontSize:48,marginBottom:10 }}>✅</div><div style={{ fontSize:16,fontWeight:700,color:"#1e293b" }}>All Complete!</div></div>)}
     {students.map((st,i)=>{const isEd=!!editing[st.student_id];const ed=editing[st.student_id]||{};const missing:string[]=[];if(!st.address)missing.push("Address");if(!st.preparing_for)missing.push("Preparing For");if(!st.aadhaar_last4)missing.push("Aadhaar");if(!st.date_of_birth)missing.push("DOB");const c=resolveLibColor(st.library,st.branch||"",libraries,branches);
       return (<div key={i} style={{ ...card,marginBottom:8,borderLeft:`4px solid ${c}` }}>
@@ -1229,7 +1364,7 @@ function SettingsTab({ showToast,showConfirm,startLoading,stopLoading,libraries,
 
     {section==="tags"&&(<div>
       <div style={{ fontSize:14,fontWeight:700,color:"#1e293b",marginBottom:12 }}>Payment Tags</div>
-      {(allTags as PaymentTag[]).map((tag,i)=>(<div key={i} style={{ ...card,marginBottom:0,display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:i?8:0 }}><div><span style={{ fontWeight:700,fontSize:14 }}>{tag.tag_name}</span><span style={{ fontSize:11,marginLeft:8,color:tag.active?"#10b981":"#94a3b8",fontWeight:700 }}>{tag.active?"● Active":"○ Inactive"}</span></div><button onClick={()=>toggleTag(tag.tag_name,tag.active)} style={{ padding:"6px 12px",borderRadius:8,border:`1.5px solid ${tag.active?"#fecaca":"#bbf7d0"}`,background:"#fff",cursor:"pointer",fontSize:12,fontWeight:700,color:tag.active?"#ef4444":"#10b981",fontFamily:"'DM Sans',sans-serif" }}>{tag.active?"Deactivate":"Activate"}</button></div>))}
+      {(allTags as PaymentTag[]).map((tag,i)=>(<div key={i} style={{ ...card,marginBottom:0,display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:i?8:0 }}><div><span style={{ fontWeight:700,fontSize:14,color:"#1e293b" }}>{tag.tag_name}</span><span style={{ fontSize:11,marginLeft:8,color:tag.active?"#10b981":"#94a3b8",fontWeight:700 }}>{tag.active?"● Active":"○ Inactive"}</span></div><button onClick={()=>toggleTag(tag.tag_name,tag.active)} style={{ padding:"6px 12px",borderRadius:8,border:`1.5px solid ${tag.active?"#fecaca":"#bbf7d0"}`,background:"#fff",cursor:"pointer",fontSize:12,fontWeight:700,color:tag.active?"#ef4444":"#10b981",fontFamily:"'DM Sans',sans-serif" }}>{tag.active?"Deactivate":"Activate"}</button></div>))}
       <div style={{ display:"flex",gap:8,marginTop:14 }}><input value={newTag} onChange={e=>setNewTag(e.target.value.toUpperCase())} placeholder="NEW TAG NAME" style={{ ...inp,flex:1 }} /><button onClick={addTag} style={{ padding:"11px 18px",borderRadius:12,border:"none",background:"#6366f1",color:"#fff",fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",fontSize:14 }}>Add</button></div>
     </div>)}
 
@@ -1237,10 +1372,10 @@ function SettingsTab({ showToast,showConfirm,startLoading,stopLoading,libraries,
       <div style={{ fontSize:14,fontWeight:700,color:"#1e293b",marginBottom:12 }}>Shifts</div>
       {(shifts as Shift[]).map((sh,i)=>(<div key={i} style={{ ...card,marginBottom:8,opacity:sh.active?1:0.6 }}>
         {editShift?.shift_key===sh.shift_key?(<div style={{ display:"flex",flexDirection:"column",gap:10 }}><div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:10 }}><Field label="Name"><input value={editShift.shift_name} onChange={e=>setEditShift(s=>s?{...s,shift_name:e.target.value}:s)} style={{ ...inp,fontSize:13 }} /></Field><Field label="Time"><input value={editShift.shift_time} onChange={e=>setEditShift(s=>s?{...s,shift_time:e.target.value}:s)} style={{ ...inp,fontSize:13 }} /></Field></div><div style={{ display:"flex",gap:8 }}><button onClick={()=>setEditShift(null)} style={{ ...ghostBtn,flex:1,fontSize:13 }}>Cancel</button><button onClick={()=>saveShift(editShift)} style={{ flex:1,padding:"11px",borderRadius:12,border:"none",background:"#6366f1",color:"#fff",fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"'DM Sans',sans-serif" }}>Save</button></div></div>):(
-        <div style={{ display:"flex",justifyContent:"space-between",alignItems:"flex-start" }}><div><div style={{ fontWeight:700,fontSize:14 }}>{sh.shift_name}</div><div style={{ fontSize:12,color:"#64748b",marginTop:2 }}>{sh.shift_time}</div></div><div style={{ display:"flex",gap:6 }}><button onClick={()=>setEditShift({...sh})} style={{ ...ghostBtn,padding:"8px 12px",fontSize:12,minHeight:36 }}>Edit</button><button onClick={()=>toggleShift(sh)} style={{ ...ghostBtn,padding:"8px 12px",fontSize:12,minHeight:36,color:sh.active?"#ef4444":"#10b981",borderColor:sh.active?"#fecaca":"#bbf7d0" }}>{sh.active?"Off":"On"}</button></div></div>)}
+        <div style={{ display:"flex",justifyContent:"space-between",alignItems:"flex-start" }}><div><div style={{ fontWeight:700,fontSize:14,color:"#1e293b" }}>{sh.shift_name}</div><div style={{ fontSize:12,color:"#64748b",marginTop:2 }}>{sh.shift_time}</div></div><div style={{ display:"flex",gap:6 }}><button onClick={()=>setEditShift({...sh})} style={{ ...ghostBtn,padding:"8px 12px",fontSize:12,minHeight:36 }}>Edit</button><button onClick={()=>toggleShift(sh)} style={{ ...ghostBtn,padding:"8px 12px",fontSize:12,minHeight:36,color:sh.active?"#ef4444":"#10b981",borderColor:sh.active?"#fecaca":"#bbf7d0" }}>{sh.active?"Off":"On"}</button></div></div>)}
       </div>))}
       {!addingShift?(<button onClick={()=>setAddingShift(true)} style={{ width:"100%",padding:"13px",borderRadius:14,border:"2px dashed #6366f1",background:"#eff6ff",color:"#4f46e5",fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",marginTop:4 }}>+ Add Shift</button>):(<div style={{ ...card,marginTop:4 }}><div style={{ fontSize:13,fontWeight:700,color:"#1e293b",marginBottom:12 }}>New Shift</div><div style={{ display:"flex",flexDirection:"column",gap:10 }}><div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:10 }}><Field label="Key *"><input value={newShift.shift_key} onChange={e=>setNewShift(p=>({...p,shift_key:e.target.value.toUpperCase()}))} style={{ ...inp,fontSize:13 }} /></Field><Field label="Name *"><input value={newShift.shift_name} onChange={e=>setNewShift(p=>({...p,shift_name:e.target.value}))} style={{ ...inp,fontSize:13 }} /></Field></div><Field label="Time"><input value={newShift.shift_time} onChange={e=>setNewShift(p=>({...p,shift_time:e.target.value}))} style={inp} /></Field><div style={{ display:"flex",gap:8 }}><button onClick={()=>setAddingShift(false)} style={{ ...ghostBtn,flex:1,fontSize:13 }}>Cancel</button><button onClick={addShiftFn} style={{ flex:1,padding:"11px",borderRadius:12,border:"none",background:"#6366f1",color:"#fff",fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"'DM Sans',sans-serif" }}>Add</button></div></div></div>)}
-      {feeKeys.length>0&&(<div style={{ marginTop:20 }}><div style={{ fontSize:14,fontWeight:700,marginBottom:12 }}>Fees per Library / Branch</div>{feeKeys.map(({key,label,emoji})=>(<div key={key} style={{ ...card,marginBottom:8 }}><div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:editingFees===key?12:0 }}><div style={{ fontWeight:700,fontSize:14 }}>{emoji} {label} <span style={{ fontSize:11,color:"#94a3b8" }}>({key})</span></div><button onClick={()=>{if(editingFees===key){setEditingFees(null);setFeesDirty(false);}else{setEditingFees(key);setFeesDirty(true);}}} style={{ ...ghostBtn,padding:"8px 12px",fontSize:12,minHeight:36 }}>{editingFees===key?"Cancel":"Edit"}</button></div>{editingFees===key?(<div style={{ display:"flex",flexDirection:"column",gap:8 }}>{(shifts as Shift[]).filter((s:Shift)=>s.active).map((sh:Shift)=>(<div key={sh.shift_key} style={{ display:"flex",alignItems:"center",gap:10 }}><span style={{ flex:1,fontSize:13 }}>{sh.shift_name}</span><NumInput value={(feeEdits[key]||{})[sh.shift_key]||0} onChange={v=>setFeeEdits(fe=>({...fe,[key]:{...(fe[key]||{}),[sh.shift_key]:Number(v)}}))} style={{ width:100,textAlign:"right",fontSize:14,fontWeight:700 }} /></div>))}<button onClick={()=>saveFees(key)} style={{ ...primaryBtn,marginTop:4,fontSize:14 }}>Save Fees</button></div>):(<div style={{ display:"flex",gap:6,flexWrap:"wrap",marginTop:8 }}>{(shifts as Shift[]).filter((s:Shift)=>s.active).map((sh:Shift)=>(<span key={sh.shift_key} style={{ fontSize:11,fontWeight:600,color:"#64748b",background:"#f1f5f9",padding:"3px 10px",borderRadius:8 }}>{sh.shift_name}: ₹{(fees[key]||{})[sh.shift_key]||0}</span>))}</div>)}</div>))}</div>)}
+      {feeKeys.length>0&&(<div style={{ marginTop:20 }}><div style={{ fontSize:14,fontWeight:700,color:"#1e293b",marginBottom:12 }}>Fees per Library / Branch</div>{feeKeys.map(({key,label,emoji})=>(<div key={key} style={{ ...card,marginBottom:8 }}><div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:editingFees===key?12:0 }}><div style={{ fontWeight:700,fontSize:14,color:"#1e293b" }}>{emoji} {label} <span style={{ fontSize:11,color:"#94a3b8" }}>({key})</span></div><button onClick={()=>{if(editingFees===key){setEditingFees(null);setFeesDirty(false);}else{setEditingFees(key);setFeesDirty(true);}}} style={{ ...ghostBtn,padding:"8px 12px",fontSize:12,minHeight:36 }}>{editingFees===key?"Cancel":"Edit"}</button></div>{editingFees===key?(<div style={{ display:"flex",flexDirection:"column",gap:8 }}>{(shifts as Shift[]).filter((s:Shift)=>s.active).map((sh:Shift)=>(<div key={sh.shift_key} style={{ display:"flex",alignItems:"center",gap:10 }}><span style={{ flex:1,fontSize:13,color:"#1e293b" }}>{sh.shift_name}</span><NumInput value={(feeEdits[key]||{})[sh.shift_key]||0} onChange={v=>setFeeEdits(fe=>({...fe,[key]:{...(fe[key]||{}),[sh.shift_key]:Number(v)}}))} style={{ width:100,textAlign:"right",fontSize:14,fontWeight:700 }} /></div>))}<button onClick={()=>saveFees(key)} style={{ ...primaryBtn,marginTop:4,fontSize:14 }}>Save Fees</button></div>):(<div style={{ display:"flex",gap:6,flexWrap:"wrap",marginTop:8 }}>{(shifts as Shift[]).filter((s:Shift)=>s.active).map((sh:Shift)=>(<span key={sh.shift_key} style={{ fontSize:11,fontWeight:600,color:"#64748b",background:"#f1f5f9",padding:"3px 10px",borderRadius:8 }}>{sh.shift_name}: ₹{(fees[key]||{})[sh.shift_key]||0}</span>))}</div>)}</div>))}</div>)}
     </div>)}
 
     {section==="libraries"&&(<div>
@@ -1249,7 +1384,7 @@ function SettingsTab({ showToast,showConfirm,startLoading,stopLoading,libraries,
       {(libraries as Library[]).map((lib,i)=>(<div key={i} style={{ ...card,marginBottom:8,opacity:lib.active?1:0.6,borderLeft:`4px solid ${lib.color||"#cbd5e1"}` }}>
         <div style={{ display:"flex",justifyContent:"space-between",alignItems:"flex-start" }}>
           <div>
-            <div style={{ display:"flex",alignItems:"center",gap:8 }}><span style={{ fontSize:22 }}>{lib.emoji}</span><div><div style={{ fontWeight:700,fontSize:14 }}>{lib.display_name}</div><div style={{ fontSize:11,color:"#94a3b8" }}>{lib.library_code} {lib.has_branches?"· Has Branches":""}</div></div>
+            <div style={{ display:"flex",alignItems:"center",gap:8 }}><span style={{ fontSize:22 }}>{lib.emoji}</span><div><div style={{ fontWeight:700,fontSize:14,color:"#1e293b" }}>{lib.display_name}</div><div style={{ fontSize:11,color:"#94a3b8" }}>{lib.library_code} {lib.has_branches?"· Has Branches":""}</div></div>
               <input type="color" value={lib.color||"#94a3b8"} onChange={async e=>{try{await fetch(API,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"updateLibrary",payload:{library_code:lib.library_code,color:e.target.value}})});showToast("Color updated.");loadInit();}catch{showToast("Failed.","error");}}} title="Library color" style={{ width:32,height:32,borderRadius:8,border:`2px solid ${lib.color||"#cbd5e1"}`,cursor:"pointer",padding:0,background:"transparent",flexShrink:0 }} />
             </div>
             {/* BRANCH LIST — with edit, toggle, color */}
@@ -1285,12 +1420,12 @@ function SettingsTab({ showToast,showConfirm,startLoading,stopLoading,libraries,
           <button onClick={()=>toggleLibrary(lib)} style={{ ...ghostBtn,padding:"8px 12px",fontSize:12,minHeight:36,color:lib.active?"#ef4444":"#10b981",borderColor:lib.active?"#fecaca":"#bbf7d0" }}>{lib.active?"Deactivate":"Activate"}</button>
         </div>
       </div>))}
-      {!addingLib&&!pendingBranchesForLib?(<button onClick={()=>setAddingLib(true)} style={{ width:"100%",padding:"13px",borderRadius:14,border:"2px dashed #6366f1",background:"#eff6ff",color:"#4f46e5",fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",marginTop:4 }}>+ Add Library</button>):addingLib?(<div style={{ ...card,marginTop:4 }}><div style={{ fontSize:13,fontWeight:700,color:"#1e293b",marginBottom:12 }}>New Library</div><div style={{ display:"flex",flexDirection:"column",gap:10 }}><div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:10 }}><Field label="Code *"><input value={newLib.library_code} onChange={e=>setNewLib(p=>({...p,library_code:e.target.value.toUpperCase()}))} style={{ ...inp,fontSize:13 }} /></Field><Field label="Emoji"><input value={newLib.emoji} onChange={e=>setNewLib(p=>({...p,emoji:e.target.value}))} style={{ ...inp,fontSize:13 }} /></Field></div><Field label="Library Name *"><input value={newLib.library_name} onChange={e=>setNewLib(p=>({...p,library_name:e.target.value,display_name:e.target.value}))} style={inp} /></Field><Field label="Display Name"><input value={newLib.display_name} onChange={e=>setNewLib(p=>({...p,display_name:e.target.value}))} style={inp} /></Field><div style={{ display:"flex",alignItems:"center",gap:14,padding:"10px 14px",background:"#f8fafc",borderRadius:10 }}><input type="color" value={newLib.color} onChange={e=>setNewLib(p=>({...p,color:e.target.value}))} style={{ width:38,height:38,borderRadius:10,border:`2px solid ${newLib.color}`,cursor:"pointer",padding:0,background:"transparent" }} /><div><div style={{ fontSize:13,fontWeight:700,color:"#1e293b" }}>Library Color</div></div></div><div style={{ display:"flex",alignItems:"center",gap:10,padding:"10px 14px",background:"#f8fafc",borderRadius:10 }}><input type="checkbox" checked={newLib.has_branches} onChange={e=>setNewLib(p=>({...p,has_branches:e.target.checked}))} style={{ width:18,height:18,cursor:"pointer" }} /><span style={{ fontSize:13,fontWeight:600 }}>Has Branches</span></div><div style={{ display:"flex",gap:8 }}><button onClick={()=>setAddingLib(false)} style={{ ...ghostBtn,flex:1,fontSize:13 }}>Cancel</button><button onClick={addLibraryFn} style={{ flex:1,padding:"11px",borderRadius:12,border:"none",background:"#6366f1",color:"#fff",fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"'DM Sans',sans-serif" }}>Add</button></div></div></div>):null}
+      {!addingLib&&!pendingBranchesForLib?(<button onClick={()=>setAddingLib(true)} style={{ width:"100%",padding:"13px",borderRadius:14,border:"2px dashed #6366f1",background:"#eff6ff",color:"#4f46e5",fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",marginTop:4 }}>+ Add Library</button>):addingLib?(<div style={{ ...card,marginTop:4 }}><div style={{ fontSize:13,fontWeight:700,color:"#1e293b",marginBottom:12 }}>New Library</div><div style={{ display:"flex",flexDirection:"column",gap:10 }}><div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:10 }}><Field label="Code *"><input value={newLib.library_code} onChange={e=>setNewLib(p=>({...p,library_code:e.target.value.toUpperCase()}))} style={{ ...inp,fontSize:13 }} /></Field><Field label="Emoji"><input value={newLib.emoji} onChange={e=>setNewLib(p=>({...p,emoji:e.target.value}))} style={{ ...inp,fontSize:13 }} /></Field></div><Field label="Library Name *"><input value={newLib.library_name} onChange={e=>setNewLib(p=>({...p,library_name:e.target.value,display_name:e.target.value}))} style={inp} /></Field><Field label="Display Name"><input value={newLib.display_name} onChange={e=>setNewLib(p=>({...p,display_name:e.target.value}))} style={inp} /></Field><div style={{ display:"flex",alignItems:"center",gap:14,padding:"10px 14px",background:"#f8fafc",borderRadius:10 }}><input type="color" value={newLib.color} onChange={e=>setNewLib(p=>({...p,color:e.target.value}))} style={{ width:38,height:38,borderRadius:10,border:`2px solid ${newLib.color}`,cursor:"pointer",padding:0,background:"transparent" }} /><div><div style={{ fontSize:13,fontWeight:700,color:"#1e293b" }}>Library Color</div></div></div><div style={{ display:"flex",alignItems:"center",gap:10,padding:"10px 14px",background:"#f8fafc",borderRadius:10 }}><input type="checkbox" checked={newLib.has_branches} onChange={e=>setNewLib(p=>({...p,has_branches:e.target.checked}))} style={{ width:18,height:18,cursor:"pointer" }} /><span style={{ fontSize:13,fontWeight:600,color:"#1e293b" }}>Has Branches</span></div><div style={{ display:"flex",gap:8 }}><button onClick={()=>setAddingLib(false)} style={{ ...ghostBtn,flex:1,fontSize:13 }}>Cancel</button><button onClick={addLibraryFn} style={{ flex:1,padding:"11px",borderRadius:12,border:"none",background:"#6366f1",color:"#fff",fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"'DM Sans',sans-serif" }}>Add</button></div></div></div>):null}
     </div>)}
 
     {section==="counters"&&(<div>
       <div style={{ background:"#fffbeb",borderRadius:12,padding:"12px 14px",fontSize:13,color:"#92400e",marginBottom:14,border:"1px solid #fcd34d" }}>Only set <strong>cutoff values</strong>. Counters are auto-managed.</div>
-      {(libraries as Library[]).filter((l:Library)=>l.active).map(lib=>{const libSet=countersEdit[lib.library_code];if(!libSet) return null;return (<div key={lib.library_code} style={{ ...card,marginBottom:10 }}><div style={{ display:"flex",alignItems:"center",gap:8,marginBottom:14 }}><span style={{ fontSize:22 }}>{lib.emoji}</span><div style={{ fontWeight:700,fontSize:15 }}>{lib.display_name}</div></div><div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:12 }}>{[["last_student_id","Student Counter"],["last_receipt_no","Receipt Counter"]].map(([key,label])=>(<div key={key} style={{ background:"#f8fafc",borderRadius:10,padding:"10px 12px" }}><div style={{ fontSize:11,color:"#64748b",fontWeight:700,textTransform:"uppercase",marginBottom:4 }}>{label}</div><div style={{ fontSize:18,fontWeight:800,fontFamily:"'DM Mono',monospace" }}>{key==="last_student_id"?"F":"R"}{libSet[key]||0}</div></div>))}</div><div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:12 }}>{[["cutoff_student_id","Student Cutoff"],["cutoff_receipt_no","Receipt Cutoff"]].map(([key,label])=>(<Field key={key} label={label}><NumInput value={libSet[key]||0} onChange={v=>setCountersEdit(ce=>({...ce,[lib.library_code]:{...ce[lib.library_code],[key]:Number(v)}}))} style={{ fontSize:15,fontWeight:700 }} /></Field>))}</div><button onClick={()=>saveCounters(lib.library_code)} style={{ ...primaryBtn,background:"#1e293b",boxShadow:"none",fontSize:14 }}>Save {lib.library_code}</button></div>);})}
+      {(libraries as Library[]).filter((l:Library)=>l.active).map(lib=>{const libSet=countersEdit[lib.library_code];if(!libSet) return null;return (<div key={lib.library_code} style={{ ...card,marginBottom:10 }}><div style={{ display:"flex",alignItems:"center",gap:8,marginBottom:14 }}><span style={{ fontSize:22 }}>{lib.emoji}</span><div style={{ fontWeight:700,fontSize:15,color:"#1e293b" }}>{lib.display_name}</div></div><div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:12 }}>{[["last_student_id","Student Counter"],["last_receipt_no","Receipt Counter"]].map(([key,label])=>(<div key={key} style={{ background:"#f8fafc",borderRadius:10,padding:"10px 12px" }}><div style={{ fontSize:11,color:"#64748b",fontWeight:700,textTransform:"uppercase",marginBottom:4 }}>{label}</div><div style={{ fontSize:18,fontWeight:800,color:"#1e293b",fontFamily:"'DM Mono',monospace" }}>{key==="last_student_id"?"F":"R"}{libSet[key]||0}</div></div>))}</div><div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:12 }}>{[["cutoff_student_id","Student Cutoff"],["cutoff_receipt_no","Receipt Cutoff"]].map(([key,label])=>(<Field key={key} label={label}><NumInput value={libSet[key]||0} onChange={v=>setCountersEdit(ce=>({...ce,[lib.library_code]:{...ce[lib.library_code],[key]:Number(v)}}))} style={{ fontSize:15,fontWeight:700 }} /></Field>))}</div><button onClick={()=>saveCounters(lib.library_code)} style={{ ...primaryBtn,background:"#1e293b",boxShadow:"none",fontSize:14 }}>Save {lib.library_code}</button></div>);})}
     </div>)}
   </div>);
 }
