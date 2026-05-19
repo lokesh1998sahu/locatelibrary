@@ -187,3 +187,62 @@ button:disabled {
 }
 
 /* ── Google Fonts import ── */
+
+/* ============================================
+   LMA — LIBRARY MANAGEMENT APP — DESIGN TOKENS
+   Tailwind v4 @theme — exposes utilities like
+   bg-lma-primary, text-lma-slate, ring-lma-indigo
+   ============================================ */
+@theme {
+  /* Brand */
+  --color-lma-primary:    #6366f1;
+  --color-lma-primary-2:  #8b5cf6;
+  --color-lma-accent:     #10b981;
+  --color-lma-warn:       #f59e0b;
+  --color-lma-danger:     #ef4444;
+
+  /* Slate text */
+  --color-lma-slate-900:  #0f172a;
+  --color-lma-slate-800:  #1e293b;
+  --color-lma-slate-600:  #475569;
+  --color-lma-slate-500:  #64748b;
+  --color-lma-slate-400:  #94a3b8;
+  --color-lma-slate-300:  #cbd5e1;
+  --color-lma-slate-200:  #e2e8f0;
+  --color-lma-slate-100:  #f1f5f9;
+  --color-lma-slate-50:   #f8fafc;
+
+  /* Library brand colors (matching SEED data in 12_Diagnostics.gs) */
+  --color-lma-yal:        #0000FF;
+  --color-lma-kal:        #f97316;
+  --color-lma-kl:         #22c55e;
+  --color-lma-sl:         #ca8a04;
+
+  /* Fonts (already loaded globally via DM Sans import above) */
+  --font-lma-sans:        "DM Sans", system-ui, -apple-system, sans-serif;
+  --font-lma-mono:        "DM Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+
+/* LMA-scoped CSS so it never touches admissions/libraries-9608 pages */
+.lma-app {
+  font-family: var(--font-lma-sans);
+  color: var(--color-lma-slate-800);
+  background: var(--color-lma-slate-50);
+  min-height: 100vh;
+}
+
+.lma-app *, .lma-app *::before, .lma-app *::after {
+  box-sizing: border-box;
+}
+
+/* Bottom nav padding so content above doesn't hide behind nav */
+.lma-page-body {
+  padding-bottom: 88px;
+}
+
+/* Slide-up animation for bottom sheets / toasts */
+@keyframes lmaSlideUp {
+  from { transform: translateY(8px); opacity: 0; }
+  to   { transform: translateY(0);    opacity: 1; }
+}
+.lma-slide-up { animation: lmaSlideUp 0.22s ease forwards; }

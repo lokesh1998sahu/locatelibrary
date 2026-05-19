@@ -1028,6 +1028,34 @@ function StudentsTab({ showToast,showConfirm,startLoading,stopLoading,libraries,
 // ═══════════════════════════════════════════════════════════════════
 // BOARD TAB — FIXED: history pill counters + total receipts count
 // ═══════════════════════════════════════════════════════════════════
+function BoardEntryRow({ entry, isSel, c, onToggleSelect, onEdit, onMarkUpdated, viewStudent }: { entry:ReceiptEntry; isSel:boolean; c:string; onToggleSelect:()=>void; onEdit:()=>void; onMarkUpdated:()=>void; viewStudent?:(id:string,lib:string)=>void }) {
+  const [cpd, setCpd] = useState<string|null>(null);
+  function cpB(t:string,l:string){navigator.clipboard.writeText(t).then(()=>{setCpd(l);setTimeout(()=>setCpd(null),1500);});}
+  return (
+    <div style={{ ...card,marginBottom:8,borderLeft:`4px solid ${c}`,background:isSel?`${c}10`:card.background,padding:"12px 14px" }}>
+      <div style={{ display:"flex",alignItems:"flex-start",gap:8 }}>
+        <button onClick={onToggleSelect} style={{ width:22,height:22,borderRadius:6,border:`2px solid ${isSel?c:"#cbd5e1"}`,background:isSel?c:"#fff",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,marginTop:2,padding:0 }}>{isSel&&<span style={{ color:pickTextColor(c),fontSize:12,fontWeight:900 }}>✓</span>}</button>
+        <div style={{ flex:1,minWidth:0 }}>
+          <div style={{ display:"flex",alignItems:"center",gap:6,flexWrap:"wrap" }}><span style={{ fontWeight:700,fontSize:14,color:"#1e293b" }}>{entry.name}</span><LibraryBadge text={entry.branch||entry.library} color={c} /><Badge text={entry.type} color={entry.type==="NEW"?"#10b981":"#6366f1"} /></div>
+          <div style={{ display:"flex",gap:5,flexWrap:"wrap",marginTop:5 }}><StudentIdChip id={entry.student_id} /><ReceiptChip no={entry.receipt_no} /></div>
+          <div style={{ display:"flex",gap:5,flexWrap:"wrap",marginTop:4 }}><SeatChip seat={entry.seat_no} branch={entry.branch} color={c} /><FeeChip amount={entry.fee} />{(entry.fees_due_balance||0)>0&&<FeeChip amount={entry.fees_due_balance!} due />}<DateRangeChip from={entry.booking_from} to={entry.booking_to} /></div>
+          <ShiftBadge shift_name={entry.shift_name} shift_time={entry.shift_time} /><PayLinesDisplay r={entry} />
+          <div style={{ fontSize:10,color:"#94a3b8",marginTop:3 }}>{fmtDateTime(entry.generated_at)}</div>
+        </div>
+        <div style={{ display:"flex",flexDirection:"column",gap:4,flexShrink:0 }}>
+          {entry.registration_text&&<button onClick={()=>cpB(entry.registration_text,"grp")} title="Group" style={{ ...ghostBtn,padding:"5px 8px",fontSize:10,minHeight:28,background:cpd==="grp"?"#ecfdf5":"#eff6ff",color:cpd==="grp"?"#059669":"#6366f1",borderColor:cpd==="grp"?"#10b981":"#c7d2fe",fontWeight:700 }}>{cpd==="grp"?"✓":"📢"}</button>}
+          {entry.receipt_text&&<button onClick={()=>cpB(entry.receipt_text,"stu")} title="Student" style={{ ...ghostBtn,padding:"5px 8px",fontSize:10,minHeight:28,background:cpd==="stu"?"#ecfdf5":"#f0fdf4",color:cpd==="stu"?"#059669":"#10b981",borderColor:cpd==="stu"?"#10b981":"#a7f3d0",fontWeight:700 }}>{cpd==="stu"?"✓":"📋"}</button>}
+          <button onClick={()=>cpB(`${entry.name} ${entry.library} ${entry.student_id}`,"con")} title="Contact" style={{ ...ghostBtn,padding:"5px 8px",fontSize:10,minHeight:28,background:cpd==="con"?"#ecfdf5":"#fffbeb",color:cpd==="con"?"#059669":"#d97706",borderColor:cpd==="con"?"#10b981":"#fde68a",fontWeight:700 }}>{cpd==="con"?"✓":"📇"}</button>
+          <button onClick={onEdit} title="Edit" style={{ ...ghostBtn,padding:"5px 8px",fontSize:10,minHeight:28,fontWeight:700 }}>✏️</button>
+          {viewStudent&&<button onClick={()=>viewStudent(entry.student_id,entry.library)} title="View" style={{ ...ghostBtn,padding:"5px 8px",fontSize:10,minHeight:28,background:`${c}10`,color:c,borderColor:`${c}55`,fontWeight:700 }}>👤</button>}
+        </div>
+      </div>
+      <PaymentHistoryInline receiptNo={entry.receipt_no} enabled={(entry.fees_due||0)>0} />
+      <button onClick={onMarkUpdated} style={{ width:"100%",padding:"10px",borderRadius:10,border:"none",background:"#1e293b",color:"#fff",fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",marginTop:10,minHeight:38 }}>✓ Mark Updated</button>
+    </div>
+  );
+}
+
 function BoardTab({ showToast,showConfirm,startLoading,stopLoading,libraries,shifts,activeTags,branches,viewStudent }:any) {
   const [pending, setPending] = useState<ReceiptEntry[]>([]);
   const [pendingCounts, setPendingCounts] = useState<Record<string,number>>({});
@@ -1067,29 +1095,10 @@ function BoardTab({ showToast,showConfirm,startLoading,stopLoading,libraries,shi
 
     {pending.length>0&&(<div style={{ display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,padding:"10px 14px",background:selected.size>0?"#1e293b":"#f8fafc",borderRadius:12,marginBottom:12,border:`1px solid ${selected.size>0?"#1e293b":"#e2e8f0"}` }}><div style={{ fontSize:13,fontWeight:700,color:selected.size>0?"#fff":"#64748b" }}>{selected.size>0?`${selected.size} selected`:`${pending.length} pending`}</div><div style={{ display:"flex",gap:8 }}>{selected.size===0&&<button onClick={selectAll} style={{ padding:"7px 14px",borderRadius:10,border:"1.5px solid #cbd5e1",background:"#fff",color:"#475569",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif" }}>Select All</button>}{selected.size>0&&<><button onClick={clearSelect} style={{ padding:"7px 14px",borderRadius:10,border:"1.5px solid rgba(255,255,255,0.2)",background:"transparent",color:"#cbd5e1",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif" }}>Clear</button><button onClick={bulkMarkUpdated} style={{ padding:"7px 14px",borderRadius:10,border:"none",background:"#10b981",color:"#fff",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif" }}>✓ Mark {selected.size}</button></>}</div></div>)}
     {loaded&&pending.length===0&&(<div style={{ textAlign:"center",padding:"48px 0",color:"#94a3b8" }}><div style={{ fontSize:48,marginBottom:10 }}>✅</div><div style={{ fontSize:16,fontWeight:700,color:"#1e293b" }}>All Clear!</div></div>)}
-    {pending.map((entry,i)=>{const isSel=selected.has(entry.receipt_no);const c=resolveLibColor(entry.library,entry.branch||"",libraries,branches);const [cpd,setCpd]=useState<string|null>(null);function cpB(t:string,l:string){navigator.clipboard.writeText(t).then(()=>{setCpd(l);setTimeout(()=>setCpd(null),1500);});}return (
-      <div key={i} style={{ ...card,marginBottom:8,borderLeft:`4px solid ${c}`,background:isSel?`${c}10`:card.background,padding:"12px 14px" }}>
-        <div style={{ display:"flex",alignItems:"flex-start",gap:8 }}>
-          <button onClick={()=>toggleSelect(entry.receipt_no)} style={{ width:22,height:22,borderRadius:6,border:`2px solid ${isSel?c:"#cbd5e1"}`,background:isSel?c:"#fff",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,marginTop:2,padding:0 }}>{isSel&&<span style={{ color:pickTextColor(c),fontSize:12,fontWeight:900 }}>✓</span>}</button>
-          <div style={{ flex:1,minWidth:0 }}>
-            <div style={{ display:"flex",alignItems:"center",gap:6,flexWrap:"wrap" }}><span style={{ fontWeight:700,fontSize:14,color:"#1e293b" }}>{entry.name}</span><LibraryBadge text={entry.branch||entry.library} color={c} /><Badge text={entry.type} color={entry.type==="NEW"?"#10b981":"#6366f1"} /></div>
-            <div style={{ display:"flex",gap:5,flexWrap:"wrap",marginTop:5 }}><StudentIdChip id={entry.student_id} /><ReceiptChip no={entry.receipt_no} /></div>
-            <div style={{ display:"flex",gap:5,flexWrap:"wrap",marginTop:4 }}><SeatChip seat={entry.seat_no} branch={entry.branch} color={c} /><FeeChip amount={entry.fee} />{(entry.fees_due_balance||0)>0&&<FeeChip amount={entry.fees_due_balance!} due />}<DateRangeChip from={entry.booking_from} to={entry.booking_to} /></div>
-            <ShiftBadge shift_name={entry.shift_name} shift_time={entry.shift_time} /><PayLinesDisplay r={entry} />
-            <div style={{ fontSize:10,color:"#94a3b8",marginTop:3 }}>{fmtDateTime(entry.generated_at)}</div>
-          </div>
-          <div style={{ display:"flex",flexDirection:"column",gap:4,flexShrink:0 }}>
-            {entry.registration_text&&<button onClick={()=>cpB(entry.registration_text,"grp")} title="Group" style={{ ...ghostBtn,padding:"5px 8px",fontSize:10,minHeight:28,background:cpd==="grp"?"#ecfdf5":"#eff6ff",color:cpd==="grp"?"#059669":"#6366f1",borderColor:cpd==="grp"?"#10b981":"#c7d2fe",fontWeight:700 }}>{cpd==="grp"?"✓":"📢"}</button>}
-            {entry.receipt_text&&<button onClick={()=>cpB(entry.receipt_text,"stu")} title="Student" style={{ ...ghostBtn,padding:"5px 8px",fontSize:10,minHeight:28,background:cpd==="stu"?"#ecfdf5":"#f0fdf4",color:cpd==="stu"?"#059669":"#10b981",borderColor:cpd==="stu"?"#10b981":"#a7f3d0",fontWeight:700 }}>{cpd==="stu"?"✓":"📋"}</button>}
-            <button onClick={()=>cpB(`${entry.name} ${entry.library} ${entry.student_id}`,"con")} title="Contact" style={{ ...ghostBtn,padding:"5px 8px",fontSize:10,minHeight:28,background:cpd==="con"?"#ecfdf5":"#fffbeb",color:cpd==="con"?"#059669":"#d97706",borderColor:cpd==="con"?"#10b981":"#fde68a",fontWeight:700 }}>{cpd==="con"?"✓":"📇"}</button>
-            <button onClick={()=>setEditReceipt(entry)} title="Edit" style={{ ...ghostBtn,padding:"5px 8px",fontSize:10,minHeight:28,fontWeight:700 }}>✏️</button>
-            {viewStudent&&<button onClick={()=>viewStudent(entry.student_id,entry.library)} title="View" style={{ ...ghostBtn,padding:"5px 8px",fontSize:10,minHeight:28,background:`${c}10`,color:c,borderColor:`${c}55`,fontWeight:700 }}>👤</button>}
-          </div>
-        </div>
-        <PaymentHistoryInline receiptNo={entry.receipt_no} enabled={(entry.fees_due||0)>0} />
-        <button onClick={()=>markUpdated(entry.receipt_no)} style={{ width:"100%",padding:"10px",borderRadius:10,border:"none",background:"#1e293b",color:"#fff",fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",marginTop:10,minHeight:38 }}>✓ Mark Updated</button>
-      </div>
-    );})}
+    {pending.map((entry,i)=>{
+      const c=resolveLibColor(entry.library,entry.branch||"",libraries,branches);
+      return (<BoardEntryRow key={entry.receipt_no||i} entry={entry} isSel={selected.has(entry.receipt_no)} c={c} onToggleSelect={()=>toggleSelect(entry.receipt_no)} onEdit={()=>setEditReceipt(entry)} onMarkUpdated={()=>markUpdated(entry.receipt_no)} viewStudent={viewStudent} />);
+    })}
   </div>);
 }
 
