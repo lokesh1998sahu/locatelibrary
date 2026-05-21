@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useMemo } from "react";
 import Link from "next/link";
+import SeatLayoutEditor from "../_components/SeatLayoutEditor";
 
 const API = "/api/lma";
 const PASSWORD = process.env.NEXT_PUBLIC_LMA_PASSWORD!;
@@ -15,7 +16,8 @@ interface LibSettings { library:string; last_student_id:number; last_receipt_no:
 interface InitData   { ok:boolean; libraries:Library[]; branches:Branch[]; fees:Record<string,Record<string,number>>; shifts:Shift[]; paymentTags:PaymentTag[]; activeTags:string[]; settings:Record<string,LibSettings>; }
 
 type Toast = { msg:string; type:"success"|"error" } | null;
-type Section = "libraries"|"branches"|"shifts"|"tags"|"fees"|"counters";
+// ✅ Fixed — add "seatlayouts"
+type Section = "libraries"|"branches"|"shifts"|"tags"|"fees"|"counters"|"seatlayouts";
 
 // ── PAGE ──────────────────────────────────────────────────────────
 export default function LmaSettingsPage() {
@@ -234,6 +236,20 @@ export default function LmaSettingsPage() {
                 </button>
               ))}
             </div>
+          </Accordion>
+          {/* Seat Layouts */}
+          <Accordion
+            title="Seat Layouts"
+            emoji="🪑"
+            count={data.libraries.filter(l => !l.has_branches).length + data.branches.length}
+            isOpen={open==="seatlayouts"}
+            onToggle={()=>setOpen(open==="seatlayouts"?null:"seatlayouts")}
+          >
+            <SeatLayoutEditor
+              libraries={data.libraries}
+              branches={data.branches}
+              onToast={showToast}
+            />
           </Accordion>
         </>
       )}
