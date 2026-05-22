@@ -10,7 +10,7 @@ interface Branch   { library_code:string; branch_code:string; branch_display:str
 interface SeatCell { row_in_section:number; col_in_section:number; seat_no:number; display_label:string; notes?:string; cell_type?:"SEAT"|"DEAD"; }
 interface Section  { section_name:string; section_order:number; rows:number; cols:number; seats:SeatCell[]; }
 interface Layout   { library_code:string; branch_code:string; sections:Section[]; }
-interface LayoutSummary { library_code:string; branch_code:string; seat_count:number; section_count:number; sections:Record<string,number>; }
+interface LayoutSummary { library_code:string; branch_code:string; seat_count:number; dead_count:number; section_count:number; sections:Record<string,number>; }
 
 type Toast = { msg:string; type:"success"|"error" } | null;
 
@@ -101,7 +101,7 @@ export default function SeatLayoutEditor({ libraries, branches, onToast }: Props
                 <div className="flex-1 min-w-0">
                   <div className="text-sm font-bold text-lma-slate-900">{s.label}</div>
                   <div className="text-[11px] text-lma-slate-500">
-                    {sum ? `${sum.seat_count} seats · ${sum.section_count} section${sum.section_count===1?"":"s"}` : "Not set up yet"}
+                    {sum ? `${sum.seat_count} seats${sum.dead_count ? ` · ${sum.dead_count} dead` : ""} · ${sum.section_count} section${sum.section_count===1?"":"s"}` : "Not set up yet"}
                   </div>
                 </div>
                 <span className="text-lma-slate-400 text-lg">›</span>
