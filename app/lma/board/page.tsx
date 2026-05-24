@@ -15,11 +15,16 @@ interface Occupant {
   booking_to:string; fees_due_balance:number; dues_status:string; is_cross_library:string;
   color:"OK"|"EXPIRING"|"DUES"|"EXPIRED";
 }
+interface TempHeldInfo { receipt_no:string; student_id:string; name:string; }
 interface BoardCell {
   row_in_section:number; col_in_section:number; seat_no:number; display_label:string; notes:string; cell_type:string;
   morning:Occupant|null; evening:Occupant|null; fullday:Occupant|null;
   blocked:{ morning:boolean; evening:boolean; fullday:boolean };
+  temp_held?:{ morning:TempHeldInfo|null; evening:TempHeldInfo|null; fullday:TempHeldInfo|null };
 }
+// Vacancy picker types (getVacantSeats)
+interface PickSeatCell { row_in_section:number; col_in_section:number; display_label:string; cell_type:string; state:string; occupant?:{name:string}|null; share_note?:string|null; temp_held?:{student_id:string}|null; }
+interface PickResp { ok:boolean; needs_seat:boolean; sections:{section_name:string;section_order:number;rows:number;cols:number;seats:PickSeatCell[]}[]; }
 interface SidePanelItem {
   receipt_no:string; student_id:string; name:string; shift:string; shift_name:string;
   booking_to:string; fees_due_balance:number; dues_status:string; seat_label:string; temporary_seat:string;
@@ -49,9 +54,17 @@ export default function BoardPage(){
   const [loading,setLoading]=useState(false);
   const [shiftView,setShiftView]=useState<ShiftView>("ALL");
   const [detail,setDetail]=useState<{cell:BoardCell}|null>(null);
-  const [vacantTap,setVacantTap]=useState<{label:string}|null>(null);
+  const [vacantTap,setVacantTap]=useState<{label:string;heldBy?:string}|null>(null);
+  // re-allot picker (from floating panel OR from DetailSheet "move"): receipt + context
+  const [reAllot,setReAllot]=useState<{receipt_no:string;name:string;student_id:string;shift:string;original?:string}|null>(null);
   const [exporting,setExporting]=useState(false);
   const boardRef = useRef<HTMLDivElement>(null);
+  const [toast,setToast]=useState<{msg:string;type:"success"|"error"}|null>(null);
+  const showToast=(msg:string,type:"success"|"error"="success")=>{ setToast({msg,type}); setTimeout(()=>setToast(null),2600); };
+  const post=useCallback(async(action:string,payload:any)=>{
+    const res=await fetch(API,{method:"POST",headers:{"Content-Type":"text/plain;charset=utf-8"},body:JSON.stringify({action,payload})});
+    return res.json();
+  },[]);
 
   useEffect(()=>{ if(typeof window!=="undefined"&&sessionStorage.getItem("lma_ok")==="1")setUnlocked(true); },[]);
   const tryUnlock=()=>{ if(pwInput&&pwInput===PASSWORD){sessionStorage.setItem("lma_ok","1");setUnlocked(true);setPwErr("");}else setPwErr("Incorrect password."); };
@@ -183,7 +196,7 @@ export default function BoardPage(){
                     const r=Math.floor(idx/sec.cols)+1,c=(idx%sec.cols)+1;
                     const cell=sec.seats.find(s=>s.row_in_section===r&&s.col_in_section===c);
                     if(!cell) return <div key={idx} className="aspect-square"/>;
-                    return <SeatTile key={idx} cell={cell} shiftView={shiftView} onTapOccupied={()=>setDetail({cell})} onTapVacant={()=>setVacantTap({label:cell.display_label})}/>;
+                    return <SeatTile key={idx} cell={cell} shiftView={shiftView} onTapOccupied={()=>setDetail({cell})} onTapVacant={(heldBy?:string)=>setVacantTap({label:cell.display_label,heldBy})}/>;
                   })}
                 </div>
               </div>
@@ -192,13 +205,23 @@ export default function BoardPage(){
 
           {/* side panels */}
           <SidePanel title="Unassigned (booked, no seat)" items={board.unassigned} emoji="📋"/>
-          <SidePanel title="Floating (temp-vacated)" items={board.floating} emoji="🌀"/>
+          <SidePanel title="Floating (temp-vacated)" items={board.floating} emoji="🌀" onReAllot={(it)=>setReAllot({receipt_no:it.receipt_no,name:it.name,student_id:it.student_id,shift:it.shift,original:it.temporary_seat})}/>
           <SidePanel title="Other shift (no fixed seat)" items={board.otherShift} emoji="🔄"/>
         </div>
       )}
 
       {/* occupied detail popup */}
-      {detail&&<DetailSheet cell={detail.cell} onClose={()=>setDetail(null)} router={router} scope={scope}/>}
+      {detail&&<DetailSheet
+        cell={detail.cell}
+        onClose={()=>setDetail(null)}
+        router={router}
+        scope={scope}
+        lib={resolved.lib}
+        branch={resolved.branch}
+        post={post}
+        showToast={showToast}
+        onChanged={()=>{ setDetail(null); loadBoard(); }}
+      />}
 
       {/* vacant tap popup */}
       {vacantTap&&(
@@ -207,14 +230,30 @@ export default function BoardPage(){
           <div className="relative w-full max-w-md bg-white rounded-t-3xl p-5 lma-slide-up" onClick={e=>e.stopPropagation()}>
             <div className="w-9 h-1 bg-lma-slate-200 rounded-full mx-auto mb-4"/>
             <h3 className="text-base font-extrabold text-lma-slate-900 mb-1">Seat {vacantTap.label}</h3>
-            <p className="text-sm text-lma-slate-500 mb-4">This seat is vacant.</p>
+            {vacantTap.heldBy
+              ? <p className="text-sm text-lma-warn font-semibold mb-4">⚠ This seat was temp-vacated by <b>{vacantTap.heldBy}</b>. It is being held for them — book anyway only if you mean to give it to someone else.</p>
+              : <p className="text-sm text-lma-slate-500 mb-4">This seat is vacant.</p>}
             <div className="flex gap-2">
               <button onClick={()=>setVacantTap(null)} className="flex-1 py-3 rounded-xl bg-lma-slate-100 text-lma-slate-600 font-bold">Close</button>
-              <button onClick={()=>router.push("/lma/admissions")} className="flex-1 py-3 rounded-xl bg-gradient-to-br from-lma-primary to-lma-primary-2 text-white font-bold shadow-md">Book This Seat</button>
+              <button onClick={()=>router.push("/lma/admissions")} className={`flex-1 py-3 rounded-xl text-white font-bold shadow-md ${vacantTap.heldBy?"bg-lma-warn":"bg-gradient-to-br from-lma-primary to-lma-primary-2"}`}>{vacantTap.heldBy?"Book Anyway":"Book This Seat"}</button>
             </div>
           </div>
         </div>
       )}
+      {/* re-allot seat picker (floating-restore OR move) */}
+      {reAllot&&<ReAllotPicker
+        ctx={reAllot}
+        lib={resolved.lib}
+        branch={resolved.branch}
+        post={post}
+        onClose={()=>setReAllot(null)}
+        showToast={showToast}
+        onDone={()=>{ setReAllot(null); setDetail(null); loadBoard(); }}
+      />}
+
+      {/* toast */}
+      {toast&&<div className={`fixed bottom-5 left-1/2 -translate-x-1/2 z-[10000] px-4 py-2.5 rounded-xl text-sm font-bold text-white shadow-lg ${toast.type==="success"?"bg-lma-accent":"bg-lma-danger"}`}>{toast.msg}</div>}
+
        {/* off-screen detailed export layout */}
       {showExport&&board&&<DetailedExport board={board} label={resolved.label} shiftView={shiftView}/>}
     </div>
@@ -230,7 +269,7 @@ function shortDate(dmy:string){
 }
 
 // ── SEAT TILE ────────────────────────────────────────────────────
-function SeatTile({ cell, shiftView, onTapOccupied, onTapVacant }:{ cell:BoardCell; shiftView:ShiftView; onTapOccupied:()=>void; onTapVacant:()=>void }){
+function SeatTile({ cell, shiftView, onTapOccupied, onTapVacant }:{ cell:BoardCell; shiftView:ShiftView; onTapOccupied:()=>void; onTapVacant:(heldBy?:string)=>void }){
   if(cell.cell_type==="DEAD") return <div className="aspect-square rounded bg-lma-slate-500"/>;
 
   // which occupants are visible given the shift view
@@ -242,8 +281,13 @@ function SeatTile({ cell, shiftView, onTapOccupied, onTapVacant }:{ cell:BoardCe
   const m = showM?cell.morning:null;
   const e = showE?cell.evening:null;
 
+  // soft-hold: a temp-vacated receipt that parked THIS seat (for a visible shift)
+  const th = cell.temp_held;
+  const heldHolder = th ? (th.fullday||th.morning||th.evening) : null;
+  const heldLabel = heldHolder ? heldHolder.student_id : "";
+
   const anyOccupied = !!(fd||m||e);
-  const onClick = anyOccupied?onTapOccupied:onTapVacant;
+  const onClick = anyOccupied?onTapOccupied:(()=>onTapVacant(heldLabel||undefined));
 
   // full-day fills whole tile
   if(fd){
@@ -260,11 +304,15 @@ function SeatTile({ cell, shiftView, onTapOccupied, onTapVacant }:{ cell:BoardCe
   const mCol = m?(COLOR[m.color]||COLOR.OK):null;
   const eCol = e?(COLOR[e.color]||COLOR.OK):null;
   const vacant = !m&&!e;
+  const softHeld = vacant && !!heldLabel;
 
   return (
-    <button onClick={onClick} className="aspect-square rounded overflow-hidden border flex flex-col" style={{borderColor:vacant?"#e2e8f0":"#cbd5e1",background:vacant?"#f8fafc":"#fff"}}>
+    <button onClick={onClick} className="aspect-square rounded overflow-hidden flex flex-col" style={{
+      border: softHeld?"1.5px dashed #f59e0b":"1px solid "+(vacant?"#e2e8f0":"#cbd5e1"),
+      background: softHeld?"#fffbeb":(vacant?"#f8fafc":"#fff")
+    }}>
       <div className="flex-1 flex items-center justify-center text-[7px] font-bold leading-none" style={mCol?{background:mCol.bg,color:mCol.text}:{color:"#cbd5e1"}}>
-        {m?<span className="truncate px-0.5">{shortDate(m.booking_to)}</span>:(shiftView==="ALL"||shiftView==="MORNING")?"·":""}
+        {m?<span className="truncate px-0.5">{shortDate(m.booking_to)}</span>:softHeld?<span className="truncate px-0.5 text-[6px] text-lma-warn font-extrabold">{heldLabel}</span>:(shiftView==="ALL"||shiftView==="MORNING")?"·":""}
       </div>
       <div className="text-[9px] font-extrabold text-lma-slate-700 leading-none">{cell.display_label}</div>
       <div className="flex-1 flex items-center justify-center text-[7px] font-bold leading-none" style={eCol?{background:eCol.bg,color:eCol.text}:{color:"#cbd5e1"}}>
@@ -275,7 +323,7 @@ function SeatTile({ cell, shiftView, onTapOccupied, onTapVacant }:{ cell:BoardCe
 }
 
 // ── SIDE PANEL ───────────────────────────────────────────────────
-function SidePanel({ title, items, emoji }:{ title:string; items:SidePanelItem[]; emoji:string }){
+function SidePanel({ title, items, emoji, onReAllot }:{ title:string; items:SidePanelItem[]; emoji:string; onReAllot?:(it:SidePanelItem)=>void }){
   if(!items||items.length===0) return null;
   return (
     <div className="mt-3 bg-lma-slate-50 rounded-xl p-3">
@@ -288,6 +336,7 @@ function SidePanel({ title, items, emoji }:{ title:string; items:SidePanelItem[]
             <span className="text-lma-slate-400">{it.shift_name||it.shift}</span>
             {it.temporary_seat&&<span className="text-[9px] font-bold text-lma-warn bg-lma-warn/10 px-1 rounded">was {it.temporary_seat}</span>}
             {it.booking_to&&<span className="text-lma-slate-500">{it.booking_to}</span>}
+            {onReAllot&&<button onClick={()=>onReAllot(it)} className="text-[9px] font-extrabold text-white bg-lma-primary px-2 py-1 rounded shrink-0">Re-Allot</button>}
           </div>
         ))}
       </div>
@@ -296,11 +345,23 @@ function SidePanel({ title, items, emoji }:{ title:string; items:SidePanelItem[]
 }
 
 // ── DETAIL SHEET (occupied seat tap) ─────────────────────────────
-function DetailSheet({ cell, onClose, router, scope }:{ cell:BoardCell; onClose:()=>void; router:any; scope:string }){
+function DetailSheet({ cell, onClose, router, scope, lib, branch, post, showToast, onChanged }:{ cell:BoardCell; onClose:()=>void; router:any; scope:string; lib:string; branch:string; post:(a:string,p:any)=>Promise<any>; showToast:(m:string,t?:"success"|"error")=>void; onChanged:()=>void }){
   const occupants:Occupant[]=[];
   if(cell.fullday) occupants.push(cell.fullday);
   if(cell.morning) occupants.push(cell.morning);
   if(cell.evening) occupants.push(cell.evening);
+
+  const [busy,setBusy]=useState(false);
+  const [confirmVacate,setConfirmVacate]=useState<Occupant|null>(null);
+  const [movePicker,setMovePicker]=useState<Occupant|null>(null);
+
+  const doVacate=async(o:Occupant)=>{
+    setBusy(true);
+    const r=await post("tempVacateSeat",{receipt_no:o.receipt_no});
+    setBusy(false);
+    if(r&&r.vacated){ showToast(`${o.student_id} parked (seat ${r.original_seat} held)`); onChanged(); }
+    else showToast(r&&r.error?r.error:"Temp-vacate failed","error");
+  };
 
   return (
     <div className="fixed inset-0 z-[9998] flex items-end justify-center" onClick={onClose}>
@@ -324,14 +385,37 @@ function DetailSheet({ cell, onClose, router, scope }:{ cell:BoardCell; onClose:
                 <div className="grid grid-cols-2 gap-2 mt-3">
                   <button onClick={()=>router.push("/lma/admissions")} className="py-2 rounded-lg bg-lma-primary/10 text-lma-primary font-bold text-xs">Renew</button>
                   <button onClick={()=>router.push("/lma/renewals")} className="py-2 rounded-lg bg-lma-slate-100 text-lma-slate-600 font-bold text-xs">Cancel</button>
-                  <button onClick={()=>alert("Temp-vacate: coming in next update")} className="py-2 rounded-lg bg-lma-slate-100 text-lma-slate-600 font-bold text-xs">Temp-Vacate</button>
-                  <button onClick={()=>alert("Re-allot: coming in next update")} className="py-2 rounded-lg bg-lma-slate-100 text-lma-slate-600 font-bold text-xs">Re-Allot</button>
+                  <button disabled={busy} onClick={()=>setConfirmVacate(o)} className="py-2 rounded-lg bg-lma-warn/10 text-lma-warn font-bold text-xs disabled:opacity-50">Temp-Vacate</button>
+                  <button disabled={busy} onClick={()=>setMovePicker(o)} className="py-2 rounded-lg bg-lma-slate-100 text-lma-slate-600 font-bold text-xs disabled:opacity-50">Re-Allot</button>
                 </div>
               </div>
             );
           })}
         </div>
         <button onClick={onClose} className="w-full mt-4 py-3 rounded-xl bg-lma-slate-100 text-lma-slate-600 font-bold">Close</button>
+
+        {/* temp-vacate confirm */}
+        {confirmVacate&&(
+          <div className="fixed inset-0 z-[9999] flex items-center justify-center px-6" onClick={()=>setConfirmVacate(null)}>
+            <div className="absolute inset-0 bg-black/40"/>
+            <div className="relative w-full max-w-xs bg-white rounded-2xl p-5 lma-slide-up" onClick={e=>e.stopPropagation()}>
+              <h4 className="text-sm font-extrabold text-lma-slate-900 mb-1">Temp-Vacate seat {cell.display_label}?</h4>
+              <p className="text-[12px] text-lma-slate-500 mb-4">{confirmVacate.student_id} · {confirmVacate.name} will be parked. Seat {cell.display_label} is freed but held for them until you re-allot.</p>
+              <div className="flex gap-2">
+                <button onClick={()=>setConfirmVacate(null)} className="flex-1 py-2.5 rounded-xl bg-lma-slate-100 text-lma-slate-600 font-bold text-sm">No</button>
+                <button disabled={busy} onClick={()=>{const o=confirmVacate;setConfirmVacate(null);doVacate(o);}} className="flex-1 py-2.5 rounded-xl bg-lma-warn text-white font-bold text-sm disabled:opacity-50">Park</button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* re-allot MOVE picker (move a seated student to a different seat) */}
+        {movePicker&&<ReAllotPicker
+          ctx={{receipt_no:movePicker.receipt_no,name:movePicker.name,student_id:movePicker.student_id,shift:movePicker.shift}}
+          lib={lib} branch={branch} post={post} showToast={showToast}
+          onClose={()=>setMovePicker(null)}
+          onDone={()=>{ setMovePicker(null); onChanged(); }}
+        />}
       </div>
     </div>
   );
@@ -447,6 +531,91 @@ function DetailedExport({ board, label, shiftView }:{ board:BoardResp; label:str
           ))}
         </div>
       ))}
+    </div>
+  );
+}
+// ── RE-ALLOT SEAT PICKER ─────────────────────────────────────────
+// Used in two modes (both call reAllotSeat):
+//   • floating restore: ctx.original is the parked seat (pre-noted)
+//   • move a seated student: no original; any vacant seat is the target
+function ReAllotPicker({ ctx, lib, branch, post, onClose, showToast, onDone }:{
+  ctx:{receipt_no:string;name:string;student_id:string;shift:string;original?:string};
+  lib:string; branch:string;
+  post:(a:string,p:any)=>Promise<any>;
+  onClose:()=>void; showToast:(m:string,t?:"success"|"error")=>void; onDone:()=>void;
+}){
+  const [data,setData]=useState<PickResp|null>(null);
+  const [loading,setLoading]=useState(true);
+  const [busy,setBusy]=useState(false);
+  const [picked,setPicked]=useState<string>("");
+
+  useEffect(()=>{
+    const params=new URLSearchParams({action:"getVacantSeats",library_code:lib,shift:ctx.shift});
+    if(branch) params.set("branch_code",branch);
+    fetch(`${API}?${params}`).then(r=>r.json()).then((r:PickResp)=>{ setData(r); setLoading(false); }).catch(()=>{ setLoading(false); });
+  },[lib,branch,ctx.shift]);
+
+  const submit=async(seat:string)=>{
+    setBusy(true);
+    const r=await post("reAllotSeat",{receipt_no:ctx.receipt_no,seat_no:seat});
+    setBusy(false);
+    if(r&&r.reallotted){ showToast(`${ctx.student_id} → seat ${r.seat_no}`); onDone(); }
+    else showToast(r&&r.error?r.error:"Re-allot failed","error");
+  };
+
+  return (
+    <div className="fixed inset-0 z-[9999] flex items-end justify-center" onClick={onClose}>
+      <div className="absolute inset-0 bg-black/50 backdrop-blur-sm"/>
+      <div className="relative w-full max-w-md bg-white rounded-t-3xl p-5 max-h-[88vh] overflow-y-auto lma-slide-up" onClick={e=>e.stopPropagation()}>
+        <div className="w-9 h-1 bg-lma-slate-200 rounded-full mx-auto mb-4"/>
+        <h3 className="text-base font-extrabold text-lma-slate-900 mb-1">Re-Allot seat</h3>
+        <p className="text-[12px] text-lma-slate-500 mb-1">{ctx.student_id} · {ctx.name} · {ctx.shift}</p>
+        {ctx.original&&<p className="text-[12px] text-lma-warn font-semibold mb-3">Original seat <b>{ctx.original}</b> is highlighted — tap it to restore, or pick another vacant seat.</p>}
+        {!ctx.original&&<p className="text-[12px] text-lma-slate-500 mb-3">Pick a vacant seat to move them to.</p>}
+
+        {loading?(
+          <div className="text-center text-sm text-lma-slate-500 py-8">Loading seats…</div>
+        ):!data||!data.sections?(
+          <div className="text-center text-sm text-lma-slate-500 py-8">No layout.</div>
+        ):(
+          <div className="space-y-4">
+            {data.sections.slice().sort((a,b)=>a.section_order-b.section_order).map(sec=>(
+              <div key={sec.section_name}>
+                {data.sections.length>1&&<div className="text-[11px] font-bold text-lma-slate-500 mb-1.5">{sec.section_name}</div>}
+                <div className="grid gap-1" style={{gridTemplateColumns:`repeat(${sec.cols}, minmax(30px, 1fr))`}}>
+                  {Array.from({length:sec.rows*sec.cols}).map((_,idx)=>{
+                    const r=Math.floor(idx/sec.cols)+1,c=(idx%sec.cols)+1;
+                    const cell=sec.seats.find(s=>s.row_in_section===r&&s.col_in_section===c);
+                    if(!cell) return <div key={idx} className="aspect-square"/>;
+                    if(cell.cell_type==="DEAD") return <div key={idx} className="aspect-square rounded bg-lma-slate-500"/>;
+                    const isVacant=cell.state==="VACANT";
+                    const isOriginal=ctx.original&&cell.display_label===ctx.original;
+                    const isPicked=picked===cell.display_label;
+                    const tone=isPicked?{bg:"#4f46e5",fg:"#fff",bd:"#4f46e5"}
+                      :isOriginal?{bg:"#fffbeb",fg:"#b45309",bd:"#f59e0b"}
+                      :isVacant?{bg:"#f0fdf4",fg:"#15803d",bd:"#86efac"}
+                      :{bg:"#f1f5f9",fg:"#94a3b8",bd:"#e2e8f0"};
+                    return (
+                      <button key={idx} disabled={!isVacant||busy}
+                        onClick={()=>setPicked(cell.display_label)}
+                        title={cell.occupant?cell.occupant.name:(cell.share_note||"")}
+                        className="aspect-square rounded text-[9px] font-extrabold flex items-center justify-center disabled:cursor-not-allowed"
+                        style={{background:tone.bg,color:tone.fg,border:`${isOriginal?"1.5px dashed":"1px solid"} ${tone.bd}`}}>
+                        {cell.display_label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div className="flex gap-2 mt-5 sticky bottom-0 bg-white pt-2">
+          <button onClick={onClose} className="flex-1 py-3 rounded-xl bg-lma-slate-100 text-lma-slate-600 font-bold">Cancel</button>
+          <button disabled={!picked||busy} onClick={()=>submit(picked)} className="flex-1 py-3 rounded-xl bg-gradient-to-br from-lma-primary to-lma-primary-2 text-white font-bold shadow-md disabled:opacity-50">{busy?"…":picked?`Allot ${picked}`:"Pick a seat"}</button>
+        </div>
+      </div>
     </div>
   );
 }
