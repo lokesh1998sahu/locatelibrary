@@ -221,6 +221,7 @@ export default function BoardPage(){
         post={post}
         showToast={showToast}
         onChanged={()=>{ setDetail(null); loadBoard(); }}
+        onReAllot={(o)=>{ setDetail(null); setReAllot({receipt_no:o.receipt_no,name:o.name,student_id:o.student_id,shift:o.shift}); }}
       />}
 
       {/* vacant tap popup */}
@@ -345,7 +346,7 @@ function SidePanel({ title, items, emoji, onReAllot }:{ title:string; items:Side
 }
 
 // ── DETAIL SHEET (occupied seat tap) ─────────────────────────────
-function DetailSheet({ cell, onClose, router, scope, lib, branch, post, showToast, onChanged }:{ cell:BoardCell; onClose:()=>void; router:any; scope:string; lib:string; branch:string; post:(a:string,p:any)=>Promise<any>; showToast:(m:string,t?:"success"|"error")=>void; onChanged:()=>void }){
+function DetailSheet({ cell, onClose, router, scope, lib, branch, post, showToast, onChanged, onReAllot }:{ cell:BoardCell; onClose:()=>void; router:any; scope:string; lib:string; branch:string; post:(a:string,p:any)=>Promise<any>; showToast:(m:string,t?:"success"|"error")=>void; onChanged:()=>void; onReAllot:(o:Occupant)=>void }){
   const occupants:Occupant[]=[];
   if(cell.fullday) occupants.push(cell.fullday);
   if(cell.morning) occupants.push(cell.morning);
@@ -353,7 +354,6 @@ function DetailSheet({ cell, onClose, router, scope, lib, branch, post, showToas
 
   const [busy,setBusy]=useState(false);
   const [confirmVacate,setConfirmVacate]=useState<Occupant|null>(null);
-  const [movePicker,setMovePicker]=useState<Occupant|null>(null);
 
   const doVacate=async(o:Occupant)=>{
     setBusy(true);
@@ -386,7 +386,7 @@ function DetailSheet({ cell, onClose, router, scope, lib, branch, post, showToas
                   <button onClick={()=>router.push("/lma/admissions")} className="py-2 rounded-lg bg-lma-primary/10 text-lma-primary font-bold text-xs">Renew</button>
                   <button onClick={()=>router.push("/lma/renewals")} className="py-2 rounded-lg bg-lma-slate-100 text-lma-slate-600 font-bold text-xs">Cancel</button>
                   <button disabled={busy} onClick={()=>setConfirmVacate(o)} className="py-2 rounded-lg bg-lma-warn/10 text-lma-warn font-bold text-xs disabled:opacity-50">Temp-Vacate</button>
-                  <button disabled={busy} onClick={()=>setMovePicker(o)} className="py-2 rounded-lg bg-lma-slate-100 text-lma-slate-600 font-bold text-xs disabled:opacity-50">Re-Allot</button>
+                  <button disabled={busy} onClick={()=>onReAllot(o)} className="py-2 rounded-lg bg-lma-slate-100 text-lma-slate-600 font-bold text-xs disabled:opacity-50">Re-Allot</button>
                 </div>
               </div>
             );
@@ -408,14 +408,6 @@ function DetailSheet({ cell, onClose, router, scope, lib, branch, post, showToas
             </div>
           </div>
         )}
-
-        {/* re-allot MOVE picker (move a seated student to a different seat) */}
-        {movePicker&&<ReAllotPicker
-          ctx={{receipt_no:movePicker.receipt_no,name:movePicker.name,student_id:movePicker.student_id,shift:movePicker.shift}}
-          lib={lib} branch={branch} post={post} showToast={showToast}
-          onClose={()=>setMovePicker(null)}
-          onDone={()=>{ setMovePicker(null); onChanged(); }}
-        />}
       </div>
     </div>
   );

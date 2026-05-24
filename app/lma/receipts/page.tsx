@@ -210,16 +210,7 @@ export default function ReceiptsPage(){
             <p className="text-sm text-lma-slate-500">No edits recorded yet.</p>
           ):(
             <div className="space-y-2">
-              {history.edits.map(ev=>(
-                <div key={ev.letter} className="border border-lma-slate-200 rounded-xl p-3">
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className="text-xs font-extrabold text-lma-slate-900">Edit {ev.letter}</span>
-                    <span className="text-[10px] text-lma-slate-400 ml-auto">{ev.edited_at}</span>
-                  </div>
-                  <div className="text-[11px] text-lma-slate-600">Changed: <span className="font-semibold">{ev.changed_fields||"—"}</span></div>
-                  {ev.remark&&<div className="text-[11px] text-lma-slate-500 mt-0.5">Note: {ev.remark}</div>}
-                </div>
-              ))}
+              {history.edits.map(ev=><EditEventCard key={ev.letter} ev={ev}/>)}
             </div>
           )}
         </Sheet>
@@ -319,3 +310,47 @@ function Sheet({ onClose, children }:{ onClose:()=>void; children:React.ReactNod
 }
 function L({ children }:{ children:React.ReactNode }){ return <label className="block text-[11px] font-bold text-lma-slate-500 uppercase tracking-wide mb-1 mt-2">{children}</label>; }
 function I(props:React.InputHTMLAttributes<HTMLInputElement>){ return <input {...props} className="w-full px-3.5 py-2.5 rounded-xl border-[1.5px] border-lma-slate-200 bg-lma-slate-50 focus:bg-white focus:border-lma-primary outline-none text-[14px] font-medium"/>; }
+
+// ── History edit card: parses BEFORE/AFTER JSON → shows old → new per field ──
+const FIELD_LABELS:Record<string,string>={
+  seat_no:"Seat", temporary_seat:"Temp-vacated seat", shift:"Shift", shift_name:"Shift name", shift_time:"Shift time",
+  booking_from:"Booking from", booking_to:"Booking to", receipt_date:"Receipt date", fee:"Fee",
+  name:"Name", student_id:"Student ID", library:"Library", branch:"Branch", is_cross_library:"Cross-library",
+  pay_mode_1:"Pay mode 1", pay_amount_1:"Pay amount 1", pay_fees_mode_1:"Bank 1",
+  pay_mode_2:"Pay mode 2", pay_amount_2:"Pay amount 2", pay_fees_mode_2:"Bank 2",
+  pay_mode_3:"Pay mode 3", pay_amount_3:"Pay amount 3", pay_fees_mode_3:"Bank 3",
+  fees_due:"Fees due", fees_due_balance:"Dues balance", type:"Type", status:"Status", dues_status:"Dues status",
+  renewed_from:"Renewed from", phone:"Phone", phone_tag:"Phone tag",
+};
+function fieldLabel(k:string){ return FIELD_LABELS[k]||k; }
+function safeParse(j:string):Record<string,any>{ try{ return j?JSON.parse(j):{}; }catch{ return {}; } }
+function dispVal(v:any){ if(v===undefined||v===null||v==="")return "—"; return String(v); }
+
+function EditEventCard({ev}:{ev:EditEvent}){
+  const before=safeParse(ev.before);
+  const after=safeParse(ev.after);
+  const fields=(ev.changed_fields||"").split(",").map(x=>x.trim()).filter(Boolean);
+  return (
+    <div className="border border-lma-slate-200 rounded-xl p-3">
+      <div className="flex items-center gap-2 mb-1.5">
+        <span className="text-xs font-extrabold text-lma-slate-900">Edit {ev.letter}</span>
+        <span className="text-[10px] text-lma-slate-400 ml-auto">{ev.edited_at}</span>
+      </div>
+      {fields.length===0?(
+        <div className="text-[11px] text-lma-slate-500">No field-level changes recorded.</div>
+      ):(
+        <div className="space-y-1">
+          {fields.map(fk=>(
+            <div key={fk} className="flex items-center gap-1.5 text-[11px]">
+              <span className="font-semibold text-lma-slate-600 w-28 shrink-0 truncate">{fieldLabel(fk)}</span>
+              <span className="text-lma-danger line-through truncate max-w-[90px]">{dispVal(before[fk])}</span>
+              <span className="text-lma-slate-400">→</span>
+              <span className="text-lma-accent font-semibold truncate max-w-[90px]">{dispVal(after[fk])}</span>
+            </div>
+          ))}
+        </div>
+      )}
+      {ev.remark&&<div className="text-[11px] text-lma-slate-500 mt-1.5 pt-1.5 border-t border-lma-slate-100">Note: {ev.remark}</div>}
+    </div>
+  );
+}

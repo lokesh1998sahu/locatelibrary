@@ -6,212 +6,153 @@ import Link from "next/link";
 const API = "/api/lma";
 const PASSWORD = process.env.NEXT_PUBLIC_LMA_PASSWORD!;
 
-// ── TYPES ─────────────────────────────────────────────────────────
-interface Library    { library_code:string; library_name:string; display_name:string; active:boolean; has_branches:boolean; emoji:string; color?:string; }
-interface Branch     { library_code:string; branch_code:string; branch_display:string; active:boolean; emoji?:string; color?:string; }
-interface Shift      { shift_key:string; shift_name:string; shift_time:string; active:boolean; }
-interface PaymentTag { tag_name:string; fees_mode:string; active:boolean; created_at:string; }
-interface LibSettings { library:string; last_student_id:number; last_receipt_no:number; cutoff_student_id:number; cutoff_receipt_no:number; renewal_alert_days:number; }
-interface InitData   { ok:boolean; libraries:Library[]; branches:Branch[]; fees:Record<string,Record<string,number>>; shifts:Shift[]; paymentTags:PaymentTag[]; activeTags:string[]; settings:Record<string,LibSettings>; }
-interface PingData   { ok:boolean; app?:string; version?:string; timezone?:string; server_time?:string; error?:string; }
+interface Library { library_code:string; display_name:string; active:boolean; has_branches:boolean; emoji:string; color?:string; }
+interface Branch  { library_code:string; branch_code:string; active:boolean; emoji?:string; color?:string; }
+interface InitData{ ok:boolean; libraries:Library[]; branches:Branch[]; }
 
-// ── NAVIGATION CARDS ──────────────────────────────────────────────
-const NAV: { href:string; label:string; emoji:string; desc:string; ready:boolean }[] = [
-  { href:"/lma/admissions",  label:"Admissions",   emoji:"📝", desc:"New + renewal receipts",       ready:false },
-  { href:"/lma/students",    label:"Students",     emoji:"👥", desc:"Browse + edit students",       ready:false },
-  { href:"/lma/receipts",    label:"Receipts",     emoji:"🧾", desc:"All receipts log",             ready:false },
-  { href:"/lma/dues",        label:"Dues",         emoji:"💰", desc:"Pending + irrecoverable",      ready:false },
-  { href:"/lma/renewals",    label:"Renewals",     emoji:"🔁", desc:"Expiring + cancellations",     ready:false },
-  { href:"/lma/misc-income", label:"Misc Income",  emoji:"💵", desc:"Day-pass, locker, xerox",      ready:false },
-  { href:"/lma/dashboard",   label:"Dashboard",    emoji:"📊", desc:"Revenue + analytics",          ready:false },
-  { href:"/lma/board",       label:"Seat Chart",   emoji:"🪑", desc:"Visual seat map (Phase 8)",    ready:false },
-  { href:"/lma/settings",    label:"Settings",     emoji:"⚙️", desc:"Libraries, shifts, tags, fees", ready:false },
+type Card = { href:string; label:string; emoji:string; desc:string; badgeKey?:"renewals"|"dues" };
+const CARDS: Card[] = [
+  { href:"/lma/admissions",  label:"Admissions",  emoji:"📝", desc:"New & renewal receipts" },
+  { href:"/lma/board",       label:"Seat Chart",  emoji:"🪑", desc:"Live seat map" },
+  { href:"/lma/renewals",    label:"Renewals",    emoji:"🔁", desc:"Expiring & cancellations", badgeKey:"renewals" },
+  { href:"/lma/students",    label:"Students",    emoji:"👥", desc:"Browse & edit" },
+  { href:"/lma/dues",        label:"Dues",        emoji:"💰", desc:"Pending & written-off", badgeKey:"dues" },
+  { href:"/lma/misc-income", label:"Misc Income", emoji:"💵", desc:"Day-pass, locker, xerox" },
+  { href:"/lma/refunds",     label:"Refunds",     emoji:"↩️", desc:"Issue & track" },
+  { href:"/lma/receipts",    label:"Receipts",    emoji:"🧾", desc:"Full log & edits" },
+  { href:"/lma/dashboard",   label:"Dashboard",   emoji:"📊", desc:"Collection & analytics" },
+  { href:"/lma/settings",    label:"Settings",    emoji:"⚙️", desc:"Libraries, fees, layouts" },
 ];
 
-// ── PAGE ──────────────────────────────────────────────────────────
+function greeting(){ const h=new Date().getHours(); if(h<12)return "Good morning"; if(h<17)return "Good afternoon"; return "Good evening"; }
+const fmtINR=(n:number)=>"₹"+Math.round(n).toLocaleString("en-IN");
+const todayDmy=()=>{ const d=new Date(); return `${d.getDate()}-${d.getMonth()+1}-${d.getFullYear()}`; };
+
 export default function LmaHomePage() {
   const [unlocked, setUnlocked] = useState(false);
   const [pwInput, setPwInput] = useState("");
   const [pwErr, setPwErr] = useState("");
 
-  const [ping, setPing] = useState<PingData | null>(null);
-  const [init, setInit] = useState<InitData | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [loadErr, setLoadErr] = useState("");
+  const [init,setInit]=useState<InitData|null>(null);
+  const [connected, setConnected] = useState<boolean|null>(null);
+  const [scope,setScope]=useState("");
 
-  // ── Unlock from sessionStorage on mount ──
-  useEffect(() => {
-    if (typeof window !== "undefined" && sessionStorage.getItem("lma_ok") === "1") {
-      setUnlocked(true);
-    }
-  }, []);
+  // live numbers (null = loading)
+  const [today,setToday]=useState<{net:number;receipts:number;dues:number}|null>(null);
+  const [badges,setBadges]=useState<{renewals:number;dues:number}>({renewals:0,dues:0});
+  const [statsLoading,setStatsLoading]=useState(false);
 
-  const tryUnlock = () => {
-    if (pwInput && pwInput === PASSWORD) {
-      sessionStorage.setItem("lma_ok", "1");
-      setUnlocked(true);
-      setPwErr("");
-    } else {
-      setPwErr("Incorrect password.");
-    }
-  };
+  useEffect(() => { if (typeof window!=="undefined" && sessionStorage.getItem("lma_ok")==="1") setUnlocked(true); }, []);
+  const tryUnlock=()=>{ if(pwInput&&pwInput===PASSWORD){sessionStorage.setItem("lma_ok","1");setUnlocked(true);setPwErr("");}else setPwErr("Incorrect password."); };
+  const lock=()=>{ sessionStorage.removeItem("lma_ok"); setUnlocked(false); setPwInput(""); };
 
-  // ── Fetch backend health + init data ──
-  const fetchAll = useCallback(async () => {
-    setLoading(true);
-    setLoadErr("");
-    try {
-      const [pingRes, initRes] = await Promise.all([
-        fetch(`${API}?action=ping`).then(r => r.json()),
-        fetch(`${API}?action=getInitData`).then(r => r.json()),
+  // init (for chips + connection dot)
+  useEffect(()=>{ if(!unlocked)return; fetch(`${API}?action=getInitData`).then(r=>r.json()).then((r:InitData)=>{ setInit(r); setConnected(!!r?.ok); }).catch(()=>setConnected(false)); },[unlocked]);
+
+  // live stats — non-blocking; refetch on scope change
+  const loadStats=useCallback(async()=>{
+    setStatsLoading(true);
+    const sp=(extra:Record<string,string>)=>{ const p=new URLSearchParams(extra); if(scope)p.set("library",scope); return p.toString(); };
+    try{
+      const [dash,ren,dues]=await Promise.all([
+        fetch(`${API}?${sp({action:"getDashboard",from:todayDmy(),to:todayDmy()})}`).then(r=>r.json()).catch(()=>null),
+        fetch(`${API}?${sp({action:"getRenewalsQueue"})}`).then(r=>r.json()).catch(()=>null),
+        fetch(`${API}?${sp({action:"getPendingDues"})}`).then(r=>r.json()).catch(()=>null),
       ]);
-      setPing(pingRes);
-      setInit(initRes);
-    } catch (e) {
-      setLoadErr(e instanceof Error ? e.message : String(e));
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+      if(dash&&dash.ok) setToday({ net:dash.headline.net, receipts:dash.counts.receipts, dues:dash.headline.outstanding_dues });
+      else setToday({net:0,receipts:0,dues:0});
+      const expiring=(ren?.expiring?.length||0)+(ren?.expired?.length||0);
+      setBadges({ renewals:expiring, dues:(dues?.pending?.length||dues?.total||0) });
+    }catch{ setToday({net:0,receipts:0,dues:0}); }
+    setStatsLoading(false);
+  },[scope]);
+  useEffect(()=>{ if(unlocked) loadStats(); },[unlocked,loadStats]);
 
-  useEffect(() => {
-    if (unlocked) fetchAll();
-  }, [unlocked, fetchAll]);
-
-  // ── PASSWORD GATE ──
   if (!unlocked) {
     return (
       <div className="min-h-screen flex items-center justify-center px-4">
         <div className="w-full max-w-sm bg-white rounded-2xl shadow-lg p-7 lma-slide-up">
-          <div className="text-center mb-5">
-            <div className="text-4xl mb-2">📚</div>
-            <h1 className="text-xl font-extrabold text-lma-slate-900">LMA</h1>
-            <p className="text-sm text-lma-slate-500 mt-1">Library Management App</p>
-          </div>
-          <input
-            type="password"
-            autoFocus
-            value={pwInput}
-            onChange={e => { setPwInput(e.target.value); setPwErr(""); }}
-            onKeyDown={e => { if (e.key === "Enter") tryUnlock(); }}
-            placeholder="Password"
-            className="w-full px-4 py-3 rounded-xl border-[1.5px] border-lma-slate-200 bg-lma-slate-50 focus:bg-white focus:border-lma-primary outline-none text-[15px] font-medium"
-          />
-          {pwErr && <p className="text-sm text-lma-danger mt-2 font-medium">{pwErr}</p>}
-          <button
-            onClick={tryUnlock}
-            className="w-full mt-4 py-3 rounded-xl bg-gradient-to-br from-lma-primary to-lma-primary-2 text-white font-bold text-[15px] shadow-md hover:shadow-lg active:scale-[0.98] transition"
-          >
-            Unlock
-          </button>
+          <div className="text-center mb-5"><div className="text-4xl mb-2">📚</div><h1 className="text-xl font-extrabold text-lma-slate-900">LMA</h1><p className="text-sm text-lma-slate-500 mt-1">Library Management App</p></div>
+          <input type="password" autoFocus value={pwInput} onChange={e=>{setPwInput(e.target.value);setPwErr("");}} onKeyDown={e=>{if(e.key==="Enter")tryUnlock();}} placeholder="Password" className="w-full px-4 py-3 rounded-xl border-[1.5px] border-lma-slate-200 bg-lma-slate-50 focus:bg-white focus:border-lma-primary outline-none text-[15px] font-medium"/>
+          {pwErr&&<p className="text-sm text-lma-danger mt-2 font-medium">{pwErr}</p>}
+          <button onClick={tryUnlock} className="w-full mt-4 py-3 rounded-xl bg-gradient-to-br from-lma-primary to-lma-primary-2 text-white font-bold text-[15px] shadow-md hover:shadow-lg active:scale-[0.98] transition">Unlock</button>
         </div>
       </div>
     );
   }
 
-  // ── MAIN ──
-  const isHealthy = ping?.ok && init?.ok;
+  const dotCls = connected===null ? "bg-lma-warn animate-pulse" : connected ? "bg-lma-accent" : "bg-lma-danger";
+  const dotTxt = connected===null ? "Checking…" : connected ? "Connected" : "Offline";
+
+  const chips:{code:string;label:string;color?:string}[]=[{code:"",label:"All"}];
+  if(init?.libraries){ init.libraries.filter(l=>l.active).forEach(l=>{
+    if(l.has_branches){ init.branches.filter(b=>b.library_code===l.library_code&&b.active).forEach(b=>chips.push({code:b.branch_code,label:b.branch_code,color:b.color||l.color})); }
+    else chips.push({code:l.library_code,label:l.library_code,color:l.color});
+  }); }
 
   return (
-    <div className="lma-page-body max-w-md mx-auto px-4 pt-5">
-      {/* Header */}
-      <header className="flex items-center justify-between mb-5">
-        <div>
-          <h1 className="text-2xl font-extrabold tracking-tight text-lma-slate-900">LMA</h1>
-          <p className="text-xs text-lma-slate-500 font-medium">Library Management</p>
+    <div className="lma-page-body max-w-md mx-auto px-4 pt-6 pb-10">
+      {/* Hero */}
+      <header className="mb-4 lma-slide-up">
+        <div className="flex items-center justify-between">
+          <p className="text-[13px] font-semibold text-lma-slate-500">{greeting()}</p>
+          <div className="flex items-center gap-3">
+            <span className="flex items-center gap-1.5 text-[11px] font-bold text-lma-slate-500"><span className={`w-2 h-2 rounded-full ${dotCls}`}></span>{dotTxt}</span>
+            <button onClick={lock} title="Lock" className="text-[13px] text-lma-slate-400 hover:text-lma-slate-700 active:scale-90 transition">🔒</button>
+          </div>
         </div>
-        <button
-          onClick={fetchAll}
-          disabled={loading}
-          className="text-xs font-bold px-3 py-2 rounded-lg bg-lma-slate-100 text-lma-slate-600 hover:bg-lma-slate-200 disabled:opacity-50"
-        >
-          {loading ? "..." : "↻ Refresh"}
-        </button>
+        <h1 className="text-[34px] leading-none font-extrabold tracking-tight text-lma-slate-900 mt-1">LMA</h1>
       </header>
 
-      {/* Backend Health Card */}
-      <section className="bg-white rounded-2xl shadow-sm p-4 mb-4 lma-slide-up">
-        <div className="flex items-center gap-2 mb-3">
-          <span className={`w-2.5 h-2.5 rounded-full ${isHealthy ? "bg-lma-accent" : "bg-lma-danger"}`}></span>
-          <h2 className="text-sm font-bold text-lma-slate-900">
-            Backend Status: {isHealthy ? "Connected" : (loading ? "Checking..." : "Disconnected")}
-          </h2>
+      {/* library chips */}
+      <div className="flex gap-1.5 mb-3 overflow-x-auto -mx-4 px-4 pb-1">
+        {chips.map(c=>(
+          <button key={c.code||"all"} onClick={()=>setScope(c.code)} style={scope===c.code&&c.color?{background:c.color,color:"#fff"}:undefined} className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-bold whitespace-nowrap shadow-sm ${scope===c.code&&!c.color?"bg-lma-slate-900 text-white":scope===c.code?"":"bg-white text-lma-slate-600"}`}>{c.label}</button>
+        ))}
+      </div>
+
+      {/* TODAY cockpit */}
+      <div className="bg-gradient-to-br from-lma-primary to-lma-primary-2 rounded-2xl p-4 text-white shadow-md mb-3 lma-slide-up">
+        <div className="flex items-center justify-between mb-2">
+          <span className="text-[11px] font-bold uppercase tracking-wide opacity-80">Today {scope?`· ${scope}`:""}</span>
+          {statsLoading&&<span className="text-[10px] opacity-70">updating…</span>}
         </div>
-        {loadErr && (
-          <div className="text-xs text-lma-danger bg-red-50 rounded-lg p-2 mb-2">{loadErr}</div>
-        )}
-        {ping && (
-          <div className="text-xs text-lma-slate-600 font-mono space-y-0.5">
-            <div>v{ping.version} · {ping.timezone}</div>
-            <div className="text-lma-slate-400">Server: {ping.server_time}</div>
-          </div>
-        )}
-      </section>
+        <div className="grid grid-cols-3 gap-2">
+          <CockpitCell label="Collected" value={today?fmtINR(today.net):"…"}/>
+          <CockpitCell label="Receipts" value={today?String(today.receipts):"…"}/>
+          <CockpitCell label="Dues (live)" value={today?fmtINR(today.dues):"…"}/>
+        </div>
+      </div>
 
-      {/* Seeded Data Snapshot */}
-      {init && init.ok && (
-        <section className="bg-white rounded-2xl shadow-sm p-4 mb-4 lma-slide-up">
-          <h2 className="text-sm font-bold text-lma-slate-900 mb-3">Reference Data</h2>
-          <div className="grid grid-cols-2 gap-2 mb-3 text-xs">
-            <Stat label="Libraries"     value={init.libraries.length} />
-            <Stat label="Branches"      value={init.branches.length} />
-            <Stat label="Shifts"        value={init.shifts.length} />
-            <Stat label="Payment Tags"  value={`${init.activeTags.length}/${init.paymentTags.length}`} />
-          </div>
-          <div className="space-y-1.5">
-            {init.libraries.map(lib => (
-              <div key={lib.library_code} className="flex items-center justify-between bg-lma-slate-50 rounded-lg px-3 py-2">
-                <span className="flex items-center gap-2">
-                  <span className="text-base">{lib.emoji}</span>
-                  <span className="text-sm font-bold text-lma-slate-800">{lib.library_code}</span>
-                  <span className="text-xs text-lma-slate-500">{lib.display_name}</span>
-                </span>
-                {lib.has_branches && (
-                  <span className="text-[10px] font-bold text-lma-primary bg-lma-primary/10 px-1.5 py-0.5 rounded">
-                    {init.branches.filter(b => b.library_code === lib.library_code).length} branches
-                  </span>
-                )}
-              </div>
-            ))}
-          </div>
-        </section>
-      )}
 
-      {/* Navigation Grid */}
+      {/* Launcher grid */}
       <section className="lma-slide-up">
-        <h2 className="text-sm font-bold text-lma-slate-600 mb-2 px-1">App Sections</h2>
         <div className="grid grid-cols-2 gap-2.5">
-          {NAV.map(nav => (
-            <Link
-              key={nav.href}
-              href={nav.href}
-              className={`bg-white rounded-2xl p-3.5 shadow-sm hover:shadow-md transition active:scale-[0.98] ${nav.ready ? "" : "opacity-60"}`}
-            >
-              <div className="text-2xl mb-1.5">{nav.emoji}</div>
-              <div className="text-sm font-bold text-lma-slate-900">{nav.label}</div>
-              <div className="text-[11px] text-lma-slate-500 leading-tight mt-0.5">{nav.desc}</div>
-              {!nav.ready && (
-                <div className="text-[10px] text-lma-warn font-bold mt-1">Coming soon</div>
-              )}
-            </Link>
-          ))}
+          {CARDS.map((c,i)=>{
+            const badge = c.badgeKey ? badges[c.badgeKey] : 0;
+            return (
+              <Link key={c.href} href={c.href} className="group relative bg-white rounded-2xl p-4 shadow-sm hover:shadow-md transition active:scale-[0.97] overflow-hidden lma-slide-up" style={{animationDelay:`${i*30}ms`}}>
+                <div className="absolute -right-3 -top-3 text-5xl opacity-[0.06] group-hover:opacity-10 transition select-none">{c.emoji}</div>
+                {badge>0&&<div className="absolute top-2.5 right-2.5 min-w-[20px] h-5 px-1.5 rounded-full bg-lma-danger text-white text-[11px] font-extrabold flex items-center justify-center shadow-sm">{badge}</div>}
+                <div className="text-2xl mb-2">{c.emoji}</div>
+                <div className="text-[15px] font-extrabold text-lma-slate-900 leading-tight">{c.label}</div>
+                <div className="text-[11px] text-lma-slate-500 leading-tight mt-0.5">{c.desc}</div>
+              </Link>
+            );
+          })}
         </div>
       </section>
 
-      {/* Footer */}
-      <footer className="text-center text-[11px] text-lma-slate-400 mt-6 font-medium">
-        v{ping?.version || "?"} · Tap to expand any section
-      </footer>
+      <footer className="text-center text-[10px] text-lma-slate-300 mt-5 font-medium">Locate Library</footer>
     </div>
   );
 }
 
-// ── COMPONENTS ────────────────────────────────────────────────────
-function Stat({ label, value }: { label:string; value:string|number }) {
+function CockpitCell({label,value}:{label:string;value:string}){
   return (
-    <div className="bg-lma-slate-50 rounded-lg p-2.5">
-      <div className="text-[10px] text-lma-slate-500 font-semibold uppercase tracking-wide">{label}</div>
-      <div className="text-lg font-extrabold text-lma-slate-900 mt-0.5">{value}</div>
+    <div className="bg-white/12 rounded-xl px-2.5 py-2 backdrop-blur-sm">
+      <div className="text-[9px] font-bold uppercase tracking-wide opacity-75">{label}</div>
+      <div className="text-[15px] font-extrabold mt-0.5 leading-none truncate">{value}</div>
     </div>
   );
 }
