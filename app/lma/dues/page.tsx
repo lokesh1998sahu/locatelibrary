@@ -1,3 +1,310 @@
-export default function Page() {
-  return <div>Coming soon</div>;
+"use client";
+
+import { useState, useEffect, useCallback } from "react";
+import Link from "next/link";
+
+const API = "/api/lma";
+const PASSWORD = process.env.NEXT_PUBLIC_LMA_PASSWORD!;
+
+// FEES_DUE_LOG headers (exact): s_no, payment_id, receipt_no, student_id, library,
+//   branch, name, phone, payment_mode, payment_fees_mode, amount_received,
+//   balance_before, balance_after, received_on, notes, whatsapp_text
+interface Library { library_code:string; display_name:string; active:boolean; has_branches:boolean; emoji:string; color?:string; }
+interface Branch  { library_code:string; branch_code:string; active:boolean; emoji?:string; color?:string; }
+interface PaymentTag { tag_name:string; fees_mode:string; active:boolean; }
+interface InitData{ ok:boolean; libraries:Library[]; branches:Branch[]; paymentTags:PaymentTag[]; }
+
+// PendingDue / Irrecoverable come from RECEIPT_LOG via getPendingDues / getIrrecoverableDues.
+// Fields below are the standard RECEIPT_LOG mapping used across LMA (mapReceiptRow).
+interface PendingDue {
+  receipt_no:string; student_id:string; library:string; branch:string; name:string;
+  seat_no:string; shift:string; shift_name:string; booking_to:string;
+  fees_due:number; fees_due_balance:number; dues_status:string;
 }
+interface DuePayment {
+  payment_id:string; receipt_no:string; student_id:string; library:string; branch:string;
+  name:string; phone:string; payment_mode:string; payment_fees_mode:string;
+  amount_received:number; balance_before:number; balance_after:number;
+  received_on:string; notes:string; whatsapp_text:string;
+}
+interface Irrecoverable {
+  receipt_no:string; student_id:string; library:string; branch:string; name:string;
+  fees_due_balance:number; irrecoverable_remark:string; irrecoverable_whatsapp_text:string;
+}
+
+type Toast = { msg:string; type:"success"|"error" } | null;
+type Tab = "PENDING"|"PAYMENTS"|"IRRECOVERABLE";
+
+export default function DuesPage(){
+  const [unlocked,setUnlocked]=useState(false);
+  const [pwInput,setPwInput]=useState(""); const [pwErr,setPwErr]=useState("");
+  const [init,setInit]=useState<InitData|null>(null);
+  const [toast,setToast]=useState<Toast>(null);
+
+  const [tab,setTab]=useState<Tab>("PENDING");
+  const [scope,setScope]=useState("");
+  const [pending,setPending]=useState<PendingDue[]>([]);
+  const [payments,setPayments]=useState<DuePayment[]>([]);
+  const [irrec,setIrrec]=useState<Irrecoverable[]>([]);
+  const [pendingSum,setPendingSum]=useState(0);
+  const [loading,setLoading]=useState(false);
+
+  const [payFor,setPayFor]=useState<PendingDue|null>(null);
+  const [irrecFor,setIrrecFor]=useState<PendingDue|null>(null);
+  const [resultText,setResultText]=useState<{title:string;text:string}|null>(null);
+
+  useEffect(()=>{ if(typeof window!=="undefined"&&sessionStorage.getItem("lma_ok")==="1")setUnlocked(true); },[]);
+  const tryUnlock=()=>{ if(pwInput&&pwInput===PASSWORD){sessionStorage.setItem("lma_ok","1");setUnlocked(true);setPwErr("");}else setPwErr("Incorrect password."); };
+  const showToast=useCallback((msg:string,type:"success"|"error"="success")=>{ setToast({msg,type}); setTimeout(()=>setToast(null),3000); },[]);
+
+  const post=useCallback(async(action:string,payload:any)=>{ try{ const res=await fetch(API,{method:"POST",headers:{"Content-Type":"text/plain;charset=utf-8"},body:JSON.stringify({action,payload})}).then(r=>r.json()); if(!res.ok&&res.error){showToast(res.error,"error");return null;} return res; }catch(e){ showToast(e instanceof Error?e.message:String(e),"error"); return null; } },[showToast]);
+
+  useEffect(()=>{ if(unlocked) fetch(`${API}?action=getInitData`).then(r=>r.json()).then((r:InitData)=>{if(r.ok)setInit(r);}); },[unlocked]);
+
+  const load=useCallback(async()=>{
+    setLoading(true);
+    const p=new URLSearchParams(); if(scope) p.set("library",scope);
+    const [pd,pl,ir]=await Promise.all([
+      fetch(`${API}?action=getPendingDues&${p}`).then(r=>r.json()),
+      fetch(`${API}?action=getDuePaymentLog&${p}&page=1&limit=30`).then(r=>r.json()),
+      fetch(`${API}?action=getIrrecoverableDues&${p}`).then(r=>r.json()),
+    ]);
+    setLoading(false);
+
+    // PENDING — getPendingDues returns array under `pending` (mapReceiptRow rows), no sum
+    const pdList:PendingDue[]=(pd.pending||[]).map((x:any)=>({
+      receipt_no:String(x.receipt_no||""), student_id:String(x.student_id||""),
+      library:String(x.library||""), branch:String(x.branch||""), name:String(x.name||""),
+      seat_no:String(x.seat_no||""), shift:String(x.shift||""), shift_name:String(x.shift_name||""),
+      booking_to:String(x.booking_to||""), fees_due:Number(x.fees_due||0),
+      fees_due_balance:Number(x.fees_due_balance||0), dues_status:String(x.dues_status||""),
+    }));
+    setPending(pdList);
+    setPendingSum(typeof pd.sum==="number"?pd.sum:pdList.reduce((s,d)=>s+d.fees_due_balance,0));
+
+    // PAYMENTS — getDuePaymentLog returns array under `payments` (exact FEES_DUE_LOG headers)
+    const plList:DuePayment[]=(pl.payments||[]).map((x:any)=>({
+      payment_id:String(x.payment_id||""), receipt_no:String(x.receipt_no||""),
+      student_id:String(x.student_id||""), library:String(x.library||""), branch:String(x.branch||""),
+      name:String(x.name||""), phone:String(x.phone||""),
+      payment_mode:String(x.payment_mode||""), payment_fees_mode:String(x.payment_fees_mode||""),
+      amount_received:Number(x.amount_received||0), balance_before:Number(x.balance_before||0),
+      balance_after:Number(x.balance_after||0), received_on:String(x.received_on||""),
+      notes:String(x.notes||""), whatsapp_text:String(x.whatsapp_text||""),
+    }));
+    setPayments(plList);
+
+    // IRRECOVERABLE — getIrrecoverableDues returns array under `items`
+    const irList:Irrecoverable[]=(ir.items||[]).map((x:any)=>({
+      receipt_no:String(x.receipt_no||""), student_id:String(x.student_id||""),
+      library:String(x.library||""), branch:String(x.branch||""), name:String(x.name||""),
+      fees_due_balance:Number(x.fees_due_balance||0),
+      irrecoverable_remark:String(x.irrecoverable_remark||""),
+      irrecoverable_whatsapp_text:String(x.irrecoverable_whatsapp_text||""),
+    }));
+    setIrrec(irList);
+  },[scope]);
+
+  useEffect(()=>{ if(unlocked) load(); },[unlocked,scope,load]);
+
+  if(!unlocked){
+    return (
+      <div className="min-h-screen flex items-center justify-center px-4">
+        <div className="w-full max-w-sm bg-white rounded-2xl shadow-lg p-7 lma-slide-up">
+          <div className="text-center mb-5"><div className="text-4xl mb-2">💰</div><h1 className="text-xl font-extrabold text-lma-slate-900">Dues</h1></div>
+          <input type="password" autoFocus value={pwInput} onChange={e=>{setPwInput(e.target.value);setPwErr("");}} onKeyDown={e=>{if(e.key==="Enter")tryUnlock();}} placeholder="Password" className="w-full px-4 py-3 rounded-xl border-[1.5px] border-lma-slate-200 bg-lma-slate-50 focus:bg-white focus:border-lma-primary outline-none text-[15px] font-medium"/>
+          {pwErr&&<p className="text-sm text-lma-danger mt-2 font-medium">{pwErr}</p>}
+          <button onClick={tryUnlock} className="w-full mt-4 py-3 rounded-xl bg-gradient-to-br from-lma-primary to-lma-primary-2 text-white font-bold text-[15px] shadow-md">Unlock</button>
+        </div>
+      </div>
+    );
+  }
+
+  const chips:{code:string;label:string;color?:string}[]=[{code:"",label:"All"}];
+  if(init){ init.libraries.filter(l=>l.active).forEach(l=>{
+    if(l.has_branches){ init.branches.filter(b=>b.library_code===l.library_code&&b.active).forEach(b=>chips.push({code:b.branch_code,label:b.branch_code,color:b.color||l.color})); }
+    else chips.push({code:l.library_code,label:l.library_code,color:l.color});
+  }); }
+
+  return (
+    <div className="lma-page-body max-w-md mx-auto px-4 pt-4">
+      <header className="flex items-center gap-3 mb-3">
+        <Link href="/lma" className="text-xl text-lma-slate-600 hover:text-lma-slate-900">←</Link>
+        <div className="flex-1"><h1 className="text-xl font-extrabold tracking-tight text-lma-slate-900">Dues</h1><p className="text-[11px] text-lma-slate-500 font-medium">{pending.length} pending · ₹{pendingSum} outstanding</p></div>
+        <button onClick={load} disabled={loading} className="text-xs font-bold px-3 py-2 rounded-lg bg-lma-slate-100 text-lma-slate-600 disabled:opacity-50">{loading?"...":"↻"}</button>
+      </header>
+
+      <div className="bg-white rounded-2xl p-1 flex gap-1 mb-3 shadow-sm">
+        <button onClick={()=>setTab("PENDING")} className={`flex-1 py-2 rounded-xl text-[11px] font-bold transition ${tab==="PENDING"?"bg-lma-slate-900 text-white":"text-lma-slate-500"}`}>Pending ({pending.length})</button>
+        <button onClick={()=>setTab("PAYMENTS")} className={`flex-1 py-2 rounded-xl text-[11px] font-bold transition ${tab==="PAYMENTS"?"bg-lma-slate-900 text-white":"text-lma-slate-500"}`}>Payments</button>
+        <button onClick={()=>setTab("IRRECOVERABLE")} className={`flex-1 py-2 rounded-xl text-[11px] font-bold transition ${tab==="IRRECOVERABLE"?"bg-lma-slate-900 text-white":"text-lma-slate-500"}`}>Written-off ({irrec.length})</button>
+      </div>
+
+      <div className="flex gap-1.5 mb-3 overflow-x-auto -mx-4 px-4 pb-1">
+        {chips.map(c=>(
+          <button key={c.code||"all"} onClick={()=>setScope(c.code)} style={scope===c.code&&c.color?{background:c.color,color:"#fff"}:undefined} className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-bold whitespace-nowrap ${scope===c.code&&!c.color?"bg-lma-slate-900 text-white":scope===c.code?"":"bg-white text-lma-slate-600"} shadow-sm`}>{c.label}</button>
+        ))}
+      </div>
+
+      {loading&&pending.length===0&&payments.length===0&&irrec.length===0?(
+        <div className="text-center text-sm text-lma-slate-500 py-8">Loading…</div>
+      ):tab==="PENDING"?(
+        pending.length===0?(
+          <div className="text-center text-sm text-lma-slate-500 py-8">No pending dues. 🎉</div>
+        ):(
+          <div className="space-y-2">
+            {pending.map(d=>(
+              <div key={d.receipt_no} className="bg-white rounded-xl p-3 shadow-sm">
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="text-sm font-extrabold text-lma-slate-900">{d.receipt_no}</span>
+                  <span className="text-[10px] font-bold text-lma-slate-400">{d.student_id}</span>
+                  <span className="text-sm font-extrabold text-lma-danger ml-auto">₹{d.fees_due_balance}</span>
+                </div>
+                <div className="text-sm font-semibold text-lma-slate-800 truncate">{d.name}</div>
+                <div className="text-[11px] text-lma-slate-500 mt-0.5">{d.library}{d.branch?`/${d.branch}`:""} · Seat {d.seat_no||"—"} · {d.shift_name||d.shift} · till {d.booking_to}</div>
+                <div className="grid grid-cols-2 gap-2 mt-2.5">
+                  <button onClick={()=>setPayFor(d)} className="py-2 rounded-lg bg-lma-accent/10 text-lma-accent font-bold text-xs">Log Payment</button>
+                  <button onClick={()=>setIrrecFor(d)} className="py-2 rounded-lg bg-lma-slate-100 text-lma-slate-600 font-bold text-xs">Write Off</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )
+      ):tab==="PAYMENTS"?(
+        payments.length===0?(
+          <div className="text-center text-sm text-lma-slate-500 py-8">No payments logged yet.</div>
+        ):(
+          <div className="space-y-2">
+            {payments.map(p=>(
+              <div key={p.payment_id} className="bg-white rounded-xl p-3 shadow-sm">
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="text-sm font-extrabold text-lma-slate-900">{p.receipt_no}</span>
+                  {p.name&&<span className="text-[11px] text-lma-slate-500 truncate">{p.name}</span>}
+                  <span className="text-sm font-extrabold text-lma-accent ml-auto">+₹{p.amount_received}</span>
+                </div>
+                <div className="text-[11px] text-lma-slate-500">{p.payment_mode} · {p.received_on} · ₹{p.balance_before}→₹{p.balance_after}</div>
+                {p.notes&&<div className="text-[11px] text-lma-slate-400 mt-0.5">{p.notes}</div>}
+                {p.whatsapp_text&&<button onClick={()=>{navigator.clipboard.writeText(p.whatsapp_text);showToast("Copied receipt message");}} className="mt-2 py-1.5 px-3 rounded-lg bg-lma-accent/10 text-lma-accent font-bold text-xs">Copy WhatsApp</button>}
+              </div>
+            ))}
+          </div>
+        )
+      ):(
+        irrec.length===0?(
+          <div className="text-center text-sm text-lma-slate-500 py-8">No written-off dues.</div>
+        ):(
+          <div className="space-y-2">
+            {irrec.map(d=>(
+              <div key={d.receipt_no} className="bg-white rounded-xl p-3 shadow-sm">
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="text-sm font-extrabold text-lma-slate-900">{d.receipt_no}</span>
+                  <span className="text-[10px] font-bold text-lma-slate-400">{d.student_id}</span>
+                  <span className="text-sm font-extrabold text-lma-slate-500 ml-auto line-through">₹{d.fees_due_balance}</span>
+                </div>
+                <div className="text-sm font-semibold text-lma-slate-800 truncate">{d.name}</div>
+                <div className="text-[11px] text-lma-slate-500 mt-0.5">{d.library}{d.branch?`/${d.branch}`:""}</div>
+                {d.irrecoverable_remark&&<div className="text-[11px] text-lma-slate-400 mt-0.5">Note: {d.irrecoverable_remark}</div>}
+                <button onClick={async()=>{ const r=await post("unmarkDuesIrrecoverable",{receipt_no:d.receipt_no}); if(r){showToast("Restored to pending");load();} }} className="mt-2 py-1.5 px-3 rounded-lg bg-lma-slate-100 text-lma-slate-600 font-bold text-xs">Restore to Pending</button>
+              </div>
+            ))}
+          </div>
+        )
+      )}
+
+      {payFor&&init&&(
+        <PaymentSheet due={payFor} init={init} onClose={()=>setPayFor(null)} post={post}
+          onDone={(text)=>{ setPayFor(null); if(text)setResultText({title:"Payment Receipt",text}); showToast("Payment logged"); load(); }}/>
+      )}
+
+      {irrecFor&&(
+        <Sheet onClose={()=>setIrrecFor(null)}>
+          <h3 className="text-base font-extrabold text-lma-slate-900 mb-1">Write off {irrecFor.receipt_no}</h3>
+          <p className="text-[11px] text-lma-slate-500 mb-3">{irrecFor.name} · ₹{irrecFor.fees_due_balance} outstanding</p>
+          <div className="text-[11px] text-lma-warn bg-lma-warn/10 rounded-lg p-2 mb-3">Marks these dues as irrecoverable (won't be collected). Reversible later.</div>
+          <WriteOffForm onCancel={()=>setIrrecFor(null)} onSubmit={async(remark)=>{ const r=await post("markDuesIrrecoverable",{receipt_no:irrecFor.receipt_no,remark}); if(r){ setIrrecFor(null); if(r.irrecoverable_whatsapp_text)setResultText({title:"Write-off notice",text:r.irrecoverable_whatsapp_text}); showToast("Marked irrecoverable"); load(); } }}/>
+        </Sheet>
+      )}
+
+      {resultText&&(
+        <Sheet onClose={()=>setResultText(null)}>
+          <h3 className="text-base font-extrabold text-lma-slate-900 mb-3">{resultText.title}</h3>
+          <pre className="text-[11px] text-lma-slate-700 whitespace-pre-wrap font-mono bg-lma-slate-50 rounded-lg p-3 max-h-60 overflow-y-auto">{resultText.text}</pre>
+          <button onClick={()=>{navigator.clipboard.writeText(resultText.text);showToast("Copied");}} className="w-full mt-3 py-3 rounded-xl bg-gradient-to-br from-lma-primary to-lma-primary-2 text-white font-bold shadow-md">Copy message</button>
+          <button onClick={()=>setResultText(null)} className="w-full mt-2 py-2.5 rounded-xl bg-lma-slate-100 text-lma-slate-600 font-bold">Close</button>
+        </Sheet>
+      )}
+
+      {toast&&(
+        <div className={`fixed bottom-24 left-1/2 -translate-x-1/2 px-5 py-3 rounded-2xl text-white font-bold text-sm shadow-lg z-[9999] lma-slide-up ${toast.type==="success"?"bg-lma-accent":"bg-lma-danger"}`}>
+          {toast.type==="success"?"✓ ":"✕ "}{toast.msg}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PaymentSheet({ due, init, onClose, post, onDone }:{ due:PendingDue; init:InitData; onClose:()=>void; post:(a:string,p:any)=>Promise<any>; onDone:(text:string)=>void }){
+  const [mode,setMode]=useState("");
+  const [amount,setAmount]=useState(String(due.fees_due_balance));
+  const [notes,setNotes]=useState("");
+  const [busy,setBusy]=useState(false);
+
+  const submit=async()=>{
+    if(!mode||!amount){ return; }
+    setBusy(true);
+    // payload keys match logFeePayment params (receipt_no, payment_mode, amount_received, notes)
+    const r=await post("logFeePayment",{receipt_no:due.receipt_no,payment_mode:mode,amount_received:Number(amount),notes});
+    setBusy(false);
+    // logFeePayment returns the new FEES_DUE_LOG row's whatsapp_text
+    if(r) onDone(String(r.whatsapp_text||""));
+  };
+
+  return (
+    <Sheet onClose={onClose}>
+      <h3 className="text-base font-extrabold text-lma-slate-900 mb-1">Log Payment · {due.receipt_no}</h3>
+      <p className="text-[11px] text-lma-slate-500 mb-3">{due.name} · ₹{due.fees_due_balance} outstanding</p>
+      <L>Payment Mode</L>
+      <select value={mode} onChange={e=>setMode(e.target.value)} className="w-full px-3 py-2.5 rounded-xl border-[1.5px] border-lma-slate-200 bg-lma-slate-50 text-sm font-medium mb-2">
+        <option value="">Select…</option>
+        {init.paymentTags.filter(t=>t.active).map(t=><option key={t.tag_name} value={t.tag_name}>{t.tag_name}</option>)}
+      </select>
+      <L>Amount Received (₹)</L>
+      <I type="number" value={amount} onChange={e=>setAmount(e.target.value)} max={due.fees_due_balance}/>
+      <p className="text-[11px] text-lma-slate-500 mt-1">New balance will be ₹{Math.max(0,due.fees_due_balance-(Number(amount)||0))}.</p>
+      <L>Note (optional)</L>
+      <I value={notes} onChange={e=>setNotes(e.target.value)} placeholder="optional"/>
+      <div className="flex gap-2.5 mt-4">
+        <button onClick={onClose} className="flex-1 py-3 rounded-xl bg-lma-slate-100 text-lma-slate-600 font-bold">Cancel</button>
+        <button onClick={submit} disabled={busy||!mode||!amount} className="flex-1 py-3 rounded-xl bg-gradient-to-br from-lma-primary to-lma-primary-2 text-white font-bold shadow-md disabled:opacity-50">{busy?"…":"Log Payment"}</button>
+      </div>
+    </Sheet>
+  );
+}
+
+function WriteOffForm({ onCancel, onSubmit }:{ onCancel:()=>void; onSubmit:(remark:string)=>void }){
+  const [remark,setRemark]=useState("");
+  return (
+    <>
+      <L>Reason (optional)</L>
+      <I value={remark} onChange={e=>setRemark(e.target.value)} placeholder="why writing off"/>
+      <div className="flex gap-2.5 mt-4">
+        <button onClick={onCancel} className="flex-1 py-3 rounded-xl bg-lma-slate-100 text-lma-slate-600 font-bold">Cancel</button>
+        <button onClick={()=>onSubmit(remark)} className="flex-1 py-3 rounded-xl bg-lma-danger text-white font-bold shadow-md">Write Off</button>
+      </div>
+    </>
+  );
+}
+
+function Sheet({ onClose, children }:{ onClose:()=>void; children:React.ReactNode }){
+  return (
+    <div className="fixed inset-0 z-[9998] flex items-end justify-center" onClick={onClose}>
+      <div className="absolute inset-0 bg-black/50 backdrop-blur-sm"/>
+      <div className="relative w-full max-w-md bg-white rounded-t-3xl p-5 max-h-[88vh] overflow-y-auto lma-slide-up" onClick={e=>e.stopPropagation()}>
+        <div className="w-9 h-1 bg-lma-slate-200 rounded-full mx-auto mb-4"/>
+        {children}
+      </div>
+    </div>
+  );
+}
+function L({ children }:{ children:React.ReactNode }){ return <label className="block text-[11px] font-bold text-lma-slate-500 uppercase tracking-wide mb-1 mt-2">{children}</label>; }
+function I(props:React.InputHTMLAttributes<HTMLInputElement>){ return <input {...props} className="w-full px-3.5 py-2.5 rounded-xl border-[1.5px] border-lma-slate-200 bg-lma-slate-50 focus:bg-white focus:border-lma-primary outline-none text-[14px] font-medium"/>; }
