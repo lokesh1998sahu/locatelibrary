@@ -12,7 +12,7 @@ export default function WhatsAppPage() {
   useEffect(() => {
     // Register service worker for PWA
     if ("serviceWorker" in navigator) {
-      navigator.serviceWorker.register("/sw.js").catch(() => {})
+      navigator.serviceWorker.register("/whatsapp/sw.js", { scope: "/whatsapp" }).catch(() => {})
     }
 
     // Catch install prompt
