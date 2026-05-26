@@ -13,7 +13,8 @@ interface InitData{ ok:boolean; libraries:Library[]; branches:Branch[]; }
 interface Occupant {
   receipt_no:string; student_id:string; name:string; shift:string; shift_name:string;
   booking_to:string; fees_due_balance:number; dues_status:string; is_cross_library:string;
-  color:"OK"|"EXPIRING"|"DUES"|"EXPIRED";
+  color:"OK"|"EXPIRING"|"EXPIRED";
+  has_dues?:boolean;
 }
 interface TempHeldInfo { receipt_no:string; student_id:string; name:string; }
 interface BoardCell {
@@ -40,9 +41,19 @@ type ShiftView = "ALL"|"MORNING"|"EVENING"|"FULL DAY";
 const COLOR: Record<string,{bg:string;text:string;border:string;label:string}> = {
   OK:       { bg:"#dcfce7", text:"#15803d", border:"#86efac", label:"OK" },
   EXPIRING: { bg:"#fee2e2", text:"#b91c1c", border:"#fca5a5", label:"Expiring" },
-  DUES:     { bg:"#fef3c7", text:"#b45309", border:"#fcd34d", label:"Dues" },
   EXPIRED:  { bg:"#7f1d1d", text:"#ffffff", border:"#991b1b", label:"Expired" },
+  DUES:     { bg:"#fde68a", text:"#92400e", border:"#f59e0b", label:"Dues" },
 };
+const GOLD = "#f59e0b";
+// Resolve an occupant's tile look: expiry decides the FILL; dues shows as a
+// gold FILL when the seat is OK, or a gold RING when Expiring/Expired (so the
+// expiry is never hidden but dues is always visible).
+function occLook(o:{color:"OK"|"EXPIRING"|"EXPIRED";has_dues?:boolean}){
+  const base = COLOR[o.color] || COLOR.OK;
+  if(o.has_dues && o.color==="OK") return { bg:COLOR.DUES.bg, text:COLOR.DUES.text, border:COLOR.DUES.border, ring:false };
+  if(o.has_dues) return { bg:base.bg, text:base.text, border:GOLD, ring:true };  // expiring/expired + dues
+  return { bg:base.bg, text:base.text, border:base.border, ring:false };
+}
 
 export default function BoardPage(){
   const router = useRouter();
@@ -57,13 +68,20 @@ export default function BoardPage(){
   const [vacantTap,setVacantTap]=useState<{label:string;heldBy?:string}|null>(null);
   // re-allot picker (from floating panel OR from DetailSheet "move"): receipt + context
   const [reAllot,setReAllot]=useState<{receipt_no:string;name:string;student_id:string;shift:string;original?:string}|null>(null);
+  const [shareEvent,setShareEvent]=useState<{text:string;label:string}|null>(null);
   const [exporting,setExporting]=useState(false);
   const boardRef = useRef<HTMLDivElement>(null);
   const [toast,setToast]=useState<{msg:string;type:"success"|"error"}|null>(null);
   const showToast=(msg:string,type:"success"|"error"="success")=>{ setToast({msg,type}); setTimeout(()=>setToast(null),2600); };
+  const inflightRef = useRef<Set<string>>(new Set());
   const post=useCallback(async(action:string,payload:any)=>{
-    const res=await fetch(API,{method:"POST",headers:{"Content-Type":"text/plain;charset=utf-8"},body:JSON.stringify({action,payload})});
-    return res.json();
+    const _k=action+"|"+JSON.stringify(payload);
+    if(inflightRef.current.has(_k)) return null;
+    inflightRef.current.add(_k);
+    try{
+      const res=await fetch(API,{method:"POST",headers:{"Content-Type":"text/plain;charset=utf-8"},body:JSON.stringify({action,payload})});
+      return await res.json();
+    } finally { inflightRef.current.delete(_k); }
   },[]);
 
   useEffect(()=>{ if(typeof window!=="undefined"&&sessionStorage.getItem("lma_ok")==="1")setUnlocked(true); },[]);
@@ -172,7 +190,6 @@ export default function BoardPage(){
       <div className="flex gap-2 mb-3 flex-wrap text-[10px] text-lma-slate-500">
         {Object.entries(COLOR).map(([k,v])=>(<span key={k} className="flex items-center gap-1"><span className="w-3 h-3 rounded inline-block" style={{background:v.bg,border:`1px solid ${v.border}`}}></span>{v.label}</span>))}
         <span className="flex items-center gap-1"><span className="w-3 h-3 rounded inline-block bg-lma-slate-100 border border-lma-slate-200"></span>Vacant</span>
-        <span className="flex items-center gap-1"><span className="w-3 h-3 rounded inline-block bg-lma-slate-500"></span>Dead</span>
       </div>
 
       {loading&&!board?(
@@ -222,6 +239,7 @@ export default function BoardPage(){
         showToast={showToast}
         onChanged={()=>{ setDetail(null); loadBoard(); }}
         onReAllot={(o)=>{ setDetail(null); setReAllot({receipt_no:o.receipt_no,name:o.name,student_id:o.student_id,shift:o.shift}); }}
+        onShare={(text,label)=>setShareEvent({text,label})}
       />}
 
       {/* vacant tap popup */}
@@ -250,7 +268,25 @@ export default function BoardPage(){
         onClose={()=>setReAllot(null)}
         showToast={showToast}
         onDone={()=>{ setReAllot(null); setDetail(null); loadBoard(); }}
+        onShare={(text,label)=>setShareEvent({text,label})}
       />}
+
+      {/* event share prompt */}
+      {shareEvent&&(
+        <div className="fixed inset-0 z-[10001] flex items-center justify-center px-6" onClick={()=>setShareEvent(null)}>
+          <div className="absolute inset-0 bg-black/40"/>
+          <div className="relative w-full max-w-xs bg-white rounded-2xl p-5 lma-slide-up" onClick={e=>e.stopPropagation()}>
+            <h4 className="text-sm font-extrabold text-lma-slate-900 mb-1">{shareEvent.label}</h4>
+            <p className="text-[12px] text-lma-slate-500 mb-3">Send the student a WhatsApp update?</p>
+            <pre className="text-[10px] text-lma-slate-600 whitespace-pre-wrap font-mono bg-lma-slate-50 rounded-lg p-2.5 max-h-40 overflow-y-auto mb-3">{shareEvent.text}</pre>
+            <div className="grid grid-cols-3 gap-2">
+              <button onClick={()=>setShareEvent(null)} className="py-2.5 rounded-xl bg-lma-slate-100 text-lma-slate-600 font-bold text-xs">Skip</button>
+              <button onClick={()=>{ navigator.clipboard.writeText(shareEvent.text); showToast("Copied"); }} className="py-2.5 rounded-xl bg-lma-slate-100 text-lma-slate-600 font-bold text-xs">Copy</button>
+              <a href={`https://wa.me/?text=${encodeURIComponent(shareEvent.text)}`} target="_blank" rel="noopener noreferrer" onClick={()=>setShareEvent(null)} className="py-2.5 rounded-xl bg-lma-accent text-white font-bold text-xs text-center">Share</a>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* toast */}
       {toast&&<div className={`fixed bottom-5 left-1/2 -translate-x-1/2 z-[10000] px-4 py-2.5 rounded-xl text-sm font-bold text-white shadow-lg ${toast.type==="success"?"bg-lma-accent":"bg-lma-danger"}`}>{toast.msg}</div>}
@@ -271,7 +307,7 @@ function shortDate(dmy:string){
 
 // ── SEAT TILE ────────────────────────────────────────────────────
 function SeatTile({ cell, shiftView, onTapOccupied, onTapVacant }:{ cell:BoardCell; shiftView:ShiftView; onTapOccupied:()=>void; onTapVacant:(heldBy?:string)=>void }){
-  if(cell.cell_type==="DEAD") return <div className="aspect-square rounded bg-lma-slate-500"/>;
+  if(cell.cell_type==="DEAD") return <div className="aspect-square rounded" style={{background:"#e2e8f0",border:"1px solid #cbd5e1"}}/>;
 
   // which occupants are visible given the shift view
   const showM = (shiftView==="ALL"||shiftView==="MORNING")&&!cell.fullday;
@@ -292,9 +328,9 @@ function SeatTile({ cell, shiftView, onTapOccupied, onTapVacant }:{ cell:BoardCe
 
   // full-day fills whole tile
   if(fd){
-    const col=COLOR[fd.color]||COLOR.OK;
+    const col=occLook(fd);
     return (
-      <button onClick={onClick} className="aspect-square rounded flex flex-col items-center justify-center overflow-hidden border px-0.5" style={{background:col.bg,color:col.text,borderColor:col.border}}>
+      <button onClick={onClick} className="aspect-square rounded flex flex-col items-center justify-center overflow-hidden px-0.5" style={{background:col.bg,color:col.text,border:col.ring?`2px solid ${col.border}`:`1px solid ${col.border}`,boxShadow:col.ring?`inset 0 0 0 1px ${col.border}`:undefined}}>
         <span className="text-[10px] font-extrabold leading-none">{cell.display_label}</span>
         <span className="text-[6px] font-bold leading-none mt-0.5 truncate w-full text-center">{shortDate(fd.booking_to)}</span>
       </button>
@@ -302,8 +338,8 @@ function SeatTile({ cell, shiftView, onTapOccupied, onTapVacant }:{ cell:BoardCe
   }
 
   // split tile: upper morning, lower evening
-  const mCol = m?(COLOR[m.color]||COLOR.OK):null;
-  const eCol = e?(COLOR[e.color]||COLOR.OK):null;
+  const mCol = m?occLook(m):null;
+  const eCol = e?occLook(e):null;
   const vacant = !m&&!e;
   const softHeld = vacant && !!heldLabel;
 
@@ -312,11 +348,11 @@ function SeatTile({ cell, shiftView, onTapOccupied, onTapVacant }:{ cell:BoardCe
       border: softHeld?"1.5px dashed #f59e0b":"1px solid "+(vacant?"#e2e8f0":"#cbd5e1"),
       background: softHeld?"#fffbeb":(vacant?"#f8fafc":"#fff")
     }}>
-      <div className="flex-1 flex items-center justify-center text-[7px] font-bold leading-none" style={mCol?{background:mCol.bg,color:mCol.text}:{color:"#cbd5e1"}}>
+      <div className="flex-1 flex items-center justify-center text-[7px] font-bold leading-none" style={mCol?{background:mCol.bg,color:mCol.text,boxShadow:mCol.ring?`inset 0 0 0 2px ${mCol.border}`:undefined}:{color:"#cbd5e1"}}>
         {m?<span className="truncate px-0.5">{shortDate(m.booking_to)}</span>:softHeld?<span className="truncate px-0.5 text-[6px] text-lma-warn font-extrabold">{heldLabel}</span>:(shiftView==="ALL"||shiftView==="MORNING")?"·":""}
       </div>
       <div className="text-[9px] font-extrabold text-lma-slate-700 leading-none">{cell.display_label}</div>
-      <div className="flex-1 flex items-center justify-center text-[7px] font-bold leading-none" style={eCol?{background:eCol.bg,color:eCol.text}:{color:"#cbd5e1"}}>
+      <div className="flex-1 flex items-center justify-center text-[7px] font-bold leading-none" style={eCol?{background:eCol.bg,color:eCol.text,boxShadow:eCol.ring?`inset 0 0 0 2px ${eCol.border}`:undefined}:{color:"#cbd5e1"}}>
         {e?<span className="truncate px-0.5">{shortDate(e.booking_to)}</span>:(shiftView==="ALL"||shiftView==="EVENING")?"·":""}
       </div>
     </button>
@@ -346,7 +382,7 @@ function SidePanel({ title, items, emoji, onReAllot }:{ title:string; items:Side
 }
 
 // ── DETAIL SHEET (occupied seat tap) ─────────────────────────────
-function DetailSheet({ cell, onClose, router, scope, lib, branch, post, showToast, onChanged, onReAllot }:{ cell:BoardCell; onClose:()=>void; router:any; scope:string; lib:string; branch:string; post:(a:string,p:any)=>Promise<any>; showToast:(m:string,t?:"success"|"error")=>void; onChanged:()=>void; onReAllot:(o:Occupant)=>void }){
+function DetailSheet({ cell, onClose, router, scope, lib, branch, post, showToast, onChanged, onReAllot, onShare }:{ cell:BoardCell; onClose:()=>void; router:any; scope:string; lib:string; branch:string; post:(a:string,p:any)=>Promise<any>; showToast:(m:string,t?:"success"|"error")=>void; onChanged:()=>void; onReAllot:(o:Occupant)=>void; onShare:(text:string,label:string)=>void }){
   const occupants:Occupant[]=[];
   if(cell.fullday) occupants.push(cell.fullday);
   if(cell.morning) occupants.push(cell.morning);
@@ -359,7 +395,7 @@ function DetailSheet({ cell, onClose, router, scope, lib, branch, post, showToas
     setBusy(true);
     const r=await post("tempVacateSeat",{receipt_no:o.receipt_no});
     setBusy(false);
-    if(r&&r.vacated){ showToast(`${o.student_id} parked (seat ${r.original_seat} held)`); onChanged(); }
+    if(r&&r.vacated){ showToast(`${o.student_id} parked (seat ${r.original_seat} held)`); if(r.whatsapp_text) onShare(r.whatsapp_text,"Seat temporarily vacated"); onChanged(); }
     else showToast(r&&r.error?r.error:"Temp-vacate failed","error");
   };
 
@@ -374,9 +410,10 @@ function DetailSheet({ cell, onClose, router, scope, lib, branch, post, showToas
             const col=COLOR[o.color]||COLOR.OK;
             return (
               <div key={o.receipt_no} className="border border-lma-slate-200 rounded-xl p-3">
-                <div className="flex items-center gap-2 mb-2">
+                <div className="flex items-center gap-2 mb-2 flex-wrap">
                   <span className="text-[10px] font-bold px-2 py-0.5 rounded" style={{background:col.bg,color:col.text}}>{o.shift_name||o.shift}</span>
                   <span className="text-[10px] font-bold px-2 py-0.5 rounded" style={{background:col.bg,color:col.text}}>{col.label}</span>
+                  {o.has_dues&&<span className="text-[10px] font-bold px-2 py-0.5 rounded" style={{background:COLOR.DUES.bg,color:COLOR.DUES.text}}>DUES</span>}
                   {o.is_cross_library&&o.is_cross_library!=="NO"&&<span className="text-[9px] font-bold text-lma-warn bg-lma-warn/10 px-1.5 py-0.5 rounded ml-auto">CROSS · {o.is_cross_library}</span>}
                 </div>
                 <div className="text-sm font-extrabold text-lma-slate-900">{o.student_id} · {o.name}</div>
@@ -418,12 +455,24 @@ function DetailedExport({ board, label, shiftView }:{ board:BoardResp; label:str
   const EXPORT_COLOR: Record<string,{bg:string;text:string;border:string}> = {
     OK:       { bg:"#dcfce7", text:"#15803d", border:"#86efac" },
     EXPIRING: { bg:"#fee2e2", text:"#b91c1c", border:"#fca5a5" },
-    DUES:     { bg:"#fef3c7", text:"#b45309", border:"#fcd34d" },
     EXPIRED:  { bg:"#7f1d1d", text:"#ffffff", border:"#991b1b" },
+    DUES:     { bg:"#fde68a", text:"#92400e", border:"#f59e0b" },
   };
+  const EXPORT_GOLD = "#f59e0b";
+  // Export look: expiry = fill; dues = gold fill when OK, else gold ring.
+  function exLook(o:Occupant){
+    const base = EXPORT_COLOR[o.color] || EXPORT_COLOR.OK;
+    if(o.has_dues && o.color==="OK") return { bg:EXPORT_COLOR.DUES.bg, text:EXPORT_COLOR.DUES.text, ring:false };
+    if(o.has_dues) return { bg:base.bg, text:base.text, ring:true };
+    return { bg:base.bg, text:base.text, ring:false };
+  }
+  // Gold, prominent due amount (always gold text on a chip so it stands out).
+  const dueAmt=(o:Occupant)=> o.fees_due_balance>0
+    ? <div style={{fontSize:"12px",fontWeight:900,textAlign:"center",lineHeight:1.2,minHeight:"15px",flexShrink:0,color:"#92400e",background:"#fde68a",borderRadius:"4px",margin:"1px 4px"}}>{`₹${o.fees_due_balance} DUE`}</div>
+    : <div style={{minHeight:"15px",flexShrink:0}}/>;
 
   function richCell(cell:BoardCell){
-    if(cell.cell_type==="DEAD") return <div style={{background:"#64748b",borderRadius:"8px",width:"100%",height:"100%"}}/>;
+    if(cell.cell_type==="DEAD") return <div style={{background:"#e2e8f0",border:"1px solid #cbd5e1",borderRadius:"8px",width:"100%",height:"100%"}}/>;
     const fd=cell.fullday, m=cell.morning, e=cell.evening;
     const b=cell.blocked||{morning:false,evening:false,fullday:false};
 
@@ -435,7 +484,7 @@ function DetailedExport({ board, label, shiftView }:{ board:BoardResp; label:str
           <span style={{whiteSpace:"nowrap"}}>{o.receipt_no}</span>
         </div>
         <div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",fontSize:"13px",fontWeight:800,textAlign:"center",lineHeight:1.25,wordBreak:"break-word",overflow:"hidden"}}>{o.name}</div>
-        <div style={{fontSize:"12px",fontWeight:900,textAlign:"center",lineHeight:1.2,minHeight:"15px",flexShrink:0}}>{o.fees_due_balance>0?`₹${o.fees_due_balance}`:""}</div>
+        {dueAmt(o)}
         <div style={{fontSize:"12px",fontWeight:800,textAlign:"center",lineHeight:1.2,flexShrink:0}}>{o.booking_to}</div>
       </>
     );
@@ -443,8 +492,8 @@ function DetailedExport({ board, label, shiftView }:{ board:BoardResp; label:str
     // a half-zone: occupant data, blocked stripe, or empty
     const halfZone=(o:Occupant|null,isBlocked:boolean)=>{
       if(o){
-        const col=EXPORT_COLOR[o.color]||EXPORT_COLOR.OK;
-        return <div style={{height:"100%",width:"100%",background:col.bg,color:col.text,borderRadius:"4px",padding:"5px 7px",display:"flex",flexDirection:"column",boxSizing:"border-box",overflow:"hidden"}}>{dataRows(o)}</div>;
+        const col=exLook(o);
+        return <div style={{height:"100%",width:"100%",background:col.bg,color:col.text,borderRadius:"4px",padding:"5px 7px",display:"flex",flexDirection:"column",boxSizing:"border-box",overflow:"hidden",boxShadow:col.ring?`inset 0 0 0 3px ${EXPORT_GOLD}`:undefined}}>{dataRows(o)}</div>;
       }
       if(isBlocked){
         return <div style={{height:"100%",width:"100%",background:"repeating-linear-gradient(45deg,#fecaca,#fecaca 6px,#fee2e2 6px,#fee2e2 12px)",borderRadius:"4px",display:"flex",alignItems:"center",justifyContent:"center",fontSize:"10px",fontWeight:800,color:"#b91c1c"}}>BLOCKED</div>;
@@ -465,9 +514,9 @@ function DetailedExport({ board, label, shiftView }:{ board:BoardResp; label:str
 
     // FULL DAY
     if(fd){
-      const col=EXPORT_COLOR[fd.color]||EXPORT_COLOR.OK;
+      const col=exLook(fd);
       return (
-        <div style={{border:"1.5px solid #cbd5e1",borderRadius:"8px",overflow:"hidden",height:"100%",display:"flex",flexDirection:"column",background:col.bg,color:col.text,boxSizing:"border-box",padding:"5px 7px"}}>
+        <div style={{border:col.ring?`3px solid ${EXPORT_GOLD}`:"1.5px solid #cbd5e1",borderRadius:"8px",overflow:"hidden",height:"100%",display:"flex",flexDirection:"column",background:col.bg,color:col.text,boxSizing:"border-box",padding:"5px 7px"}}>
           <div style={{display:"flex",justifyContent:"space-between",fontSize:"12px",fontWeight:900,lineHeight:1.2,gap:"4px",flexShrink:0}}>
             <span style={{whiteSpace:"nowrap"}}>{fd.student_id}</span>
             <span style={{whiteSpace:"nowrap"}}>{fd.receipt_no}</span>
@@ -477,7 +526,7 @@ function DetailedExport({ board, label, shiftView }:{ board:BoardResp; label:str
             <span style={{fontWeight:900,fontSize:"24px",color:"#0f172a",lineHeight:1}}>{cell.display_label}</span>
             {notesText && <span style={{fontSize:"8px",fontWeight:700,color:"#475569",lineHeight:1,marginTop:"1px"}}>{notesText}</span>}
           </div>
-          <div style={{fontSize:"12px",fontWeight:900,textAlign:"center",lineHeight:1.2,minHeight:"15px",flexShrink:0}}>{fd.fees_due_balance>0?`₹${fd.fees_due_balance}`:""}</div>
+          {dueAmt(fd)}
           <div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",fontSize:"12px",fontWeight:800,textAlign:"center",lineHeight:1.2}}>{fd.booking_to}</div>
         </div>
       );
@@ -530,11 +579,11 @@ function DetailedExport({ board, label, shiftView }:{ board:BoardResp; label:str
 // Used in two modes (both call reAllotSeat):
 //   • floating restore: ctx.original is the parked seat (pre-noted)
 //   • move a seated student: no original; any vacant seat is the target
-function ReAllotPicker({ ctx, lib, branch, post, onClose, showToast, onDone }:{
+function ReAllotPicker({ ctx, lib, branch, post, onClose, showToast, onDone, onShare }:{
   ctx:{receipt_no:string;name:string;student_id:string;shift:string;original?:string};
   lib:string; branch:string;
   post:(a:string,p:any)=>Promise<any>;
-  onClose:()=>void; showToast:(m:string,t?:"success"|"error")=>void; onDone:()=>void;
+  onClose:()=>void; showToast:(m:string,t?:"success"|"error")=>void; onDone:()=>void; onShare:(text:string,label:string)=>void;
 }){
   const [data,setData]=useState<PickResp|null>(null);
   const [loading,setLoading]=useState(true);
@@ -551,7 +600,7 @@ function ReAllotPicker({ ctx, lib, branch, post, onClose, showToast, onDone }:{
     setBusy(true);
     const r=await post("reAllotSeat",{receipt_no:ctx.receipt_no,seat_no:seat});
     setBusy(false);
-    if(r&&r.reallotted){ showToast(`${ctx.student_id} → seat ${r.seat_no}`); onDone(); }
+    if(r&&r.reallotted){ showToast(`${ctx.student_id} → seat ${r.seat_no}`); if(r.whatsapp_text) onShare(r.whatsapp_text,"Seat changed"); onDone(); }
     else showToast(r&&r.error?r.error:"Re-allot failed","error");
   };
 

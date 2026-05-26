@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
 
 const API = "/api/lma";
@@ -40,6 +40,7 @@ export default function DuesPage(){
   const [pwInput,setPwInput]=useState(""); const [pwErr,setPwErr]=useState("");
   const [init,setInit]=useState<InitData|null>(null);
   const [toast,setToast]=useState<Toast>(null);
+  const [confirmAction,setConfirmAction]=useState<{title:string;message:string;confirmLabel:string;danger?:boolean;onYes:()=>void}|null>(null);
 
   const [tab,setTab]=useState<Tab>("PENDING");
   const [scope,setScope]=useState("");
@@ -57,7 +58,8 @@ export default function DuesPage(){
   const tryUnlock=()=>{ if(pwInput&&pwInput===PASSWORD){sessionStorage.setItem("lma_ok","1");setUnlocked(true);setPwErr("");}else setPwErr("Incorrect password."); };
   const showToast=useCallback((msg:string,type:"success"|"error"="success")=>{ setToast({msg,type}); setTimeout(()=>setToast(null),3000); },[]);
 
-  const post=useCallback(async(action:string,payload:any)=>{ try{ const res=await fetch(API,{method:"POST",headers:{"Content-Type":"text/plain;charset=utf-8"},body:JSON.stringify({action,payload})}).then(r=>r.json()); if(!res.ok&&res.error){showToast(res.error,"error");return null;} return res; }catch(e){ showToast(e instanceof Error?e.message:String(e),"error"); return null; } },[showToast]);
+  const inflightRef = useRef<Set<string>>(new Set());
+  const post=useCallback(async(action:string,payload:any)=>{ const _k=action+"|"+JSON.stringify(payload); if(inflightRef.current.has(_k))return null; inflightRef.current.add(_k); try{ try{ const res=await fetch(API,{method:"POST",headers:{"Content-Type":"text/plain;charset=utf-8"},body:JSON.stringify({action,payload})}).then(r=>r.json()); if(!res.ok&&res.error){showToast(res.error,"error");return null;} return res; }catch(e){ showToast(e instanceof Error?e.message:String(e),"error"); return null; }  } finally { inflightRef.current.delete(_k); }},[showToast]);
 
   useEffect(()=>{ if(unlocked) fetch(`${API}?action=getInitData`).then(r=>r.json()).then((r:InitData)=>{if(r.ok)setInit(r);}); },[unlocked]);
 
@@ -204,7 +206,7 @@ export default function DuesPage(){
                 <div className="text-sm font-semibold text-lma-slate-800 truncate">{d.name}</div>
                 <div className="text-[11px] text-lma-slate-500 mt-0.5">{d.library}{d.branch?`/${d.branch}`:""}</div>
                 {d.irrecoverable_remark&&<div className="text-[11px] text-lma-slate-400 mt-0.5">Note: {d.irrecoverable_remark}</div>}
-                <button onClick={async()=>{ const r=await post("unmarkDuesIrrecoverable",{receipt_no:d.receipt_no}); if(r){showToast("Restored to pending");load();} }} className="mt-2 py-1.5 px-3 rounded-lg bg-lma-slate-100 text-lma-slate-600 font-bold text-xs">Restore to Pending</button>
+                <button onClick={()=>setConfirmAction({ title:"Restore to Pending?", message:`${d.name} · ${d.receipt_no} — ₹${d.fees_due_balance} will be moved back to PENDING dues.`, confirmLabel:"Restore", onYes:async()=>{ const r=await post("unmarkDuesIrrecoverable",{receipt_no:d.receipt_no}); if(r){showToast("Restored to pending");load();} } })} className="mt-2 py-1.5 px-3 rounded-lg bg-lma-slate-100 text-lma-slate-600 font-bold text-xs">Restore to Pending</button>
               </div>
             ))}
           </div>
@@ -233,6 +235,8 @@ export default function DuesPage(){
           <button onClick={()=>setResultText(null)} className="w-full mt-2 py-2.5 rounded-xl bg-lma-slate-100 text-lma-slate-600 font-bold">Close</button>
         </Sheet>
       )}
+
+      {confirmAction&&<ConfirmDialog c={confirmAction} onClose={()=>setConfirmAction(null)}/>}
 
       {toast&&(
         <div className={`fixed bottom-24 left-1/2 -translate-x-1/2 px-5 py-3 rounded-2xl text-white font-bold text-sm shadow-lg z-[9999] lma-slide-up ${toast.type==="success"?"bg-lma-accent":"bg-lma-danger"}`}>
@@ -308,3 +312,21 @@ function Sheet({ onClose, children }:{ onClose:()=>void; children:React.ReactNod
 }
 function L({ children }:{ children:React.ReactNode }){ return <label className="block text-[11px] font-bold text-lma-slate-500 uppercase tracking-wide mb-1 mt-2">{children}</label>; }
 function I(props:React.InputHTMLAttributes<HTMLInputElement>){ return <input {...props} className="w-full px-3.5 py-2.5 rounded-xl border-[1.5px] border-lma-slate-200 bg-lma-slate-50 focus:bg-white focus:border-lma-primary outline-none text-[14px] font-medium"/>; }
+
+// ── Reusable confirm dialog (prevents accidental state changes) ──
+function ConfirmDialog({c,onClose}:{c:{title:string;message:string;confirmLabel:string;danger?:boolean;onYes:()=>void};onClose:()=>void}){
+  const [busy,setBusy]=useState(false);
+  return (
+    <div className="fixed inset-0 z-[10000] flex items-center justify-center px-6" onClick={onClose}>
+      <div className="absolute inset-0 bg-black/40"/>
+      <div className="relative w-full max-w-xs bg-white rounded-2xl p-5 lma-slide-up" onClick={e=>e.stopPropagation()}>
+        <h4 className="text-sm font-extrabold text-lma-slate-900 mb-1">{c.title}</h4>
+        <p className="text-[12px] text-lma-slate-500 mb-4">{c.message}</p>
+        <div className="flex gap-2">
+          <button disabled={busy} onClick={onClose} className="flex-1 py-2.5 rounded-xl bg-lma-slate-100 text-lma-slate-600 font-bold text-sm disabled:opacity-50">No</button>
+          <button disabled={busy} onClick={async()=>{ setBusy(true); try{ await c.onYes(); } finally { setBusy(false); onClose(); } }} className={`flex-1 py-2.5 rounded-xl text-white font-bold text-sm disabled:opacity-50 ${c.danger?"bg-lma-danger":"bg-lma-primary"}`}>{busy?"…":c.confirmLabel}</button>
+        </div>
+      </div>
+    </div>
+  );
+}

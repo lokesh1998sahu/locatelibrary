@@ -82,7 +82,12 @@ export default function LmaStudentsPage() {
   }, []);
 
   // ── Generic POST wrapper ──
+  const inflightRef = useRef<Set<string>>(new Set());
   const post = useCallback(async (action:string, payload:any) => {
+    const _k=action+"|"+JSON.stringify(payload);
+    if(inflightRef.current.has(_k)) return null;
+    inflightRef.current.add(_k);
+    try{
     try {
       const res = await fetch(API, {
         method:"POST",
@@ -95,6 +100,7 @@ export default function LmaStudentsPage() {
       showToast(e instanceof Error ? e.message : String(e), "error");
       return null;
     }
+    } finally { inflightRef.current.delete(_k); }
   }, [showToast]);
 
   // ── Load init (libraries) + counts ──

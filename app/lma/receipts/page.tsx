@@ -10,7 +10,7 @@ interface Library { library_code:string; display_name:string; active:boolean; ha
 interface Branch  { library_code:string; branch_code:string; branch_display:string; active:boolean; emoji?:string; color?:string; }
 interface Shift   { shift_key:string; shift_name:string; shift_time:string; active:boolean; }
 interface PaymentTag { tag_name:string; fees_mode:string; active:boolean; }
-interface InitData{ ok:boolean; libraries:Library[]; branches:Branch[]; shifts:Shift[]; paymentTags:PaymentTag[]; }
+interface InitData{ ok:boolean; libraries:Library[]; branches:Branch[]; shifts:Shift[]; paymentTags:PaymentTag[]; fees?:Record<string,Record<string,number>>; }
 interface PhoneEntry { number:string; tag:string; }
 interface Receipt {
   receipt_no:string; student_id:string; library:string; branch:string; name:string; phones:PhoneEntry[];
@@ -21,7 +21,7 @@ interface Receipt {
   status:string; dues_status:string; renewed_from:string;
   receipt_text:string; registration_text:string;
 }
-interface EditEvent { letter:string; edited_at:string; remark:string; changed_fields:string; before:string; after:string; }
+interface EditEvent { letter:string; edited_at:string; remark:string; changed_fields:string; before:string; after:string;  whatsapp_text?:string; }
 
 type Toast = { msg:string; type:"success"|"error" } | null;
 type SearchType = "NAME"|"PHONE"|"STUDENT_ID"|"RECEIPT_NO";
@@ -43,8 +43,8 @@ function lifecycleBadge(r:Receipt):{label:string;cls:string}{
   // live → compute from booking_to
   const days=daysFromToday(r.booking_to);
   if(days===null) return {label:"Current", cls:"bg-lma-accent/15 text-lma-accent"};
-  if(days<0)      return {label:"Expired", cls:"bg-lma-danger/15 text-lma-danger"};
-  if(days<=5)     return {label:"Expiring",cls:"bg-lma-warn/15 text-lma-warn"};
+  if(days<0)      return {label:"Expired", cls:"bg-red-900/15 text-red-900"};
+  if(days<=5)     return {label:"Expiring",cls:"bg-lma-danger/15 text-lma-danger"};
   return {label:"Current", cls:"bg-lma-accent/15 text-lma-accent"};
 }
 function daysFromToday(dmy:string):number|null{
@@ -71,13 +71,15 @@ export default function ReceiptsPage(){
   const [view,setView]=useState<Receipt|null>(null);
   const [edit,setEdit]=useState<Receipt|null>(null);
   const [history,setHistory]=useState<{receipt_no:string;edits:EditEvent[]}|null>(null);
+  const [shareText,setShareText]=useState<string|null>(null);
   const debounceRef=useRef<ReturnType<typeof setTimeout>|null>(null);
 
   useEffect(()=>{ if(typeof window!=="undefined"&&sessionStorage.getItem("lma_ok")==="1")setUnlocked(true); },[]);
   const tryUnlock=()=>{ if(pwInput&&pwInput===PASSWORD){sessionStorage.setItem("lma_ok","1");setUnlocked(true);setPwErr("");}else setPwErr("Incorrect password."); };
   const showToast=useCallback((msg:string,type:"success"|"error"="success")=>{ setToast({msg,type}); setTimeout(()=>setToast(null),3000); },[]);
 
-  const post=useCallback(async(action:string,payload:any)=>{ try{ const res=await fetch(API,{method:"POST",headers:{"Content-Type":"text/plain;charset=utf-8"},body:JSON.stringify({action,payload})}).then(r=>r.json()); if(!res.ok){showToast(res.error||"Operation failed","error");return null;} return res; }catch(e){ showToast(e instanceof Error?e.message:String(e),"error"); return null; } },[showToast]);
+  const inflightRef = useRef<Set<string>>(new Set());
+  const post=useCallback(async(action:string,payload:any)=>{ const _k=action+"|"+JSON.stringify(payload); if(inflightRef.current.has(_k))return null; inflightRef.current.add(_k); try{ try{ const res=await fetch(API,{method:"POST",headers:{"Content-Type":"text/plain;charset=utf-8"},body:JSON.stringify({action,payload})}).then(r=>r.json()); if(!res.ok){showToast(res.error||"Operation failed","error");return null;} return res; }catch(e){ showToast(e instanceof Error?e.message:String(e),"error"); return null; }  } finally { inflightRef.current.delete(_k); }},[showToast]);
 
   useEffect(()=>{ if(unlocked) fetch(`${API}?action=getInitData`).then(r=>r.json()).then((r:InitData)=>{if(r.ok)setInit(r);}); },[unlocked]);
 
@@ -184,6 +186,7 @@ export default function ReceiptsPage(){
           <h3 className="text-base font-extrabold text-lma-slate-900 mb-1">{view.receipt_no}</h3>
           <p className="text-xs text-lma-slate-500 mb-3">{view.student_id} · {view.name}</p>
           <pre className="text-[11px] text-lma-slate-700 whitespace-pre-wrap font-mono bg-lma-slate-50 rounded-lg p-3 max-h-56 overflow-y-auto">{view.receipt_text}</pre>
+          <MoneyTrail receiptNo={view.receipt_no}/>
           <div className="grid grid-cols-3 gap-2 mt-3">
             <button onClick={()=>{ navigator.clipboard.writeText(view.receipt_text); showToast("Copied"); }} className="py-2.5 rounded-xl bg-lma-slate-100 text-lma-slate-600 font-bold text-xs">Copy</button>
             <button onClick={()=>{ setEdit(view); setView(null); }} className="py-2.5 rounded-xl bg-lma-primary/10 text-lma-primary font-bold text-xs">Edit</button>
@@ -197,7 +200,10 @@ export default function ReceiptsPage(){
         <Sheet onClose={()=>setEdit(null)}>
           <EditForm receipt={edit} init={init} onCancel={()=>setEdit(null)} onSave={async(payload)=>{
             const res=await post("updateReceipt",payload);
-            if(res){ setEdit(null); showToast("Receipt updated"); load(1,true); }
+            if(res){ setEdit(null); load(1,true);
+              if(res.whatsapp_text){ setShareText(res.whatsapp_text); }
+              else showToast("Receipt updated");
+            }
           }}/>
         </Sheet>
       )}
@@ -214,6 +220,22 @@ export default function ReceiptsPage(){
             </div>
           )}
         </Sheet>
+      )}
+
+      {shareText&&(
+        <div className="fixed inset-0 z-[10001] flex items-center justify-center px-6" onClick={()=>setShareText(null)}>
+          <div className="absolute inset-0 bg-black/40"/>
+          <div className="relative w-full max-w-xs bg-white rounded-2xl p-5 lma-slide-up" onClick={e=>e.stopPropagation()}>
+            <h4 className="text-sm font-extrabold text-lma-slate-900 mb-1">Receipt updated</h4>
+            <p className="text-[12px] text-lma-slate-500 mb-3">Send the student a WhatsApp update?</p>
+            <pre className="text-[10px] text-lma-slate-600 whitespace-pre-wrap font-mono bg-lma-slate-50 rounded-lg p-2.5 max-h-40 overflow-y-auto mb-3">{shareText}</pre>
+            <div className="grid grid-cols-3 gap-2">
+              <button onClick={()=>setShareText(null)} className="py-2.5 rounded-xl bg-lma-slate-100 text-lma-slate-600 font-bold text-xs">Skip</button>
+              <button onClick={()=>{ navigator.clipboard.writeText(shareText); showToast("Copied"); }} className="py-2.5 rounded-xl bg-lma-slate-100 text-lma-slate-600 font-bold text-xs">Copy</button>
+              <a href={`https://wa.me/?text=${encodeURIComponent(shareText)}`} target="_blank" rel="noopener noreferrer" onClick={()=>setShareText(null)} className="py-2.5 rounded-xl bg-lma-accent text-white font-bold text-xs text-center">Share</a>
+            </div>
+          </div>
+        </div>
       )}
 
       {toast&&(
@@ -239,6 +261,26 @@ function EditForm({ receipt, init, onCancel, onSave }:{ receipt:Receipt; init:In
     {mode:receipt.pay_mode_3,amount:receipt.pay_amount_3?String(receipt.pay_amount_3):""},
   ].filter(p=>p.mode));
   const [feesDue,setFeesDue]=useState(String(receipt.fees_due));
+  const [editCount,setEditCount]=useState<number|null>(null);
+  const [seatPickerOpen,setSeatPickerOpen]=useState(false);
+  // load how many past edits this receipt already has (shown inline)
+  useEffect(()=>{
+    let alive=true;
+    fetch(`${API}?action=getReceiptEditHistory&receipt_no=${encodeURIComponent(receipt.receipt_no)}`)
+      .then(r=>r.json()).then(r=>{ if(alive) setEditCount(r&&Array.isArray(r.edits)?r.edits.length:0); })
+      .catch(()=>{ if(alive) setEditCount(null); });
+    return ()=>{ alive=false; };
+  },[receipt.receipt_no]);
+
+  // Standard fee for the currently-selected shift (from the fee matrix).
+  // Fee key = branch if the receipt has one, else library (YAL-1 has its own fees).
+  const feeKey = (receipt.branch||receipt.library||"").toUpperCase();
+  const stdFee = (init.fees && init.fees[feeKey]) ? init.fees[feeKey][shift.toUpperCase()] : undefined;
+  const shiftChanged = shift.toUpperCase() !== (receipt.shift||"").toUpperCase();
+  const feeMismatch = shiftChanged && typeof stdFee==="number" && stdFee !== Number(fee);
+  // OTHER shift occupies NO seat → seat field is disabled & cleared.
+  const isOther = !["MORNING","EVENING","FULL DAY","FULLDAY","FD"].includes(shift.toUpperCase());
+  const onShiftChange=(v:string)=>{ setShift(v); if(!["MORNING","EVENING","FULL DAY","FULLDAY","FD"].includes(v.toUpperCase())) setSeat(""); };
   const [remark,setRemark]=useState("");
 
   const activeShifts=init.shifts.filter(s=>s.active);
@@ -262,11 +304,22 @@ function EditForm({ receipt, init, onCancel, onSave }:{ receipt:Receipt; init:In
     <div>
       <h3 className="text-base font-extrabold text-lma-slate-900 mb-1">Edit {receipt.receipt_no}</h3>
       <p className="text-[11px] text-lma-slate-500 mb-3">Every edit is logged in history.</p>
+      <MoneyTrail receiptNo={receipt.receipt_no}/>
+      {editCount!==null&&editCount>0&&(
+        <div className="mt-2 text-[11px] text-lma-slate-500 bg-lma-slate-50 rounded-lg px-2.5 py-1.5">📝 This receipt has <b>{editCount}</b> past edit{editCount>1?"s":""} — open History (from the receipt view) to see old→new details.</div>
+      )}
       <L>Name</L><I value={name} onChange={e=>setName(e.target.value)}/>
       <div className="grid grid-cols-2 gap-3">
-        <div><L>Seat</L><I value={seat} onChange={e=>setSeat(e.target.value)} placeholder="blank = unassigned"/></div>
+        <div><L>Seat</L>
+          {isOther
+            ? <div className="w-full px-3.5 py-2.5 rounded-xl border-[1.5px] border-lma-slate-200 bg-lma-slate-50 text-[14px] font-medium text-lma-slate-400">no seat (OTHER)</div>
+            : <button type="button" onClick={()=>setSeatPickerOpen(true)} className="w-full px-3.5 py-2.5 rounded-xl border-[1.5px] border-lma-slate-200 bg-lma-slate-50 text-[14px] font-medium text-left flex items-center justify-between">
+                <span className={seat?"text-lma-slate-900":"text-lma-slate-400"}>{seat||"tap to pick / blank = unassigned"}</span>
+                <span className="text-lma-primary text-xs font-bold">{seat?"Change":"Pick"}</span>
+              </button>}
+        </div>
         <div><L>Shift</L>
-          <select value={shift} onChange={e=>setShift(e.target.value)} className="w-full px-3 py-2.5 rounded-xl border-[1.5px] border-lma-slate-200 bg-lma-slate-50 text-sm font-medium">
+          <select value={shift} onChange={e=>onShiftChange(e.target.value)} className="w-full px-3 py-2.5 rounded-xl border-[1.5px] border-lma-slate-200 bg-lma-slate-50 text-sm font-medium">
             {activeShifts.map(s=><option key={s.shift_key} value={s.shift_key}>{s.shift_name}</option>)}
           </select>
         </div>
@@ -276,6 +329,14 @@ function EditForm({ receipt, init, onCancel, onSave }:{ receipt:Receipt; init:In
         <div><L>To</L><I value={bookingTo} onChange={e=>setBookingTo(e.target.value)} placeholder="DD-M-YYYY"/></div>
       </div>
       <L>Fee (₹)</L><I type="number" value={fee} onChange={e=>setFee(e.target.value)}/>
+      {shiftChanged&&(
+        <div className="mt-1 mb-1 text-[11px] font-semibold text-lma-warn bg-lma-warn/10 rounded-lg px-2.5 py-1.5">
+          ⚠ Shift changed — please review the Fee amount.
+          {typeof stdFee==="number"
+            ? <> Standard fee for <b>{shift}</b> is <b>₹{stdFee}</b>{feeMismatch?<> (current entry ₹{Number(fee)||0}).</>:<> — matches your entry.</>}{feeMismatch&&<button type="button" onClick={()=>setFee(String(stdFee))} className="ml-1 underline font-bold">Use ₹{stdFee}</button>}</>
+            : <> No standard fee found for this shift — enter manually.</>}
+        </div>
+      )}
       <L>Payments</L>
       {pays.map((p,i)=>(
         <div key={i} className="flex gap-2 mb-2">
@@ -289,6 +350,14 @@ function EditForm({ receipt, init, onCancel, onSave }:{ receipt:Receipt; init:In
       {pays.length<3&&<button onClick={()=>setPays([...pays,{mode:"",amount:""}])} className="text-xs font-bold text-lma-primary">+ Add payment</button>}
       <L>Fees Due (₹)</L><I type="number" value={feesDue} onChange={e=>setFeesDue(e.target.value)}/>
       <L>Edit note (optional)</L><I value={remark} onChange={e=>setRemark(e.target.value)} placeholder="why this edit"/>
+      {seatPickerOpen&&(
+        <EditSeatPicker
+          library={receipt.library} branch={receipt.branch}
+          shift={shift} currentSeat={seat} ignoreReceiptNo={receipt.receipt_no}
+          onClose={()=>setSeatPickerOpen(false)}
+          onPick={(label)=>{ setSeat(label); setSeatPickerOpen(false); }}
+        />
+      )}
       <div className="flex gap-2.5 mt-4">
         <button onClick={onCancel} className="flex-1 py-3 rounded-xl bg-lma-slate-100 text-lma-slate-600 font-bold">Cancel</button>
         <button onClick={save} className="flex-1 py-3 rounded-xl bg-gradient-to-br from-lma-primary to-lma-primary-2 text-white font-bold shadow-md">Save</button>
@@ -309,7 +378,7 @@ function Sheet({ onClose, children }:{ onClose:()=>void; children:React.ReactNod
   );
 }
 function L({ children }:{ children:React.ReactNode }){ return <label className="block text-[11px] font-bold text-lma-slate-500 uppercase tracking-wide mb-1 mt-2">{children}</label>; }
-function I(props:React.InputHTMLAttributes<HTMLInputElement>){ return <input {...props} className="w-full px-3.5 py-2.5 rounded-xl border-[1.5px] border-lma-slate-200 bg-lma-slate-50 focus:bg-white focus:border-lma-primary outline-none text-[14px] font-medium"/>; }
+function I({className="",...props}:React.InputHTMLAttributes<HTMLInputElement>){ return <input {...props} className={`w-full px-3.5 py-2.5 rounded-xl border-[1.5px] border-lma-slate-200 bg-lma-slate-50 focus:bg-white focus:border-lma-primary outline-none text-[14px] font-medium ${className}`}/>; }
 
 // ── History edit card: parses BEFORE/AFTER JSON → shows old → new per field ──
 const FIELD_LABELS:Record<string,string>={
@@ -351,6 +420,136 @@ function EditEventCard({ev}:{ev:EditEvent}){
         </div>
       )}
       {ev.remark&&<div className="text-[11px] text-lma-slate-500 mt-1.5 pt-1.5 border-t border-lma-slate-100">Note: {ev.remark}</div>}
+      {ev.whatsapp_text&&(
+        <div className="mt-2 flex gap-2">
+          <a href={`https://wa.me/?text=${encodeURIComponent(ev.whatsapp_text)}`} target="_blank" rel="noopener noreferrer" className="text-[10px] font-bold px-2.5 py-1 rounded-lg bg-lma-accent/10 text-lma-accent">Share update</a>
+          <button onClick={()=>{ navigator.clipboard.writeText(ev.whatsapp_text||""); }} className="text-[10px] font-bold px-2.5 py-1 rounded-lg bg-lma-slate-100 text-lma-slate-500">Copy</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── MONEY TRAIL (Item 4): fee, payments, dues received, refunds made ──
+// Read-only context shown on the receipt View + Edit so money is never
+// changed blindly. Fetches getReceiptMoneyTrail on mount.
+function MoneyTrail({receiptNo}:{receiptNo:string}){
+  const [t,setT]=useState<any>(null);
+  const [loading,setLoading]=useState(true);
+  const [err,setErr]=useState<string>("");
+  useEffect(()=>{
+    let alive=true;
+    setLoading(true); setErr(""); setT(null);
+    fetch(`${API}?action=getReceiptMoneyTrail&receipt_no=${encodeURIComponent(receiptNo)}`)
+      .then(r=>r.json())
+      .then(r=>{ if(!alive)return; if(r&&r.ok){ setT(r); } else { setErr(r&&r.error?r.error:"Could not load money trail (backend action missing — redeploy?)"); } setLoading(false); })
+      .catch((e)=>{ if(alive){ setErr("Network error loading money trail."); setLoading(false); } });
+    return ()=>{ alive=false; };
+  },[receiptNo]);
+
+  if(loading) return <div className="mt-3 text-[11px] text-lma-slate-400">Loading money trail…</div>;
+  if(err) return <div className="mt-3 text-[11px] text-lma-danger bg-lma-danger/10 rounded-lg px-2.5 py-1.5">⚠ {err}</div>;
+  if(!t) return null;
+  const inr=(n:number)=>"₹"+Math.round(n).toLocaleString("en-IN");
+
+  return (
+    <div className="mt-3 bg-lma-slate-50 rounded-xl p-3 text-[11px]">
+      <div className="font-extrabold text-lma-slate-700 mb-2 text-xs">Money trail</div>
+      <div className="grid grid-cols-2 gap-y-1 gap-x-3">
+        <span className="text-lma-slate-500">Fee</span><span className="text-right font-bold text-lma-slate-800">{inr(t.fee)}</span>
+        <span className="text-lma-slate-500">Paid at receipt</span><span className="text-right font-bold text-lma-slate-800">{inr(t.totals.initial_paid)}</span>
+        {t.totals.dues_received>0&&<><span className="text-lma-accent">Dues received</span><span className="text-right font-bold text-lma-accent">{inr(t.totals.dues_received)}</span></>}
+        {t.totals.refunds_total>0&&<><span className="text-lma-danger">Refunds made</span><span className="text-right font-bold text-lma-danger">−{inr(t.totals.refunds_total)}</span></>}
+        <span className="text-lma-slate-500">Outstanding balance</span><span className={`text-right font-extrabold ${t.fees_due_balance>0?"text-lma-warn":"text-lma-slate-800"}`}>{inr(t.fees_due_balance)}</span>
+      </div>
+      {(t.dues_payments.length>0||t.refunds.length>0)&&(
+        <div className="mt-2 pt-2 border-t border-lma-slate-200 space-y-0.5">
+          {t.dues_payments.map((d:any)=>(
+            <div key={d.payment_id} className="flex justify-between text-[10px]"><span className="text-lma-slate-500">Dues · {d.mode} · {d.received_on}</span><span className="font-bold text-lma-accent">{inr(d.amount)}</span></div>
+          ))}
+          {t.refunds.map((r:any)=>(
+            <div key={r.refund_id} className="flex justify-between text-[10px]"><span className="text-lma-slate-500">Refund · {r.mode} · {r.refund_date}</span><span className="font-bold text-lma-danger">−{inr(r.amount)}</span></div>
+          ))}
+        </div>
+      )}
+      {t.totals.dues_received>0&&<div className="mt-2 text-[10px] text-lma-warn">Note: ₹{t.totals.dues_received} already collected via dues — editing the fee recomputes the balance automatically; it can't drop below what's collected.</div>}
+    </div>
+  );
+}
+
+// ── EDIT SEAT PICKER — visual grid for the receipt edit form ──
+// Shows availability for the NEWLY SELECTED shift, ignoring THIS receipt's
+// own current hold (so its seat shows available when the rule allows).
+// Rules are enforced by the backend (getVacantSeats + ignore_receipt_no):
+//   M→E same seat: available if evening half free; M→FD: only if evening also free;
+//   FD→M: morning half frees up; etc.
+interface ESP_Cell { row_in_section:number; col_in_section:number; display_label:string; cell_type:string; state:string; occupant?:{name:string}|null; share_note?:string|null; }
+interface ESP_Resp { ok:boolean; needs_seat:boolean; sections:{section_name:string;section_order:number;rows:number;cols:number;seats:ESP_Cell[]}[]; }
+function EditSeatPicker({ library, branch, shift, currentSeat, ignoreReceiptNo, onClose, onPick }:{
+  library:string; branch:string; shift:string; currentSeat:string; ignoreReceiptNo:string;
+  onClose:()=>void; onPick:(label:string)=>void;
+}){
+  const [data,setData]=useState<ESP_Resp|null>(null);
+  const [loading,setLoading]=useState(true);
+  const [err,setErr]=useState("");
+  const [picked,setPicked]=useState(currentSeat||"");
+
+  useEffect(()=>{
+    let alive=true; setLoading(true); setErr("");
+    const p=new URLSearchParams({ action:"getVacantSeats", library_code:library, shift:shift, ignore_receipt_no:ignoreReceiptNo });
+    if(branch) p.set("branch_code",branch);
+    fetch(`${API}?${p}`).then(r=>r.json()).then((r:ESP_Resp)=>{ if(!alive)return; if(r&&r.ok!==false){ setData(r);} else setErr("Could not load seats."); setLoading(false); })
+      .catch(()=>{ if(alive){ setErr("Network error loading seats."); setLoading(false); } });
+    return ()=>{ alive=false; };
+  },[library,branch,shift,ignoreReceiptNo]);
+
+  return (
+    <div className="fixed inset-0 z-[10001] flex items-end justify-center" onClick={onClose}>
+      <div className="absolute inset-0 bg-black/50"/>
+      <div className="relative w-full max-w-md bg-white rounded-t-3xl p-5 max-h-[88vh] overflow-y-auto lma-slide-up" onClick={e=>e.stopPropagation()}>
+        <div className="w-9 h-1 bg-lma-slate-200 rounded-full mx-auto mb-4"/>
+        <h3 className="text-base font-extrabold text-lma-slate-900 mb-1">Pick seat — {shift}</h3>
+        <p className="text-[12px] text-lma-slate-500 mb-3">Green = available for this shift. Your current seat is highlighted.</p>
+        {loading?(<div className="text-center text-sm text-lma-slate-500 py-8">Loading seats…</div>)
+        :err?(<div className="text-center text-sm text-lma-danger py-8">{err}</div>)
+        :!data||!data.sections?(<div className="text-center text-sm text-lma-slate-500 py-8">No layout.</div>)
+        :(
+          <div className="space-y-4">
+            {data.sections.slice().sort((a,b)=>a.section_order-b.section_order).map(sec=>(
+              <div key={sec.section_name}>
+                {data.sections.length>1&&<div className="text-[11px] font-bold text-lma-slate-500 mb-1.5">{sec.section_name}</div>}
+                <div className="grid gap-1" style={{gridTemplateColumns:`repeat(${sec.cols}, minmax(28px, 1fr))`}}>
+                  {Array.from({length:sec.rows*sec.cols}).map((_,idx)=>{
+                    const r=Math.floor(idx/sec.cols)+1,c=(idx%sec.cols)+1;
+                    const cell=sec.seats.find(s=>s.row_in_section===r&&s.col_in_section===c);
+                    if(!cell) return <div key={idx} className="aspect-square"/>;
+                    if(cell.cell_type==="DEAD") return <div key={idx} className="aspect-square rounded" style={{background:"#e2e8f0",border:"1px solid #cbd5e1"}}/>;
+                    const isVacant=cell.state==="VACANT";
+                    const isCurrent=currentSeat&&cell.display_label===currentSeat;
+                    const isPicked=picked===cell.display_label;
+                    const tone=isPicked?{bg:"#4f46e5",fg:"#fff",bd:"#4f46e5"}
+                      :isCurrent?{bg:"#fffbeb",fg:"#b45309",bd:"#f59e0b"}
+                      :isVacant?{bg:"#f0fdf4",fg:"#15803d",bd:"#86efac"}
+                      :{bg:"#f1f5f9",fg:"#94a3b8",bd:"#e2e8f0"};
+                    return (
+                      <button key={idx} type="button" disabled={!isVacant} onClick={()=>setPicked(cell.display_label)}
+                        title={cell.occupant?cell.occupant.name:(cell.share_note||"")}
+                        className="aspect-square rounded text-[9px] font-extrabold flex items-center justify-center disabled:cursor-not-allowed"
+                        style={{background:tone.bg,color:tone.fg,border:`${isCurrent?"1.5px dashed":"1px solid"} ${tone.bd}`}}>
+                        {cell.display_label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+        <div className="flex gap-2 mt-5 sticky bottom-0 bg-white pt-2">
+          <button type="button" onClick={()=>onPick("")} className="flex-1 py-3 rounded-xl bg-lma-slate-100 text-lma-slate-600 font-bold text-sm">Unassign (blank)</button>
+          <button type="button" disabled={!picked} onClick={()=>onPick(picked)} className="flex-1 py-3 rounded-xl bg-gradient-to-br from-lma-primary to-lma-primary-2 text-white font-bold shadow-md disabled:opacity-50">{picked?`Use ${picked}`:"Pick a seat"}</button>
+        </div>
+      </div>
     </div>
   );
 }
