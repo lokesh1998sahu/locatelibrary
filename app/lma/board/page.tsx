@@ -15,6 +15,7 @@ interface Occupant {
   booking_to:string; fees_due_balance:number; dues_status:string; is_cross_library:string;
   color:"OK"|"EXPIRING"|"EXPIRED";
   has_dues?:boolean;
+  temporary_seat?:string;
 }
 interface TempHeldInfo { receipt_no:string; student_id:string; name:string; }
 interface BoardCell {
@@ -29,6 +30,7 @@ interface PickResp { ok:boolean; needs_seat:boolean; sections:{section_name:stri
 interface SidePanelItem {
   receipt_no:string; student_id:string; name:string; shift:string; shift_name:string;
   booking_to:string; fees_due_balance:number; dues_status:string; seat_label:string; temporary_seat:string;
+  color?:"OK"|"EXPIRING"|"EXPIRED"; has_dues?:boolean; is_cross_library?:string;
 }
 interface BoardResp {
   ok:boolean; library_code:string; branch_code:string;
@@ -53,6 +55,29 @@ function occLook(o:{color:"OK"|"EXPIRING"|"EXPIRED";has_dues?:boolean}){
   if(o.has_dues && o.color==="OK") return { bg:COLOR.DUES.bg, text:COLOR.DUES.text, border:COLOR.DUES.border, ring:false };
   if(o.has_dues) return { bg:base.bg, text:base.text, border:GOLD, ring:true };  // expiring/expired + dues
   return { bg:base.bg, text:base.text, border:base.border, ring:false };
+}
+
+
+// Convert a side-panel booking (floating/unassigned/otherShift) into a faux
+// BoardCell so the SAME DetailSheet can show it — full color/dues/actions.
+function panelItemToCell(it:SidePanelItem):BoardCell{
+  const occ:Occupant={
+    receipt_no:it.receipt_no, student_id:it.student_id, name:it.name,
+    shift:it.shift, shift_name:it.shift_name, booking_to:it.booking_to,
+    fees_due_balance:it.fees_due_balance, dues_status:it.dues_status,
+    is_cross_library:it.is_cross_library||"", color:(it.color||"OK"), has_dues:it.has_dues,
+    temporary_seat:it.temporary_seat||"",
+  };
+  const su=(it.shift||"").toUpperCase();
+  return {
+    row_in_section:0, col_in_section:0, seat_no:0,
+    display_label: it.temporary_seat||it.seat_label||"—",
+    notes:"", cell_type:"SEAT",
+    morning: su==="MORNING"?occ:null,
+    evening: su==="EVENING"?occ:null,
+    fullday: (su==="FULL DAY"||su==="FULLDAY"||su==="FD")?occ:(su!=="MORNING"&&su!=="EVENING"?occ:null),
+    blocked:{morning:false,evening:false,fullday:false},
+  };
 }
 
 export default function BoardPage(){
@@ -221,9 +246,9 @@ export default function BoardPage(){
           ))}
 
           {/* side panels */}
-          <SidePanel title="Unassigned (booked, no seat)" items={board.unassigned} emoji="📋"/>
-          <SidePanel title="Floating (temp-vacated)" items={board.floating} emoji="🌀" onReAllot={(it)=>setReAllot({receipt_no:it.receipt_no,name:it.name,student_id:it.student_id,shift:it.shift,original:it.temporary_seat})}/>
-          <SidePanel title="Other shift (no fixed seat)" items={board.otherShift} emoji="🔄"/>
+          <SidePanel title="Unassigned (booked, no seat)" items={board.unassigned} emoji="📋" onTap={(it)=>setDetail({cell:panelItemToCell(it)})}/>
+          <SidePanel title="Floating (temp-vacated)" items={board.floating} emoji="🌀" onTap={(it)=>setDetail({cell:panelItemToCell(it)})} onReAllot={(it)=>setReAllot({receipt_no:it.receipt_no,name:it.name,student_id:it.student_id,shift:it.shift,original:it.temporary_seat})}/>
+          <SidePanel title="Other shift (no fixed seat)" items={board.otherShift} emoji="🔄" onTap={(it)=>setDetail({cell:panelItemToCell(it)})}/>
         </div>
       )}
 
@@ -238,7 +263,7 @@ export default function BoardPage(){
         post={post}
         showToast={showToast}
         onChanged={()=>{ setDetail(null); loadBoard(); }}
-        onReAllot={(o)=>{ setDetail(null); setReAllot({receipt_no:o.receipt_no,name:o.name,student_id:o.student_id,shift:o.shift}); }}
+        onReAllot={(o)=>{ setDetail(null); setReAllot({receipt_no:o.receipt_no,name:o.name,student_id:o.student_id,shift:o.shift,original:o.temporary_seat||undefined}); }}
         onShare={(text,label)=>setShareEvent({text,label})}
       />}
 
@@ -360,22 +385,38 @@ function SeatTile({ cell, shiftView, onTapOccupied, onTapVacant }:{ cell:BoardCe
 }
 
 // ── SIDE PANEL ───────────────────────────────────────────────────
-function SidePanel({ title, items, emoji, onReAllot }:{ title:string; items:SidePanelItem[]; emoji:string; onReAllot?:(it:SidePanelItem)=>void }){
+function SidePanel({ title, items, emoji, onReAllot, onTap }:{ title:string; items:SidePanelItem[]; emoji:string; onReAllot?:(it:SidePanelItem)=>void; onTap?:(it:SidePanelItem)=>void }){
   if(!items||items.length===0) return null;
+  // Full-tile color scheme (matches seat tiles), with legible text per state.
+  // Dues = gold FILL when otherwise OK; gold RING when expiring/expired.
+  const look=(it:SidePanelItem)=>{
+    const dueGold = it.has_dues;
+    if(it.color==="EXPIRED")  return { bg:"#7f1d1d", fg:"#ffffff", sub:"rgba(255,255,255,0.75)", ring:dueGold?"#f59e0b":"" };
+    if(it.color==="EXPIRING") return { bg:"#fee2e2", fg:"#991b1b", sub:"#b91c1c", ring:dueGold?"#f59e0b":"" };
+    if(dueGold)               return { bg:"#fde68a", fg:"#92400e", sub:"#a16207", ring:"" };
+    return { bg:"#dcfce7", fg:"#15803d", sub:"#16a34a", ring:"" };
+  };
   return (
     <div className="mt-3 bg-lma-slate-50 rounded-xl p-3">
       <div className="text-[11px] font-bold text-lma-slate-600 mb-2">{emoji} {title} · {items.length}</div>
       <div className="space-y-1.5">
-        {items.map(it=>(
-          <div key={it.receipt_no} className="bg-white rounded-lg px-2.5 py-1.5 flex items-center gap-2 text-[11px]">
-            <span className="font-bold text-lma-slate-900">{it.student_id}</span>
-            <span className="text-lma-slate-700 truncate flex-1">{it.name}</span>
-            <span className="text-lma-slate-400">{it.shift_name||it.shift}</span>
-            {it.temporary_seat&&<span className="text-[9px] font-bold text-lma-warn bg-lma-warn/10 px-1 rounded">was {it.temporary_seat}</span>}
-            {it.booking_to&&<span className="text-lma-slate-500">{it.booking_to}</span>}
+        {items.map(it=>{
+          const L=look(it);
+          return (
+          <div key={it.receipt_no} className="rounded-lg px-2.5 py-1.5 flex items-center gap-2 text-[11px]"
+               style={{background:L.bg, boxShadow:L.ring?`inset 0 0 0 2px ${L.ring}`:undefined}}>
+            <button onClick={()=>onTap&&onTap(it)} className="flex items-center gap-2 flex-1 min-w-0 text-left">
+              <span className="font-extrabold shrink-0" style={{color:L.fg}}>{it.student_id}</span>
+              <span className="truncate flex-1 font-medium" style={{color:L.fg}}>{it.name}</span>
+              <span className="shrink-0" style={{color:L.sub}}>{it.shift_name||it.shift}</span>
+              {it.temporary_seat&&<span className="text-[9px] font-bold px-1 rounded shrink-0" style={{color:L.fg,background:"rgba(255,255,255,0.35)"}}>was {it.temporary_seat}</span>}
+              {it.fees_due_balance>0&&<span className="text-[10px] font-extrabold px-1.5 py-0.5 rounded shrink-0" style={{color:"#92400e",background:"#fde68a"}}>₹{it.fees_due_balance}</span>}
+              {it.booking_to&&<span className="shrink-0" style={{color:L.sub}}>{it.booking_to}</span>}
+            </button>
             {onReAllot&&<button onClick={()=>onReAllot(it)} className="text-[9px] font-extrabold text-white bg-lma-primary px-2 py-1 rounded shrink-0">Re-Allot</button>}
           </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );
@@ -422,8 +463,10 @@ function DetailSheet({ cell, onClose, router, scope, lib, branch, post, showToas
                 <div className="grid grid-cols-2 gap-2 mt-3">
                   <button onClick={()=>router.push("/lma/admissions")} className="py-2 rounded-lg bg-lma-primary/10 text-lma-primary font-bold text-xs">Renew</button>
                   <button onClick={()=>router.push("/lma/renewals")} className="py-2 rounded-lg bg-lma-slate-100 text-lma-slate-600 font-bold text-xs">Cancel</button>
-                  <button disabled={busy} onClick={()=>setConfirmVacate(o)} className="py-2 rounded-lg bg-lma-warn/10 text-lma-warn font-bold text-xs disabled:opacity-50">Temp-Vacate</button>
-                  <button disabled={busy} onClick={()=>onReAllot(o)} className="py-2 rounded-lg bg-lma-slate-100 text-lma-slate-600 font-bold text-xs disabled:opacity-50">Re-Allot</button>
+                  {o.temporary_seat
+                    ? <div className="py-2 rounded-lg bg-lma-warn/10 text-lma-warn font-bold text-xs text-center">Floating · was {o.temporary_seat}</div>
+                    : <button disabled={busy} onClick={()=>setConfirmVacate(o)} className="py-2 rounded-lg bg-lma-warn/10 text-lma-warn font-bold text-xs disabled:opacity-50">Temp-Vacate</button>}
+                  <button disabled={busy} onClick={()=>onReAllot(o)} className="py-2 rounded-lg bg-lma-slate-100 text-lma-slate-600 font-bold text-xs disabled:opacity-50">{o.temporary_seat?"Re-Allot (restore)":"Re-Allot"}</button>
                 </div>
               </div>
             );
