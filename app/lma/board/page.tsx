@@ -332,7 +332,7 @@ function shortDate(dmy:string){
 
 // ── SEAT TILE ────────────────────────────────────────────────────
 function SeatTile({ cell, shiftView, onTapOccupied, onTapVacant }:{ cell:BoardCell; shiftView:ShiftView; onTapOccupied:()=>void; onTapVacant:(heldBy?:string)=>void }){
-  if(cell.cell_type==="DEAD") return <div className="aspect-square rounded" style={{background:"#e2e8f0",border:"1px solid #cbd5e1"}}/>;
+  if(cell.cell_type==="DEAD") return <div className="aspect-square rounded" style={{background:"#f8fafc",border:"1px solid #e2e8f0"}}/>;
 
   // which occupants are visible given the shift view
   const showM = (shiftView==="ALL"||shiftView==="MORNING")&&!cell.fullday;
@@ -370,14 +370,14 @@ function SeatTile({ cell, shiftView, onTapOccupied, onTapVacant }:{ cell:BoardCe
 
   return (
     <button onClick={onClick} className="aspect-square rounded overflow-hidden flex flex-col" style={{
-      border: softHeld?"1.5px dashed #f59e0b":"1px solid "+(vacant?"#e2e8f0":"#cbd5e1"),
-      background: softHeld?"#fffbeb":(vacant?"#f8fafc":"#fff")
+      border: softHeld?"1.5px dashed #f59e0b":(vacant?"1.5px solid rgba(0,0,0,0.5)":"1px solid #cbd5e1"),
+      background: softHeld?"#fffbeb":(vacant?"rgba(0,0,0,0.06)":"#fff")
     }}>
-      <div className="flex-1 flex items-center justify-center text-[7px] font-bold leading-none" style={mCol?{background:mCol.bg,color:mCol.text,boxShadow:mCol.ring?`inset 0 0 0 2px ${mCol.border}`:undefined}:{color:"#cbd5e1"}}>
+      <div className="flex-1 flex items-center justify-center text-[7px] font-bold leading-none" style={mCol?{background:mCol.bg,color:mCol.text,boxShadow:mCol.ring?`inset 0 0 0 2px ${mCol.border}`:undefined}:(!vacant?{background:"rgba(0,0,0,0.08)",color:"#475569"}:{color:"#cbd5e1"})}>
         {m?<span className="truncate px-0.5">{shortDate(m.booking_to)}</span>:softHeld?<span className="truncate px-0.5 text-[6px] text-lma-warn font-extrabold">{heldLabel}</span>:(shiftView==="ALL"||shiftView==="MORNING")?"·":""}
       </div>
       <div className="text-[9px] font-extrabold text-lma-slate-700 leading-none">{cell.display_label}</div>
-      <div className="flex-1 flex items-center justify-center text-[7px] font-bold leading-none" style={eCol?{background:eCol.bg,color:eCol.text,boxShadow:eCol.ring?`inset 0 0 0 2px ${eCol.border}`:undefined}:{color:"#cbd5e1"}}>
+      <div className="flex-1 flex items-center justify-center text-[7px] font-bold leading-none" style={eCol?{background:eCol.bg,color:eCol.text,boxShadow:eCol.ring?`inset 0 0 0 2px ${eCol.border}`:undefined}:(!vacant?{background:"rgba(0,0,0,0.08)",color:"#475569"}:{color:"#cbd5e1"})}>
         {e?<span className="truncate px-0.5">{shortDate(e.booking_to)}</span>:(shiftView==="ALL"||shiftView==="EVENING")?"·":""}
       </div>
     </button>
@@ -514,10 +514,27 @@ function DetailedExport({ board, label, shiftView }:{ board:BoardResp; label:str
     ? <div style={{fontSize:"12px",fontWeight:900,textAlign:"center",lineHeight:1.2,minHeight:"15px",flexShrink:0,color:"#92400e",background:"#fde68a",borderRadius:"4px",margin:"1px 4px"}}>{`₹${o.fees_due_balance} DUE`}</div>
     : <div style={{minHeight:"15px",flexShrink:0}}/>;
 
+  // side-panel item look — mirrors the on-screen SidePanel color logic
+  function panelLook(it:SidePanelItem){
+    const dueGold = it.has_dues;
+    if(it.color==="EXPIRED")  return { bg:"#7f1d1d", fg:"#ffffff", sub:"rgba(255,255,255,0.75)", ring:!!dueGold };
+    if(it.color==="EXPIRING") return { bg:"#fee2e2", fg:"#991b1b", sub:"#b91c1c", ring:!!dueGold };
+    if(dueGold)               return { bg:"#fde68a", fg:"#92400e", sub:"#a16207", ring:false };
+    return { bg:"#dcfce7", fg:"#15803d", sub:"#16a34a", ring:false };
+  }
+
   function richCell(cell:BoardCell){
-    if(cell.cell_type==="DEAD") return <div style={{background:"#e2e8f0",border:"1px solid #cbd5e1",borderRadius:"8px",width:"100%",height:"100%"}}/>;
+    if(cell.cell_type==="DEAD") return <div style={{background:"#f8fafc",border:"1px solid #e2e8f0",borderRadius:"8px",width:"100%",height:"100%"}}/>;
     const fd=cell.fullday, m=cell.morning, e=cell.evening;
     const b=cell.blocked||{morning:false,evening:false,fullday:false};
+    const vacantTile = !fd && !m && !e && !b.morning && !b.evening && !b.fullday;
+    const th = cell.temp_held;
+    const heldHolder = th ? (th.fullday||th.morning||th.evening) : null;
+    const heldOnVacant = vacantTile && !!heldHolder;
+    const heldLabel = heldHolder ? heldHolder.student_id : "";
+    const VACANT_FILL = "rgba(0,0,0,0.08)";
+    const VACANT_BORDER = "1.5px solid rgba(0,0,0,0.55)";
+    const HELD_BORDER = "2px dashed rgba(0,0,0,0.75)";
 
     // one occupant's data block (used in a half, or full-day upper area)
     const dataRows=(o:Occupant)=>(
@@ -532,7 +549,7 @@ function DetailedExport({ board, label, shiftView }:{ board:BoardResp; label:str
       </>
     );
 
-    // a half-zone: occupant data, blocked stripe, or empty
+    // a half-zone: occupant data, blocked stripe, or empty (dark when partially vacant)
     const halfZone=(o:Occupant|null,isBlocked:boolean)=>{
       if(o){
         const col=exLook(o);
@@ -541,21 +558,22 @@ function DetailedExport({ board, label, shiftView }:{ board:BoardResp; label:str
       if(isBlocked){
         return <div style={{height:"100%",width:"100%",background:"repeating-linear-gradient(45deg,#fecaca,#fecaca 6px,#fee2e2 6px,#fee2e2 12px)",borderRadius:"4px",display:"flex",alignItems:"center",justifyContent:"center",fontSize:"10px",fontWeight:800,color:"#b91c1c"}}>BLOCKED</div>;
       }
-      return <div style={{height:"100%",width:"100%"}}/>;
+      // empty half — dark fill when the OTHER half is occupied; transparent when fully vacant (wrapper handles dark)
+      return <div style={{height:"100%",width:"100%",background: vacantTile?"transparent":VACANT_FILL,borderRadius:"4px"}}/>;
     };
 
     // notes badge (optional) — small line under seat number
     const notesText = (cell.notes && String(cell.notes).trim()) ? String(cell.notes).trim() : "";
 
-    // number band (middle) — fixed, solid white, with optional notes
+    // number band (middle) — transparent when fully vacant so wrapper's dark fill shows uninterrupted
     const numberBand=(
-      <div style={{flexShrink:0,minHeight:"30px",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",background:"#fff",padding:"2px 0"}}>
+      <div style={{flexShrink:0,minHeight:"30px",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",background: vacantTile?"transparent":"#fff",padding:"2px 0"}}>
         <span style={{fontWeight:900,fontSize:"24px",color:"#0f172a",lineHeight:1}}>{cell.display_label}</span>
         {notesText && <span style={{fontSize:"8px",fontWeight:700,color:"#94a3b8",lineHeight:1,marginTop:"1px",maxWidth:"100%",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{notesText}</span>}
       </div>
     );
 
-    // FULL DAY
+    // FULL DAY (occupied)
     if(fd){
       const col=exLook(fd);
       return (
@@ -575,46 +593,82 @@ function DetailedExport({ board, label, shiftView }:{ board:BoardResp; label:str
       );
     }
 
-    // MORNING (upper) + EVENING (lower), number band in middle
+    // MORNING (upper) + EVENING (lower), number band in middle — grid for deterministic html2canvas rendering
+    const wrapperBorder = heldOnVacant ? HELD_BORDER : (vacantTile ? VACANT_BORDER : "1.5px solid #cbd5e1");
+    const wrapperBg = vacantTile ? VACANT_FILL : "#fff";
     return (
-      <div style={{border:"1.5px solid #cbd5e1",borderRadius:"8px",overflow:"hidden",height:"100%",display:"flex",flexDirection:"column",background:"#fff",boxSizing:"border-box",padding:"3px"}}>
-        <div style={{flex:"1 1 0",minHeight:0,overflow:"hidden"}}>{halfZone(m,!!b.morning)}</div>
+      <div style={{border:wrapperBorder,borderRadius:"8px",overflow:"hidden",height:"100%",display:"grid",gridTemplateRows:"1fr 38px 1fr",background:wrapperBg,boxSizing:"border-box",padding:"3px"}}>
+        <div style={{overflow:"hidden",minWidth:0,minHeight:0,display:"flex",alignItems:"center",justifyContent:"center"}}>
+          {heldOnVacant ? <span style={{fontSize:"11px",fontWeight:900,color:"rgba(0,0,0,0.75)",letterSpacing:"0.3px"}}>{heldLabel}</span> : halfZone(m,!!b.morning)}
+        </div>
         {numberBand}
-        <div style={{flex:"1 1 0",minHeight:0,overflow:"hidden"}}>{halfZone(e,!!b.evening)}</div>
+        <div style={{overflow:"hidden",minWidth:0,minHeight:0}}>{halfZone(e,!!b.evening)}</div>
       </div>
     );
   }
 
+  const hasPanels = board.unassigned.length>0 || board.floating.length>0 || board.otherShift.length>0;
+
   return (
     <div id="board-detailed-export" style={{position:"fixed",left:"-99999px",top:0,background:"#fff",padding:"24px",width:"fit-content"}}>
-      <div style={{textAlign:"center",marginBottom:"16px"}}>
-        <div style={{fontSize:"24px",fontWeight:800,color:"#0f172a"}}>{label}</div>
-        <div style={{fontSize:"12px",color:"#64748b"}}>{new Date().toLocaleDateString()} · {shiftView==="ALL"?"All shifts":shiftView}</div>
+      <div style={{textAlign:"center",marginBottom:"28px"}}>
+        <div style={{fontSize:"54px",fontWeight:900,color:"#0f172a",letterSpacing:"1px",lineHeight:1.1}}>{label}</div>
+        <div style={{fontSize:"22px",fontWeight:600,color:"#475569",marginTop:"8px",lineHeight:1.2}}>{new Date().toLocaleDateString()} · {shiftView==="ALL"?"All shifts":shiftView}</div>
       </div>
-      {board.sections.slice().sort((a,b)=>a.section_order-b.section_order).map(sec=>(
-        <div key={sec.section_name} style={{marginBottom:"20px"}}>
-          {board.sections.length>1&&<div style={{fontSize:"12px",fontWeight:700,color:"#64748b",marginBottom:"6px"}}>{sec.section_name}</div>}
-          <div style={{display:"grid",gridTemplateColumns:`repeat(${sec.cols}, 140px)`,gridAutoRows:"230px",gap:"6px"}}>
-            {Array.from({length:sec.rows*sec.cols}).map((_,idx)=>{
-              const r=Math.floor(idx/sec.cols)+1,c=(idx%sec.cols)+1;
-              const cell=sec.seats.find(s=>s.row_in_section===r&&s.col_in_section===c);
-              if(!cell) return <div key={idx}/>;
-              return <div key={idx} style={{height:"100%"}}>{richCell(cell)}</div>;
-            })}
+      <div style={{display:"flex",gap:"16px",alignItems:"flex-start"}}>
+        {/* LEFT column — non-seat bookings, color-coded, narrow stacked cards */}
+        {hasPanels && (
+          <div style={{width:"260px",flexShrink:0,display:"flex",flexDirection:"column",gap:"12px"}}>
+            {[["Unassigned",board.unassigned],["Floating",board.floating],["Other shift",board.otherShift]].map(([t,items]:any)=> items.length>0&&(
+              <div key={t} style={{background:"#f8fafc",borderRadius:"8px",padding:"10px"}}>
+                <div style={{fontSize:"12px",fontWeight:700,color:"#475569",marginBottom:"8px"}}>{t} · {items.length}</div>
+                <div style={{display:"flex",flexDirection:"column",gap:"6px"}}>
+                {items.map((it:SidePanelItem)=>{
+                  const L=panelLook(it);
+                  return (
+                  <div key={it.receipt_no} style={{borderRadius:"6px",padding:"8px 10px",background:L.bg,boxShadow:L.ring?`inset 0 0 0 2px ${EXPORT_GOLD}`:undefined}}>
+                    {/* Row 1 — id left, receipt_no right */}
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:"6px",marginBottom:"6px"}}>
+                      <span style={{fontSize:"10px",fontWeight:900,color:L.fg,letterSpacing:"0.3px",lineHeight:1.4}}>{it.student_id}</span>
+                      <span style={{fontSize:"10px",fontWeight:800,color:L.sub,letterSpacing:"0.3px",lineHeight:1.4}}>{it.receipt_no}</span>
+                    </div>
+                    {/* Row 2 — name centered, wraps if long */}
+                    <div style={{fontSize:"11px",fontWeight:800,color:L.fg,lineHeight:1.4,textAlign:"center",wordBreak:"break-word",padding:"2px 0"}}>{it.name}</div>
+                    {/* Row 3 — shift centered */}
+                    <div style={{fontSize:"9px",fontWeight:700,color:L.sub,letterSpacing:"0.4px",textAlign:"center",lineHeight:1.4,marginBottom:"6px"}}>{it.shift_name||it.shift}</div>
+                    {/* Row 4 — date left, chips right */}
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:"6px",flexWrap:"wrap",rowGap:"3px"}}>
+                      <span style={{fontSize:"9px",fontWeight:700,color:L.sub,lineHeight:1.4}}>{it.booking_to||""}</span>
+                      <div style={{display:"flex",gap:"3px",flexShrink:0}}>
+                        {it.temporary_seat&&<span style={{fontSize:"9px",fontWeight:800,padding:"2px 6px",borderRadius:"3px",color:L.fg,background:"rgba(255,255,255,0.5)",lineHeight:1.4}}>was {it.temporary_seat}</span>}
+                        {it.fees_due_balance>0&&<span style={{fontSize:"9px",fontWeight:900,padding:"2px 6px",borderRadius:"3px",color:"#92400e",background:"#fde68a",lineHeight:1.4}}>₹{it.fees_due_balance} DUE</span>}
+                      </div>
+                    </div>
+                  </div>
+                  );
+                })}
+                </div>
+              </div>
+            ))}
           </div>
-        </div>
-      ))}
-      {/* side panels */}
-      {[["Unassigned",board.unassigned],["Floating",board.floating],["Other shift",board.otherShift]].map(([t,items]:any)=> items.length>0&&(
-        <div key={t} style={{marginTop:"12px",background:"#f8fafc",borderRadius:"8px",padding:"10px"}}>
-          <div style={{fontSize:"12px",fontWeight:700,color:"#475569",marginBottom:"6px"}}>{t} · {items.length}</div>
-          {items.map((it:SidePanelItem)=>(
-            <div key={it.receipt_no} style={{fontSize:"11px",color:"#334155",padding:"2px 0"}}>
-              <b>{it.student_id}</b> {it.name} · {it.shift_name||it.shift} {it.booking_to?`· ${it.booking_to}`:""} {it.temporary_seat?`· was seat ${it.temporary_seat}`:""}
+        )}
+        {/* RIGHT — seat chart sections */}
+        <div style={{flexShrink:0}}>
+          {board.sections.slice().sort((a,b)=>a.section_order-b.section_order).map(sec=>(
+            <div key={sec.section_name} style={{marginBottom:"20px"}}>
+              {board.sections.length>1&&<div style={{fontSize:"12px",fontWeight:700,color:"#64748b",marginBottom:"6px"}}>{sec.section_name}</div>}
+              <div style={{display:"grid",gridTemplateColumns:`repeat(${sec.cols}, 140px)`,gridAutoRows:"230px",gap:"6px"}}>
+                {Array.from({length:sec.rows*sec.cols}).map((_,idx)=>{
+                  const r=Math.floor(idx/sec.cols)+1,c=(idx%sec.cols)+1;
+                  const cell=sec.seats.find(s=>s.row_in_section===r&&s.col_in_section===c);
+                  if(!cell) return <div key={idx}/>;
+                  return <div key={idx} style={{height:"100%"}}>{richCell(cell)}</div>;
+                })}
+              </div>
             </div>
           ))}
         </div>
-      ))}
+      </div>
     </div>
   );
 }
