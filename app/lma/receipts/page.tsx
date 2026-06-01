@@ -10,7 +10,7 @@ interface Library { library_code:string; display_name:string; active:boolean; ha
 interface Branch  { library_code:string; branch_code:string; branch_display:string; active:boolean; emoji?:string; color?:string; }
 interface Shift   { shift_key:string; shift_name:string; shift_time:string; active:boolean; }
 interface PaymentTag { tag_name:string; fees_mode:string; active:boolean; }
-interface InitData{ ok:boolean; libraries:Library[]; branches:Branch[]; shifts:Shift[]; paymentTags:PaymentTag[]; fees?:Record<string,Record<string,number>>; }
+interface InitData{ ok:boolean; libraries:Library[]; branches:Branch[]; shifts:Shift[]; paymentTags:PaymentTag[]; fees?:Record<string,Record<string,number>>; settings?:Record<string,Record<string,any>>; }
 interface PhoneEntry { number:string; tag:string; }
 interface Receipt {
   receipt_no:string; student_id:string; library:string; branch:string; name:string; phones:PhoneEntry[];
@@ -35,16 +35,19 @@ function autoDetect(q:string): SearchType {
   if(/^\d{3,}$/.test(s)) return "PHONE";
   return "NAME";
 }
-function lifecycleBadge(r:Receipt):{label:string;cls:string}{
+function lifecycleBadge(r:Receipt, alertDays:number, hasSuccessor:boolean):{label:string;cls:string}{
   const st=(r.status||"").toUpperCase();
   if(st==="RENEWED")       return {label:"Renewed",      cls:"bg-lma-slate-200 text-lma-slate-600"};
   if(st==="CANCELLED")     return {label:"Cancelled",    cls:"bg-lma-danger/15 text-lma-danger"};
   if(st==="DO_NOT_RENEW")  return {label:"Do Not Renew", cls:"bg-lma-warn/15 text-lma-warn"};
+  // #4: Rule-C orphan recovery — if a successor receipt exists (renewed_from=this),
+  // treat as RENEWED even when status wasn't flipped (markReceiptRenewed failed).
+  if(hasSuccessor)         return {label:"Renewed",      cls:"bg-lma-slate-200 text-lma-slate-600"};
   // live → compute from booking_to
   const days=daysFromToday(r.booking_to);
   if(days===null) return {label:"Current", cls:"bg-lma-accent/15 text-lma-accent"};
   if(days<0)      return {label:"Expired", cls:"bg-red-900/15 text-red-900"};
-  if(days<=5)     return {label:"Expiring",cls:"bg-lma-danger/15 text-lma-danger"};
+  if(days<=alertDays) return {label:"Expiring",cls:"bg-lma-danger/15 text-lma-danger"}; // #12: per-library threshold
   return {label:"Current", cls:"bg-lma-accent/15 text-lma-accent"};
 }
 function daysFromToday(dmy:string):number|null{
@@ -53,6 +56,25 @@ function daysFromToday(dmy:string):number|null{
   const d=new Date(Number(p[2]),Number(p[1])-1,Number(p[0]));
   const today=new Date(); today.setHours(0,0,0,0);
   return Math.round((d.getTime()-today.getTime())/86400000);
+}
+// #19: tolerant date → DD-M-YYYY
+function normDateR(v:string):string{
+  if(!v) return "";
+  if(typeof v!=="string") v=String(v);
+  if(/^\d{1,2}-\d{1,2}-\d{4}$/.test(v)) return v;
+  if(/^\d{4}-\d{2}-\d{2}$/.test(v)){ const p=v.split("-"); return `${+p[2]}-${+p[1]}-${p[0]}`; }
+  try{ const d=new Date(v); if(!isNaN(d.getTime())) return `${d.getDate()}-${d.getMonth()+1}-${d.getFullYear()}`; }catch{}
+  return v;
+}
+// #17: phone normalizer
+function normalizePhoneR(input:string):string{
+  if(!input) return "";
+  let c=input.replace(/[\s\-\.\(\)]/g,"");
+  if(c.startsWith("+91")) c=c.slice(3);
+  else if(c.startsWith("91")&&c.length>10) c=c.slice(2);
+  c=c.replace(/\D/g,"");
+  if(c.length>10) c=c.slice(-10);
+  return c;
 }
 
 export default function ReceiptsPage(){
@@ -109,6 +131,32 @@ export default function ReceiptsPage(){
     setHistory({receipt_no:r.receipt_no,edits:res.edits||[]});
   };
 
+// chips (libraries + branches + an "All")
+  const chips:{code:string;label:string;color?:string}[]=[{code:"",label:"All"}];
+  if(init){ init.libraries.filter(l=>l.active).forEach(l=>{
+    if(l.has_branches){ init.branches.filter(b=>b.library_code===l.library_code&&b.active).forEach(b=>chips.push({code:b.branch_code,label:b.branch_code,color:b.color||l.color})); }
+    else chips.push({code:l.library_code,label:l.library_code,color:l.color});
+  }); }
+
+  // #4: set of receipt_nos that are referenced as a predecessor (renewed_from) by another loaded receipt.
+  const successorOf = useMemo(()=>{
+    const s=new Set<string>();
+    receipts.forEach(r=>{ if(r.renewed_from) s.add(String(r.renewed_from).toUpperCase()); });
+    return s;
+  },[receipts]);
+
+  // #12: resolve per-library renewal_alert_days from init.settings; fallback 5.
+  const alertDaysFor=useCallback((r:Receipt):number=>{
+    const def=5;
+    if(!init?.settings) return def;
+    const key=(r.library||"").toUpperCase();
+    const row=init.settings[key];
+    if(!row) return def;
+    const v=row["renewal_alert_days"];
+    const n=Number(v);
+    return (v!==undefined&&v!==null&&v!==""&&!isNaN(n)&&n>0)?n:def;
+  },[init]);
+
   if(!unlocked){
     return (
       <div className="min-h-screen flex items-center justify-center px-4">
@@ -122,12 +170,7 @@ export default function ReceiptsPage(){
     );
   }
 
-  // chips (libraries + branches + an "All")
-  const chips:{code:string;label:string;color?:string}[]=[{code:"",label:"All"}];
-  if(init){ init.libraries.filter(l=>l.active).forEach(l=>{
-    if(l.has_branches){ init.branches.filter(b=>b.library_code===l.library_code&&b.active).forEach(b=>chips.push({code:b.branch_code,label:b.branch_code,color:b.color||l.color})); }
-    else chips.push({code:l.library_code,label:l.library_code,color:l.color});
-  }); }
+  
 
   return (
     <div className="lma-page-body max-w-md mx-auto px-4 pt-4">
@@ -155,7 +198,7 @@ export default function ReceiptsPage(){
       ):(
         <div className="space-y-2">
           {receipts.map(r=>{
-            const badge=lifecycleBadge(r);
+            const badge=lifecycleBadge(r, alertDaysFor(r), successorOf.has(String(r.receipt_no).toUpperCase()));
             return (
               <button key={r.receipt_no} onClick={()=>setView(r)} className="w-full text-left bg-white rounded-xl p-3 shadow-sm hover:shadow-md active:scale-[0.99]">
                 <div className="flex items-center gap-2 mb-1">
@@ -187,9 +230,16 @@ export default function ReceiptsPage(){
           <p className="text-xs text-lma-slate-500 mb-3">{view.student_id} · {view.name}</p>
           <pre className="text-[11px] text-lma-slate-700 whitespace-pre-wrap font-mono bg-lma-slate-50 rounded-lg p-3 max-h-56 overflow-y-auto">{view.receipt_text}</pre>
           <MoneyTrail receiptNo={view.receipt_no}/>
-          <div className="grid grid-cols-3 gap-2 mt-3">
-            <button onClick={()=>{ navigator.clipboard.writeText(view.receipt_text); showToast("Copied"); }} className="py-2.5 rounded-xl bg-lma-slate-100 text-lma-slate-600 font-bold text-xs">Copy</button>
-            <button onClick={()=>{ setEdit(view); setView(null); }} className="py-2.5 rounded-xl bg-lma-primary/10 text-lma-primary font-bold text-xs">Edit</button>
+          {/* #25: copy row — Student / Group(NEW only) / Contact */}
+          <div className={`grid gap-2 mt-3 ${view.type==="NEW"&&view.registration_text?"grid-cols-3":"grid-cols-2"}`}>
+            <button onClick={()=>{ navigator.clipboard.writeText(view.receipt_text); showToast("Student copy"); }} className="py-2.5 rounded-xl bg-lma-accent/10 text-lma-accent font-bold text-xs">📋 Student</button>
+            {view.type==="NEW"&&view.registration_text&&(
+              <button onClick={()=>{ navigator.clipboard.writeText(view.registration_text); showToast("Group copy"); }} className="py-2.5 rounded-xl bg-lma-primary/10 text-lma-primary font-bold text-xs">📢 Group</button>
+            )}
+            <button onClick={()=>{ navigator.clipboard.writeText(`${view.name} ${view.library} ${view.student_id}`); showToast("Contact copy"); }} className="py-2.5 rounded-xl bg-lma-warn/10 text-lma-warn font-bold text-xs">📇 Contact</button>
+          </div>
+          <div className="grid grid-cols-2 gap-2 mt-2">
+            <button onClick={()=>{ setEdit(view); setView(null); }} className="py-2.5 rounded-xl bg-lma-slate-100 text-lma-slate-700 font-bold text-xs">Edit</button>
             <button onClick={()=>{ openHistory(view); }} className="py-2.5 rounded-xl bg-lma-slate-100 text-lma-slate-600 font-bold text-xs">History</button>
           </div>
         </Sheet>
@@ -252,15 +302,30 @@ function EditForm({ receipt, init, onCancel, onSave }:{ receipt:Receipt; init:In
   const [name,setName]=useState(receipt.name);
   const [seat,setSeat]=useState(receipt.seat_no);
   const [shift,setShift]=useState(receipt.shift);
-  const [bookingFrom,setBookingFrom]=useState(receipt.booking_from);
-  const [bookingTo,setBookingTo]=useState(receipt.booking_to);
+  // #19: normalize incoming dates so the inputs read consistently
+  const [bookingFrom,setBookingFrom]=useState(normDateR(receipt.booking_from));
+  const [bookingTo,setBookingTo]=useState(normDateR(receipt.booking_to));
+  const [receiptDate,setReceiptDate]=useState(normDateR(receipt.receipt_date)); // #13
   const [fee,setFee]=useState(String(receipt.fee));
+  // #16: 0 is a legit amount — show it, don't blank it. Only blank when undefined/null.
+  const _amt=(v:number)=>(v===undefined||v===null||(v as any)==="")?"":String(v);
   const [pays,setPays]=useState([
-    {mode:receipt.pay_mode_1,amount:receipt.pay_amount_1?String(receipt.pay_amount_1):""},
-    {mode:receipt.pay_mode_2,amount:receipt.pay_amount_2?String(receipt.pay_amount_2):""},
-    {mode:receipt.pay_mode_3,amount:receipt.pay_amount_3?String(receipt.pay_amount_3):""},
+    {mode:receipt.pay_mode_1,amount:_amt(receipt.pay_amount_1)},
+    {mode:receipt.pay_mode_2,amount:_amt(receipt.pay_amount_2)},
+    {mode:receipt.pay_mode_3,amount:_amt(receipt.pay_amount_3)},
   ].filter(p=>p.mode));
   const [feesDue,setFeesDue]=useState(String(receipt.fees_due));
+  // #13: additional editable fields
+  const [phones,setPhones]=useState<PhoneEntry[]>(()=>{
+    const base=(receipt.phones||[]).map(p=>({number:p.number,tag:p.tag}));
+    while(base.length<4) base.push({number:"",tag:""});
+    return base.slice(0,4);
+  });
+  const [studentId,setStudentId]=useState(receipt.student_id);
+  const [library,setLibrary]=useState(receipt.library);
+  const [branch,setBranch]=useState(receipt.branch);
+  const [isCross,setIsCross]=useState(receipt.is_cross_library||"");
+  const [showAdvanced,setShowAdvanced]=useState(false);
   const [editCount,setEditCount]=useState<number|null>(null);
   const [seatPickerOpen,setSeatPickerOpen]=useState(false);
   // load how many past edits this receipt already has (shown inline)
@@ -273,12 +338,10 @@ function EditForm({ receipt, init, onCancel, onSave }:{ receipt:Receipt; init:In
   },[receipt.receipt_no]);
 
   // Standard fee for the currently-selected shift (from the fee matrix).
-  // Fee key = branch if the receipt has one, else library (YAL-1 has its own fees).
-  const feeKey = (receipt.branch||receipt.library||"").toUpperCase();
+  const feeKey = (branch||library||"").toUpperCase();
   const stdFee = (init.fees && init.fees[feeKey]) ? init.fees[feeKey][shift.toUpperCase()] : undefined;
   const shiftChanged = shift.toUpperCase() !== (receipt.shift||"").toUpperCase();
   const feeMismatch = shiftChanged && typeof stdFee==="number" && stdFee !== Number(fee);
-  // OTHER shift occupies NO seat → seat field is disabled & cleared.
   const isOther = !["MORNING","EVENING","FULL DAY","FULLDAY","FD"].includes(shift.toUpperCase());
   const onShiftChange=(v:string)=>{ setShift(v); if(!["MORNING","EVENING","FULL DAY","FULLDAY","FD"].includes(v.toUpperCase())) setSeat(""); };
   const [remark,setRemark]=useState("");
@@ -286,16 +349,30 @@ function EditForm({ receipt, init, onCancel, onSave }:{ receipt:Receipt; init:In
   const activeShifts=init.shifts.filter(s=>s.active);
   const setPay=(i:number,f:"mode"|"amount",v:string)=>{const n=[...pays];n[i]={...n[i],[f]:v};setPays(n);};
 
+  // branch options for the selected library
+  const libObj=init.libraries.find(l=>l.library_code===library);
+  const libBranches=init.branches.filter(b=>b.library_code===library&&b.active);
+
   const save=()=>{
-    const validPays=pays.filter(p=>p.mode&&p.amount).map(p=>({mode:p.mode,amount:Number(p.amount)}));
+    const validPays=pays.filter(p=>p.mode&&p.amount!=="").map(p=>({mode:p.mode,amount:Number(p.amount)}));
     const shiftObj=activeShifts.find(s=>s.shift_key.toUpperCase()===shift.toUpperCase());
+    const cleanPhones=phones.filter(p=>p.number.trim()).map(p=>({number:normalizePhoneR(p.number),tag:(p.tag||"").toUpperCase()}));
+    const nameChanged=(name||"").trim().toUpperCase()!==(receipt.name||"").trim().toUpperCase();
+    // #14: ask each time when name changed
+    let cascade=false;
+    if(nameChanged){
+      cascade=window.confirm("Name changed. Also update the student's master record (STUDENTS sheet)?\n\nOK = update master too\nCancel = only this receipt");
+    }
     onSave({
       receipt_no:receipt.receipt_no,
       name, seat_no:seat, shift,
       shift_name:shiftObj?.shift_name||receipt.shift_name, shift_time:shiftObj?.shift_time||receipt.shift_time,
-      booking_from:bookingFrom, booking_to:bookingTo,
+      booking_from:bookingFrom, booking_to:bookingTo, receipt_date:receiptDate,
       fee:Number(fee), pay_modes:validPays,
       fees_due:Number(feesDue),
+      phones:cleanPhones,
+      student_id:studentId, library, branch, is_cross_library:isCross,
+      cascade_name_to_student:cascade,
       editor_remark:remark,
     });
   };
@@ -308,7 +385,7 @@ function EditForm({ receipt, init, onCancel, onSave }:{ receipt:Receipt; init:In
       {editCount!==null&&editCount>0&&(
         <div className="mt-2 text-[11px] text-lma-slate-500 bg-lma-slate-50 rounded-lg px-2.5 py-1.5">📝 This receipt has <b>{editCount}</b> past edit{editCount>1?"s":""} — open History (from the receipt view) to see old→new details.</div>
       )}
-      <L>Name</L><I value={name} onChange={e=>setName(e.target.value)}/>
+      <L>Name</L><I value={name} onChange={e=>setName(e.target.value.toUpperCase())}/>
       <div className="grid grid-cols-2 gap-3">
         <div><L>Seat</L>
           {isOther
@@ -328,6 +405,8 @@ function EditForm({ receipt, init, onCancel, onSave }:{ receipt:Receipt; init:In
         <div><L>From</L><I value={bookingFrom} onChange={e=>setBookingFrom(e.target.value)} placeholder="DD-M-YYYY"/></div>
         <div><L>To</L><I value={bookingTo} onChange={e=>setBookingTo(e.target.value)} placeholder="DD-M-YYYY"/></div>
       </div>
+      {/* #13: receipt date */}
+      <L>Receipt date</L><I value={receiptDate} onChange={e=>setReceiptDate(e.target.value)} placeholder="DD-M-YYYY"/>
       <L>Fee (₹)</L><I type="number" value={fee} onChange={e=>setFee(e.target.value)}/>
       {shiftChanged&&(
         <div className="mt-1 mb-1 text-[11px] font-semibold text-lma-warn bg-lma-warn/10 rounded-lg px-2.5 py-1.5">
@@ -345,14 +424,53 @@ function EditForm({ receipt, init, onCancel, onSave }:{ receipt:Receipt; init:In
             {init.paymentTags.filter(t=>t.active).map(t=><option key={t.tag_name} value={t.tag_name}>{t.tag_name}</option>)}
           </select>
           <input type="number" value={p.amount} onChange={e=>setPay(i,"amount",e.target.value)} placeholder="₹" className="w-24 px-3 py-2.5 rounded-xl border-[1.5px] border-lma-slate-200 bg-lma-slate-50 text-sm font-medium"/>
+          {pays.length>1&&<button onClick={()=>setPays(pays.filter((_,j)=>j!==i))} className="px-2 text-lma-danger font-bold">✕</button>}
         </div>
       ))}
       {pays.length<3&&<button onClick={()=>setPays([...pays,{mode:"",amount:""}])} className="text-xs font-bold text-lma-primary">+ Add payment</button>}
       <L>Fees Due (₹)</L><I type="number" value={feesDue} onChange={e=>setFeesDue(e.target.value)}/>
+
+      {/* #13: phones */}
+      <L>Phones</L>
+      {phones.map((ph,i)=>(
+        <div key={i} className="flex gap-2 mb-2">
+          <input type="tel" inputMode="numeric" value={ph.number}
+            onChange={e=>{const n=[...phones];n[i]={...n[i],number:e.target.value};setPhones(n);}}
+            onBlur={()=>{const n=[...phones];n[i]={...n[i],number:normalizePhoneR(n[i].number)};setPhones(n);}}
+            placeholder={i===0?"Primary":`Phone ${i+1}`}
+            className="flex-1 px-3 py-2.5 rounded-xl border-[1.5px] border-lma-slate-200 bg-lma-slate-50 text-sm font-medium"/>
+          <input value={ph.tag} onChange={e=>{const n=[...phones];n[i]={...n[i],tag:e.target.value.toUpperCase()};setPhones(n);}} placeholder="TAG" className="w-20 px-2 py-2.5 rounded-xl border-[1.5px] border-lma-slate-200 bg-lma-slate-50 text-sm font-medium uppercase"/>
+        </div>
+      ))}
+
+      {/* #13: advanced (student_id / library / branch / cross) */}
+      <button onClick={()=>setShowAdvanced(v=>!v)} className="text-xs font-bold text-lma-slate-500 mt-2">{showAdvanced?"▾ Hide advanced":"▸ Advanced (ID, library, branch, cross)"}</button>
+      {showAdvanced&&(
+        <div className="mt-1 bg-lma-slate-50 rounded-xl p-3 space-y-2">
+          <div><L>Student ID</L><I value={studentId} onChange={e=>setStudentId(e.target.value.toUpperCase())}/></div>
+          <div className="grid grid-cols-2 gap-3">
+            <div><L>Library</L>
+              <select value={library} onChange={e=>{setLibrary(e.target.value);setBranch("");}} className="w-full px-3 py-2.5 rounded-xl border-[1.5px] border-lma-slate-200 bg-white text-sm font-medium">
+                {init.libraries.filter(l=>l.active).map(l=><option key={l.library_code} value={l.library_code}>{l.library_code}</option>)}
+              </select>
+            </div>
+            <div><L>Branch</L>
+              {libObj?.has_branches&&libBranches.length>0
+                ? <select value={branch} onChange={e=>setBranch(e.target.value)} className="w-full px-3 py-2.5 rounded-xl border-[1.5px] border-lma-slate-200 bg-white text-sm font-medium">
+                    <option value="">—</option>
+                    {libBranches.map(b=><option key={b.branch_code} value={b.branch_code}>{b.branch_code}</option>)}
+                  </select>
+                : <div className="w-full px-3.5 py-2.5 rounded-xl border-[1.5px] border-lma-slate-200 bg-white text-[14px] font-medium text-lma-slate-400">no branches</div>}
+            </div>
+          </div>
+          <div><L>Cross-library origin (blank = not cross)</L><I value={isCross} onChange={e=>setIsCross(e.target.value.toUpperCase())} placeholder="e.g. KAL"/></div>
+        </div>
+      )}
+
       <L>Edit note (optional)</L><I value={remark} onChange={e=>setRemark(e.target.value)} placeholder="why this edit"/>
       {seatPickerOpen&&(
         <EditSeatPicker
-          library={receipt.library} branch={receipt.branch}
+          library={library} branch={branch}
           shift={shift} currentSeat={seat} ignoreReceiptNo={receipt.receipt_no}
           onClose={()=>setSeatPickerOpen(false)}
           onPick={(label)=>{ setSeat(label); setSeatPickerOpen(false); }}

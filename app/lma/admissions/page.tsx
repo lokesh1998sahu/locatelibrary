@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef, Suspense } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 
 const API = "/api/lma";
 const PASSWORD = process.env.NEXT_PUBLIC_LMA_PASSWORD!;
@@ -12,24 +13,58 @@ interface Shift    { shift_key:string; shift_name:string; shift_time:string; act
 interface InitData { ok:boolean; libraries:Library[]; branches:Branch[]; shifts:Shift[]; paymentTags:{tag_name:string;fees_mode:string;active:boolean}[]; activeTags:string[]; fees:Record<string,Record<string,number>>; }
 interface PhoneEntry { number:string; tag:string; }
 interface Student  { student_id:string; library:string; branch:string; name:string; phones:PhoneEntry[]; address:string; preparing_for:string; aadhaar_last4:string; date_of_birth:string; is_past:boolean; }
-interface Receipt  { receipt_no:string; student_id:string; library:string; branch:string; name:string; phones:PhoneEntry[]; seat_no:string; shift:string; shift_name:string; shift_time:string; booking_from:string; booking_to:string; status:string; }
+interface Receipt  { receipt_no:string; student_id:string; library:string; branch:string; name:string; phones:PhoneEntry[]; seat_no:string; shift:string; shift_name:string; shift_time:string; booking_from:string; booking_to:string; status:string; fee?:number; }
 interface SeatCell { row_in_section:number; col_in_section:number; seat_no:number; display_label:string; notes:string; cell_type:string; state?:string; occupant?:{receipt_no:string;student_id:string;name:string;shift:string}|null; share_note?:string|null; }
 interface VacantResp { ok:boolean; needs_seat:boolean; sections:{section_name:string;section_order:number;rows:number;cols:number;seats:SeatCell[]}[]; }
 
 type Toast = { msg:string; type:"success"|"error" } | null;
 type PayMode = { mode:string; amount:string };
-interface BookingCtx { admitType:"NEW"|"RENEWAL"; student:Student|null; isCross:boolean; crossOrigin:string; renewFrom?:Receipt|null; }
+interface HoldPreload { seat?:string; shift?:string; fee?:string; from?:string; to?:string; fromHold?:boolean; }
+interface BookingCtx { admitType:"NEW"|"RENEWAL"; student:Student|null; isCross:boolean; crossOrigin:string; renewFrom?:Receipt|null; preload?:HoldPreload; }
 interface ResultData { receipt_no:string; student_id:string; receipt_text:string; registration_text:string; }
 
+// ── HELPERS ──────────────────────────────────────────────────────
 function todayDmy(){ const d=new Date(); return `${d.getDate()}-${d.getMonth()+1}-${d.getFullYear()}`; }
 function addOneMonth(dmy:string){ if(!dmy)return""; const p=dmy.split("-"); const d=new Date(+p[2],+p[1]-1,+p[0]); const tm=d.getMonth()+1; d.setMonth(tm); if(d.getMonth()!==tm%12)d.setDate(0); else d.setDate(d.getDate()-1); return `${d.getDate()}-${d.getMonth()+1}-${d.getFullYear()}`; }
 function addOneDayDmy(dmy:string){ if(!dmy)return""; const p=dmy.split("-"); const d=new Date(+p[2],+p[1]-1,+p[0]); d.setDate(d.getDate()+1); return `${d.getDate()}-${d.getMonth()+1}-${d.getFullYear()}`; }
 function dmyToIso(dmy:string){ if(!dmy)return""; const p=dmy.split("-"); if(p.length!==3)return""; return `${p[2]}-${String(+p[1]).padStart(2,"0")}-${String(+p[0]).padStart(2,"0")}`; }
 function isoToDmy(iso:string){ if(!iso)return""; const p=iso.split("-"); if(p.length!==3)return""; return `${+p[2]}-${+p[1]}-${+p[0]}`; }
-function autoDetectSearchType(q:string):"NAME"|"PHONE"|"STUDENT_ID"{ const t=q.trim(); if(!t)return"NAME"; const s=t.replace(/[\s\-\.\(\)\+]/g,""); if(/^\d{3,}$/.test(s))return"PHONE"; if(/^F\d+/i.test(t))return"STUDENT_ID"; return"NAME"; }
+function autoDetectSearchType(q:string):"NAME"|"PHONE"|"STUDENT_ID"|"RECEIPT_NO"{ const t=q.trim(); if(!t)return"NAME"; if(/^R\d+/i.test(t))return"RECEIPT_NO"; const s=t.replace(/[\s\-\.\(\)\+]/g,""); if(/^\d{3,}$/.test(s))return"PHONE"; if(/^F\d+/i.test(t))return"STUDENT_ID"; return"NAME"; }
 function normShiftKey(s:string):"MORNING"|"EVENING"|"FULL DAY"|"OTHER"{ const u=(s||"").toUpperCase().trim(); if(u==="MORNING")return"MORNING"; if(u==="EVENING")return"EVENING"; if(u==="FULL DAY"||u==="FULLDAY"||u==="FULL_DAY")return"FULL DAY"; return"OTHER"; }
 
+// ── #17: PHONE NORMALIZE ─────────────────────────────────────────
+function normalizePhone(input:string):string{
+  if(!input)return"";
+  let c=input.replace(/[\s\-\.\(\)]/g,"");
+  if(c.startsWith("+91"))c=c.slice(3);
+  else if(c.startsWith("91")&&c.length>10)c=c.slice(2);
+  c=c.replace(/\D/g,"");
+  if(c.length>10)c=c.slice(-10);
+  return c;
+}
+
+// ── #19: TOLERANT DATE NORMALIZER ────────────────────────────────
+// Handles: DMY, ISO, GMT/IST strings, locale-formatted dates. Returns DD-M-YYYY.
+function normDate(v:string):string{
+  if(!v)return"";
+  if(typeof v!=="string")v=String(v);
+  if(/^\d{1,2}-\d{1,2}-\d{4}$/.test(v))return v;
+  if(/^\d{4}-\d{2}-\d{2}$/.test(v)){const p=v.split("-");return `${+p[2]}-${+p[1]}-${p[0]}`;}
+  // try JS Date as fallback (handles GMT/IST/locale strings)
+  try{const d=new Date(v); if(!isNaN(d.getTime()))return `${d.getDate()}-${d.getMonth()+1}-${d.getFullYear()}`;}catch{}
+  return v; // give back as-is if unparseable
+}
+
 export default function AdmissionsPage(){
+  return (
+    <Suspense fallback={<div className="lma-page-body max-w-md mx-auto px-4 pt-4 text-center text-sm text-lma-slate-500 py-8">Loading…</div>}>
+      <AdmissionsPageInner/>
+    </Suspense>
+  );
+}
+
+function AdmissionsPageInner(){
+  const searchParams=useSearchParams();
   const [unlocked,setUnlocked]=useState(false);
   const [pwInput,setPwInput]=useState(""); const [pwErr,setPwErr]=useState("");
   const [init,setInit]=useState<InitData|null>(null);
@@ -39,6 +74,7 @@ export default function AdmissionsPage(){
   const [admitType,setAdmitType]=useState<"NEW"|"RENEWAL"|null>(null);
   const [bookingCtx,setBookingCtx]=useState<BookingCtx|null>(null);
   const [result,setResult]=useState<ResultData|null>(null);
+  const [preloadHandled,setPreloadHandled]=useState(false);
 
   const { resolvedLib, resolvedBranch, scopeLabel } = useMemo(()=>{
     if(!init||!libCode) return {resolvedLib:"",resolvedBranch:"",scopeLabel:""};
@@ -56,7 +92,103 @@ export default function AdmissionsPage(){
 
   useEffect(()=>{ if(!unlocked)return; fetch(`${API}?action=getInitData`).then(r=>r.json()).then((r:InitData)=>{if(r.ok)setInit(r);}); },[unlocked]);
 
+  // ── #8 + Hold conversion URL PRELOAD ──
+  // Supports:
+  //   ?lib=X&student_id=Y&renew_from=R123     → renewal (existing)
+  //   ?lib=X&seat=12&shift=MORNING            → "Book this seat" deep-link from board vacant tap (NEW)
+  //   ?lib=X&admit_type=NEW&hold_name=...&hold_phone=...&seat=...&shift=...&fee=...&from=...&to=...&from_hold=1
+  //   ?lib=X&admit_type=RENEWAL&student_id=F123&seat=...&shift=...&fee=...&from=...&to=...&from_hold=1
+  useEffect(()=>{
+    if(!unlocked||!init||preloadHandled)return;
+    const lib=searchParams.get("lib")||"";
+    const sid=searchParams.get("student_id")||"";
+    const rno=searchParams.get("renew_from")||"";
+    const admitParam=(searchParams.get("admit_type")||"").toUpperCase();
+    const seatP=searchParams.get("seat")||"";
+    const shiftP=(searchParams.get("shift")||"").toUpperCase();
+    const feeP=searchParams.get("fee")||"";
+    const fromP=searchParams.get("from")||"";
+    const toP=searchParams.get("to")||"";
+    const holdName=searchParams.get("hold_name")||"";
+    const holdPhone=searchParams.get("hold_phone")||"";
+    const fromHold=searchParams.get("from_hold")==="1";
+    if(!lib){ setPreloadHandled(true); return; }
+    (async()=>{
+      // resolve library/branch code
+      const isBranch=init.branches.find(b=>b.branch_code===lib);
+      const isLib=init.libraries.find(l=>l.library_code===lib);
+      if(!isBranch&&!isLib){ showToast(`Unknown library: ${lib}`,"error"); setPreloadHandled(true); return; }
+      setLibCode(lib);
+
+      // Decide admit type:
+      //   explicit admit_type wins
+      //   else if renew_from or student_id → RENEWAL
+      //   else (book/hold-NEW with seat+shift only) → NEW
+      const isRenewalIntent = admitParam==="RENEWAL" || (!admitParam && (rno||sid));
+      const finalAdmit:"NEW"|"RENEWAL" = isRenewalIntent ? "RENEWAL" : "NEW";
+      setAdmitType(finalAdmit);
+
+      const preload:HoldPreload = {
+        seat: seatP, shift: shiftP, fee: feeP, from: fromP, to: toP, fromHold,
+      };
+
+      try{
+        if(finalAdmit==="RENEWAL"){
+          // existing renewal preload logic
+          let student:Student|null=null;
+          let renewFrom:Receipt|null=null;
+          if(sid){
+            const params=new URLSearchParams({action:"searchStudents",q:sid,search_type:"STUDENT_ID",library:lib,is_past:"ANY"});
+            const r=await fetch(`${API}?${params}`).then(r=>r.json());
+            if(r.ok&&r.results&&r.results.length){ student=r.results[0]; }
+          }
+          if(rno){
+            const params=new URLSearchParams({action:"getReceiptLog",q:rno,search_type:"RECEIPT_NO",library:lib,limit:"5"});
+            const r=await fetch(`${API}?${params}`).then(r=>r.json());
+            if(r.ok&&r.receipts&&r.receipts.length){ renewFrom=r.receipts[0]; if(!student){
+              student={ student_id:renewFrom!.student_id, library:renewFrom!.library, branch:renewFrom!.branch, name:renewFrom!.name, phones:renewFrom!.phones||[], address:"", preparing_for:"", aadhaar_last4:"", date_of_birth:"", is_past:false };
+            }}
+          } else if(student){
+            const params=new URLSearchParams({action:"getReceiptLog",q:student.student_id,search_type:"STUDENT_ID",library:lib,limit:"5"});
+            const r=await fetch(`${API}?${params}`).then(r=>r.json());
+            if(r.ok&&r.receipts&&r.receipts.length){ renewFrom=r.receipts[0]; }
+          }
+          if(!student){ showToast(`Student ${sid||rno} not found`,"error"); setPreloadHandled(true); return; }
+          const isCross=renewFrom?(String(renewFrom.library).toUpperCase()!==String(lib).toUpperCase()&&String(renewFrom.branch||"").toUpperCase()!==String(lib).toUpperCase()):false;
+          setBookingCtx({ admitType:"RENEWAL", student, isCross, crossOrigin: isCross?(renewFrom!.branch||renewFrom!.library):"", renewFrom, preload });
+          setStep(4);
+        } else {
+          // NEW preload — for "Book this seat" or hold-NEW conversion
+          // Resolve target library/branch codes from the lib token
+          const br=init.branches.find(b=>b.branch_code===lib);
+          const targetLib = br ? br.library_code : lib;
+          const targetBranch = br ? br.branch_code : "";
+          const phones = holdPhone ? [{number:holdPhone,tag:"SELF"}] : [{number:"",tag:"SELF"}];
+          const student:Student = {
+            student_id:"", library:targetLib, branch:targetBranch,
+            name: holdName ? holdName.toUpperCase() : "",
+            phones, address:"", preparing_for:"", aadhaar_last4:"", date_of_birth:"", is_past:false,
+          };
+          setBookingCtx({ admitType:"NEW", student, isCross:false, crossOrigin:"", preload });
+          // If this is a hold-NEW conversion AND we already have a name, skip Step 3.
+          // Otherwise (book-from-board with no student details, or hold with no name) → go to Step 3 so user can fill student info.
+          if(fromHold && holdName){
+            setStep(4);
+          } else {
+            setStep(3);
+          }
+        }
+      } catch(e){
+        showToast("Preload failed","error");
+      }
+      setPreloadHandled(true);
+    })();
+  },[unlocked,init,searchParams,preloadHandled,showToast]);
+
   const resetWizard=()=>{ setStep(1); setLibCode(""); setAdmitType(null); setBookingCtx(null); setResult(null); };
+
+  // ── #10: DYNAMIC HEADER TITLE ──
+  const headerTitle = step<=1 ? "Admissions" : (admitType==="RENEWAL"?"Renewal":"New Admission");
 
   if(!unlocked){
     return (
@@ -76,7 +208,7 @@ export default function AdmissionsPage(){
       <header className="flex items-center gap-3 mb-4">
         <Link href="/lma" className="text-xl text-lma-slate-600 hover:text-lma-slate-900">←</Link>
         <div className="flex-1">
-          <h1 className="text-xl font-extrabold tracking-tight text-lma-slate-900">New Admission</h1>
+          <h1 className="text-xl font-extrabold tracking-tight text-lma-slate-900">{headerTitle}</h1>
           <p className="text-[11px] text-lma-slate-500 font-medium">
             {step===1?"Step 1 · Pick library":step===2?"Step 2 · New or renewal":step===3?"Step 3 · Student":step===4?"Step 4 · Booking":"Done"}
             {scopeLabel&&step>1?` · ${scopeLabel}`:""}
@@ -163,7 +295,7 @@ function StepStudent({ init, resolvedLib, resolvedBranch, admitType, post, showT
   post:(a:string,p:any)=>Promise<any>; showToast:(m:string,t?:"success"|"error")=>void;
   onBack:()=>void; onReady:(ctx:BookingCtx)=>void;
 }){
-  // NEW: collect details locally; student created at receipt time (auto id)
+  // NEW: collect details locally
   const [name,setName]=useState("");
   const [phones,setPhones]=useState<PhoneEntry[]>([{number:"",tag:"SELF"},{number:"",tag:""},{number:"",tag:""},{number:"",tag:""}]);
   const [address,setAddress]=useState("");
@@ -171,32 +303,39 @@ function StepStudent({ init, resolvedLib, resolvedBranch, admitType, post, showT
   const [aadhaar,setAadhaar]=useState("");
   const [dob,setDob]=useState("");
 
-  // RENEWAL: search
+  // RENEWAL: search (#5 button-triggered + #6 dual results)
   const [search,setSearch]=useState("");
-  const [results,setResults]=useState<Student[]>([]);
+  const [studentResults,setStudentResults]=useState<Student[]>([]);
+  const [receiptResults,setReceiptResults]=useState<Receipt[]>([]);
   const [searching,setSearching]=useState(false);
+  const [hasSearched,setHasSearched]=useState(false);
   const [isCross,setIsCross]=useState(false);
-  const [crossOrigin,setCrossOrigin]=useState("");   // origin library/branch code for cross-library
-  const debounceRef=useRef<ReturnType<typeof setTimeout>|null>(null);
+  const [crossOrigin,setCrossOrigin]=useState("");
+  // #23: manual entry path
+  const [manualSid,setManualSid]=useState("");
 
-  // search scope: own library by default; if cross, the chosen origin
   const searchScope = isCross ? crossOrigin : resolvedBranch || resolvedLib;
 
-  useEffect(()=>{
-    if(admitType!=="RENEWAL") return;
-    if(debounceRef.current) clearTimeout(debounceRef.current);
+  const doSearch=async()=>{
     const q=search.trim();
-    if(q.length<2){ setResults([]); return; }
-    debounceRef.current=setTimeout(async()=>{
-      setSearching(true);
-      const type=autoDetectSearchType(q);
-      const params=new URLSearchParams({action:"searchStudents",q,search_type:type,is_past:"ANY"});
-      if(searchScope) params.set("library",searchScope);
-      const r=await fetch(`${API}?${params}`).then(r=>r.json());
-      setSearching(false);
-      if(r.ok) setResults(r.results||[]);
-    },300);
-  },[search,admitType,searchScope]);
+    if(q.length<2){ showToast("Type at least 2 characters","error"); return; }
+    setSearching(true); setHasSearched(true);
+    const type=autoDetectSearchType(q);
+    try{
+      // Run student + receipt searches in parallel (#6)
+      const studentParams=new URLSearchParams({action:"searchStudents",q,search_type:type==="RECEIPT_NO"?"NAME":type,is_past:"ANY"});
+      if(searchScope) studentParams.set("library",searchScope);
+      const receiptParams=new URLSearchParams({action:"getReceiptLog",q,search_type:type,limit:"20"});
+      if(searchScope) receiptParams.set("library",searchScope);
+      const [sRes,rRes]=await Promise.all([
+        fetch(`${API}?${studentParams}`).then(r=>r.json()),
+        fetch(`${API}?${receiptParams}`).then(r=>r.json()),
+      ]);
+      setStudentResults(sRes.ok?(sRes.results||[]):[]);
+      setReceiptResults(rRes.ok?(rRes.receipts||[]):[]);
+    }catch{ showToast("Search failed","error"); }
+    setSearching(false);
+  };
 
   const allScopes = useMemo(()=>{
     const out:{code:string;label:string}[]=[];
@@ -209,21 +348,52 @@ function StepStudent({ init, resolvedLib, resolvedBranch, admitType, post, showT
 
   const handleNewNext=()=>{
     if(!name.trim()){ showToast("Name is required","error"); return; }
+    // #17: normalize phones on submit (also done on blur, double-safe)
+    const cleanPhones=phones.filter(p=>p.number.trim()).map(p=>({number:normalizePhone(p.number),tag:p.tag}));
     const student:Student={ student_id:"", library:resolvedLib, branch:resolvedBranch, name:name.trim(),
-      phones:phones.filter(p=>p.number.trim()), address, preparing_for:preparingFor, aadhaar_last4:aadhaar, date_of_birth:dob, is_past:false };
+      phones:cleanPhones, address, preparing_for:preparingFor, aadhaar_last4:aadhaar, date_of_birth:dob, is_past:false };
     onReady({ admitType:"NEW", student, isCross:false, crossOrigin:"" });
   };
 
+  // #20: auto-detect cross when picked student's library/branch ≠ current scope
   const pickRenewalStudent=async(st:Student)=>{
-    // find their most recent receipt in the CURRENT scope to chain dates
     const params=new URLSearchParams({action:"getReceiptLog",q:st.student_id,search_type:"STUDENT_ID",library:resolvedBranch||resolvedLib,limit:"50"});
     const r=await fetch(`${API}?${params}`).then(r=>r.json());
     let renewFrom:Receipt|null=null;
-    if(r.ok&&r.receipts&&r.receipts.length){
-      // newest first already; pick the first with blank/renewable status
-      renewFrom=r.receipts[0];
-    }
-    onReady({ admitType:"RENEWAL", student:st, isCross, crossOrigin: isCross?crossOrigin:"", renewFrom });
+    if(r.ok&&r.receipts&&r.receipts.length){ renewFrom=r.receipts[0]; }
+    const scope=(resolvedBranch||resolvedLib).toUpperCase();
+    const stLib=(st.library||"").toUpperCase();
+    const stBr=(st.branch||"").toUpperCase();
+    const autoCross = stLib!==scope && stBr!==scope;
+    const autoOrigin = autoCross ? (st.branch||st.library) : "";
+    onReady({ admitType:"RENEWAL", student:st, isCross: autoCross||isCross, crossOrigin: autoCross?autoOrigin:(isCross?crossOrigin:""), renewFrom });
+  };
+
+  // pick a specific receipt directly (#6)
+  const pickRenewalReceipt=(r:Receipt)=>{
+    const student:Student={ student_id:r.student_id, library:r.library, branch:r.branch, name:r.name, phones:r.phones||[], address:"", preparing_for:"", aadhaar_last4:"", date_of_birth:"", is_past:false };
+    const scope=(resolvedBranch||resolvedLib).toUpperCase();
+    const rLib=(r.library||"").toUpperCase();
+    const rBr=(r.branch||"").toUpperCase();
+    const autoCross = rLib!==scope && rBr!==scope;
+    const autoOrigin = autoCross ? (r.branch||r.library) : "";
+    onReady({ admitType:"RENEWAL", student, isCross: autoCross||isCross, crossOrigin: autoCross?autoOrigin:(isCross?crossOrigin:""), renewFrom:r });
+  };
+
+  // #23: manual student_id path (jump straight to booking with a typed ID, no search needed)
+  const pickManual=async()=>{
+    const sid=manualSid.trim().toUpperCase();
+    if(!sid){ showToast("Enter a Student ID","error"); return; }
+    // Try to fetch their latest receipt for date chaining
+    const params=new URLSearchParams({action:"getReceiptLog",q:sid,search_type:"STUDENT_ID",library:resolvedBranch||resolvedLib,limit:"5"});
+    const r=await fetch(`${API}?${params}`).then(r=>r.json());
+    const renewFrom = (r.ok&&r.receipts&&r.receipts.length)?r.receipts[0]:null;
+    const baseName = renewFrom?renewFrom.name:"";
+    const baseLib = renewFrom?renewFrom.library:resolvedLib;
+    const baseBranch = renewFrom?renewFrom.branch:resolvedBranch;
+    const phonesFromR = renewFrom?(renewFrom.phones||[]):[];
+    const student:Student={ student_id:sid, library:baseLib, branch:baseBranch, name:baseName, phones:phonesFromR, address:"", preparing_for:"", aadhaar_last4:"", date_of_birth:"", is_past:false };
+    onReady({ admitType:"RENEWAL", student, isCross, crossOrigin: isCross?crossOrigin:"", renewFrom });
   };
 
   return (
@@ -234,17 +404,25 @@ function StepStudent({ init, resolvedLib, resolvedBranch, admitType, post, showT
         <div className="bg-white rounded-2xl p-4 shadow-sm">
           <h3 className="text-base font-extrabold text-lma-slate-900 mb-3">New Student Details</h3>
           <FieldLabel>Name *</FieldLabel>
-          <Inp value={name} onChange={e=>setName(e.target.value)} placeholder="Full name"/>
+          {/* #18: live UPPERCASE */}
+          <Inp value={name} onChange={e=>setName(e.target.value.toUpperCase())} placeholder="FULL NAME"/>
           <FieldLabel>Phones</FieldLabel>
           {phones.map((ph,i)=>(
             <div key={i} className="flex gap-2 mb-2">
-              <input type="tel" inputMode="numeric" value={ph.number} onChange={e=>{const n=[...phones];n[i]={...n[i],number:e.target.value};setPhones(n);}} placeholder={i===0?"Primary":`Phone ${i+1}`} className="flex-1 px-3 py-2.5 rounded-xl border-[1.5px] border-lma-slate-200 bg-lma-slate-50 text-sm font-medium"/>
+              {/* #17: normalize on blur */}
+              <input type="tel" inputMode="numeric" value={ph.number}
+                onChange={e=>{const n=[...phones];n[i]={...n[i],number:e.target.value};setPhones(n);}}
+                onBlur={()=>{const n=[...phones];n[i]={...n[i],number:normalizePhone(n[i].number)};setPhones(n);}}
+                placeholder={i===0?"Primary":`Phone ${i+1}`}
+                className="flex-1 px-3 py-2.5 rounded-xl border-[1.5px] border-lma-slate-200 bg-lma-slate-50 text-sm font-medium"/>
               <input value={ph.tag} onChange={e=>{const n=[...phones];n[i]={...n[i],tag:e.target.value.toUpperCase()};setPhones(n);}} placeholder="TAG" className="w-20 px-2 py-2.5 rounded-xl border-[1.5px] border-lma-slate-200 bg-lma-slate-50 text-sm font-medium uppercase"/>
             </div>
           ))}
           <div className="grid grid-cols-1 gap-0 mt-1">
-            <FieldLabel>Address</FieldLabel><Inp value={address} onChange={e=>setAddress(e.target.value)}/>
-            <FieldLabel>Preparing For</FieldLabel><Inp value={preparingFor} onChange={e=>setPreparingFor(e.target.value)} placeholder="NEET, UPSC…"/>
+            <FieldLabel>Address</FieldLabel>
+            <Inp value={address} onChange={e=>setAddress(e.target.value.toUpperCase())}/>
+            <FieldLabel>Preparing For</FieldLabel>
+            <Inp value={preparingFor} onChange={e=>setPreparingFor(e.target.value.toUpperCase())} placeholder="NEET, UPSC…"/>
             <div className="grid grid-cols-2 gap-3">
               <div><FieldLabel>Aadhaar (last 4)</FieldLabel><Inp value={aadhaar} onChange={e=>setAadhaar(e.target.value.replace(/\D/g,"").slice(0,4))} maxLength={4}/></div>
               <div><FieldLabel>DOB</FieldLabel><Inp value={dob} onChange={e=>setDob(e.target.value)} placeholder="DD-MM-YYYY"/></div>
@@ -256,37 +434,85 @@ function StepStudent({ init, resolvedLib, resolvedBranch, admitType, post, showT
         <div>
           <div className="bg-white rounded-2xl p-4 shadow-sm mb-3">
             <div className="flex items-center justify-between mb-2">
-              <h3 className="text-base font-extrabold text-lma-slate-900">Find Student</h3>
+              <h3 className="text-base font-extrabold text-lma-slate-900">Find Student / Receipt</h3>
               <label className="flex items-center gap-1.5 cursor-pointer">
-                <input type="checkbox" checked={isCross} onChange={e=>{setIsCross(e.target.checked);setResults([]);}} className="w-4 h-4 accent-lma-primary"/>
+                <input type="checkbox" checked={isCross} onChange={e=>{setIsCross(e.target.checked);setStudentResults([]);setReceiptResults([]);setHasSearched(false);}} className="w-4 h-4 accent-lma-primary"/>
                 <span className="text-[11px] font-bold text-lma-slate-600">Cross-library</span>
               </label>
             </div>
             {isCross&&(
               <div className="mb-2">
                 <FieldLabel>Student&apos;s home library</FieldLabel>
-                <select value={crossOrigin} onChange={e=>{setCrossOrigin(e.target.value);setResults([]);}} className="w-full px-3 py-2.5 rounded-xl border-[1.5px] border-lma-slate-200 bg-lma-slate-50 text-sm font-medium">
+                <select value={crossOrigin} onChange={e=>{setCrossOrigin(e.target.value);setStudentResults([]);setReceiptResults([]);setHasSearched(false);}} className="w-full px-3 py-2.5 rounded-xl border-[1.5px] border-lma-slate-200 bg-lma-slate-50 text-sm font-medium">
                   <option value="">Select origin…</option>
                   {allScopes.map(s=><option key={s.code} value={s.code}>{s.label}</option>)}
                 </select>
                 <p className="text-[10px] text-lma-slate-500 mt-1">They&apos;ll keep their original ID but sit & pay here.</p>
               </div>
             )}
-            <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search name, phone, F-ID…" disabled={isCross&&!crossOrigin} className="w-full px-4 py-3 rounded-xl border-[1.5px] border-lma-slate-200 bg-lma-slate-50 focus:bg-white focus:border-lma-primary outline-none text-sm font-medium disabled:opacity-50"/>
+            <div className="flex gap-2">
+              <input value={search} onChange={e=>setSearch(e.target.value)} onKeyDown={e=>{if(e.key==="Enter")doSearch();}} placeholder="Name, phone, F-ID, or R-no…" disabled={isCross&&!crossOrigin} className="flex-1 px-4 py-3 rounded-xl border-[1.5px] border-lma-slate-200 bg-lma-slate-50 focus:bg-white focus:border-lma-primary outline-none text-sm font-medium disabled:opacity-50"/>
+              {/* #5: explicit search button */}
+              <button onClick={doSearch} disabled={searching||(isCross&&!crossOrigin)} className="px-5 py-3 rounded-xl bg-lma-primary text-white font-bold text-sm disabled:opacity-50">{searching?"…":"Search"}</button>
+            </div>
+            <p className="text-[10px] text-lma-slate-500 mt-1.5">Auto-detects type. Tip: R12 = receipt, F45 = student ID, digits = phone.</p>
           </div>
+
           {searching&&<div className="text-center text-sm text-lma-slate-500 py-3">Searching…</div>}
-          <div className="space-y-2">
-            {results.map(st=>(
-              <button key={`${st.library}-${st.student_id}`} onClick={()=>pickRenewalStudent(st)} className="w-full text-left bg-white rounded-xl p-3 shadow-sm hover:shadow-md active:scale-[0.99] flex items-center gap-3">
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-1.5"><span className="text-sm font-extrabold text-lma-slate-900">{st.student_id}</span>{st.is_past&&<span className="text-[9px] font-bold text-lma-warn bg-lma-warn/10 px-1.5 py-0.5 rounded">PAST</span>}<span className="text-[10px] text-lma-slate-400 ml-auto">{st.library}{st.branch?`/${st.branch}`:""}</span></div>
-                  <div className="text-sm font-semibold text-lma-slate-800 truncate">{st.name}</div>
-                  {st.phones[0]&&<div className="text-[11px] text-lma-slate-500 font-mono">📱 {st.phones[0].number}</div>}
-                </div>
-                <span className="text-lma-slate-400">›</span>
-              </button>
-            ))}
-            {search.trim().length>=2&&!searching&&results.length===0&&<div className="text-center text-sm text-lma-slate-500 py-3">No matches.</div>}
+
+          {/* #6: dual results — receipts on top (more specific), students below */}
+          {hasSearched&&!searching&&receiptResults.length>0&&(
+            <div className="mb-3">
+              <p className="text-[10px] font-bold text-lma-slate-500 uppercase tracking-wider mb-1.5">🧾 Receipts ({receiptResults.length})</p>
+              <div className="space-y-2">
+                {receiptResults.map(r=>(
+                  <button key={r.receipt_no} onClick={()=>pickRenewalReceipt(r)} className="w-full text-left bg-white rounded-xl p-3 shadow-sm hover:shadow-md active:scale-[0.99] flex items-center gap-3 border-l-4 border-lma-primary">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className="text-sm font-extrabold text-lma-slate-900">{r.receipt_no}</span>
+                        <span className="text-[10px] font-bold text-lma-primary bg-lma-primary/10 px-1.5 py-0.5 rounded">{r.student_id}</span>
+                        <span className="text-[10px] text-lma-slate-400 ml-auto">{r.library}{r.branch?`/${r.branch}`:""}</span>
+                      </div>
+                      <div className="text-sm font-semibold text-lma-slate-800 truncate">{r.name}</div>
+                      <div className="text-[11px] text-lma-slate-500">{normDate(r.booking_from)} → {normDate(r.booking_to)} · {r.shift_name||r.shift}{r.seat_no?` · Seat ${r.seat_no}`:""}</div>
+                    </div>
+                    <span className="text-lma-slate-400">›</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {hasSearched&&!searching&&studentResults.length>0&&(
+            <div className="mb-3">
+              <p className="text-[10px] font-bold text-lma-slate-500 uppercase tracking-wider mb-1.5">👤 Students ({studentResults.length})</p>
+              <div className="space-y-2">
+                {studentResults.map(st=>(
+                  <button key={`${st.library}-${st.student_id}`} onClick={()=>pickRenewalStudent(st)} className="w-full text-left bg-white rounded-xl p-3 shadow-sm hover:shadow-md active:scale-[0.99] flex items-center gap-3">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-1.5"><span className="text-sm font-extrabold text-lma-slate-900">{st.student_id}</span>{st.is_past&&<span className="text-[9px] font-bold text-lma-warn bg-lma-warn/10 px-1.5 py-0.5 rounded">PAST</span>}<span className="text-[10px] text-lma-slate-400 ml-auto">{st.library}{st.branch?`/${st.branch}`:""}</span></div>
+                      <div className="text-sm font-semibold text-lma-slate-800 truncate">{st.name}</div>
+                      {st.phones[0]&&<div className="text-[11px] text-lma-slate-500 font-mono">📱 {st.phones[0].number}</div>}
+                    </div>
+                    <span className="text-lma-slate-400">›</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {hasSearched&&!searching&&studentResults.length===0&&receiptResults.length===0&&(
+            <div className="text-center text-sm text-lma-slate-500 py-3">No matches.</div>
+          )}
+
+          {/* #23: manual entry escape hatch */}
+          <div className="mt-3 bg-white rounded-2xl p-3 shadow-sm border border-dashed border-lma-slate-200">
+            <p className="text-[11px] font-bold text-lma-slate-500 uppercase tracking-wider mb-1.5">Or enter Student ID directly</p>
+            <div className="flex gap-2">
+              <input value={manualSid} onChange={e=>setManualSid(e.target.value.toUpperCase())} placeholder="F123" className="flex-1 px-3 py-2 rounded-lg border border-lma-slate-200 bg-lma-slate-50 text-sm font-medium uppercase"/>
+              <button onClick={pickManual} className="px-4 py-2 rounded-lg bg-lma-slate-100 text-lma-slate-700 font-bold text-sm">Continue →</button>
+            </div>
+            <p className="text-[10px] text-lma-slate-500 mt-1">Useful for past students or when search misses.</p>
           </div>
         </div>
       )}
@@ -294,18 +520,20 @@ function StepStudent({ init, resolvedLib, resolvedBranch, admitType, post, showT
   );
 }
 
-// ── STEP 4: BOOKING (shift, seat, dates, fee, payment, dues) ─────
+// ── STEP 4: BOOKING ──────────────────────────────────────────────
 function StepBooking({ init, resolvedLib, resolvedBranch, ctx, post, showToast, onBack, onDone }:{
   init:InitData; resolvedLib:string; resolvedBranch:string; ctx:BookingCtx;
   post:(a:string,p:any)=>Promise<any>; showToast:(m:string,t?:"success"|"error")=>void;
   onBack:()=>void; onDone:(r:ResultData)=>void;
 }){
-  const feeKey = resolvedBranch || resolvedLib;  // fee matrix keyed by branch when present
+  const feeKey = resolvedBranch || resolvedLib;
   const [shift,setShift]=useState("");
-  const [seat,setSeat]=useState("");        // display label or "" for assign-later
+  const [seat,setSeat]=useState("");
   const [bookingFrom,setBookingFrom]=useState("");
   const [bookingTo,setBookingTo]=useState("");
   const [toEdited,setToEdited]=useState(false);
+  // #9: receipt_date input (defaults to today)
+  const [receiptDate,setReceiptDate]=useState(todayDmy());
   const [fee,setFee]=useState("");
   const [pays,setPays]=useState<PayMode[]>([{mode:"",amount:""}]);
   const [feesDue,setFeesDue]=useState("0");
@@ -315,36 +543,57 @@ function StepBooking({ init, resolvedLib, resolvedBranch, ctx, post, showToast, 
   const shiftKey=normShiftKey(shift);
   const needsSeat=shift!==""&&shiftKey!=="OTHER";
 
-  // Initial dates: NEW = today→+1mo; RENEWAL = prev booking_to+1 → +1mo
-  // Also pre-fill shift + seat from the previous receipt on renewal.
   useEffect(()=>{
+    const pl = ctx.preload;
     let from:string;
-    if(ctx.admitType==="RENEWAL"&&ctx.renewFrom&&ctx.renewFrom.booking_to){
-      from=addOneDayDmy(ctx.renewFrom.booking_to);
+    if(pl?.from){
+      from = normDate(pl.from);
+    } else if(ctx.admitType==="RENEWAL"&&ctx.renewFrom&&ctx.renewFrom.booking_to){
+      // #19: tolerate any date format coming back from backend
+      from=addOneDayDmy(normDate(ctx.renewFrom.booking_to));
     } else {
       from=todayDmy();
     }
     setBookingFrom(from);
-    setBookingTo(addOneMonth(from));
+    setBookingTo(pl?.to ? normDate(pl.to) : addOneMonth(from));
+    if(pl?.to) setToEdited(true); // honor explicit to-date
 
-    // Pre-fill shift + seat from previous receipt (renewal continues the arrangement)
-    if(ctx.admitType==="RENEWAL"&&ctx.renewFrom){
-      if(ctx.renewFrom.shift) setShift(ctx.renewFrom.shift);
-      if(ctx.renewFrom.seat_no) setSeat(ctx.renewFrom.seat_no);
+    // Shift — preload wins, else from renewFrom
+    if(pl?.shift){
+      setShift(pl.shift);
+    } else if(ctx.admitType==="RENEWAL"&&ctx.renewFrom&&ctx.renewFrom.shift){
+      setShift(ctx.renewFrom.shift);
+    }
+    // Seat — preload wins, else from renewFrom
+    if(pl?.seat){
+      setSeat(pl.seat);
+    } else if(ctx.admitType==="RENEWAL"&&ctx.renewFrom&&ctx.renewFrom.seat_no){
+      setSeat(ctx.renewFrom.seat_no);
+    }
+    // Fee — preload wins (overrides the auto-fee lookup that happens on shift change)
+    if(pl?.fee){
+      setFee(String(pl.fee));
     }
   },[ctx]);
 
-  // Recompute bookingTo when bookingFrom changes, unless manually edited
   useEffect(()=>{ if(!toEdited&&bookingFrom) setBookingTo(addOneMonth(bookingFrom)); },[bookingFrom,toEdited]);
 
-  // Auto-fill fee from matrix on shift change
+  // Guard so auto-fee doesn't stomp a preloaded fee on the very first shift sync.
+  const preloadFeeRef = useRef<string>("");
+  useEffect(()=>{ preloadFeeRef.current = ctx.preload?.fee || ""; },[ctx]);
+
   useEffect(()=>{
     if(!shift) return;
+    // If a preload fee was provided AND the current fee still matches it, skip auto-overwrite.
+    // The user can change shift later → auto-fee then takes over normally.
+    if(preloadFeeRef.current && fee === preloadFeeRef.current){
+      preloadFeeRef.current = ""; // one-shot
+      return;
+    }
     const m=init.fees[feeKey];
     if(m){ const f=m[shiftKey]; if(f!==undefined&&f!==null) setFee(String(f)); }
   },[shift]);   // eslint-disable-line
 
-  // Auto-fill single payment amount to fee if blank; compute dues
   useEffect(()=>{
     const f=Number(fee)||0;
     const paid=pays.reduce((s,p)=>s+(Number(p.amount)||0),0);
@@ -359,8 +608,24 @@ function StepBooking({ init, resolvedLib, resolvedBranch, ctx, post, showToast, 
   const addSplit=()=>{ if(pays.length<3) setPays([...pays,{mode:"",amount:""}]); };
   const removeSplit=(i:number)=>{ setPays(pays.filter((_,j)=>j!==i)); };
 
-  // default single payment amount = fee when picking first mode
-  useEffect(()=>{ if(pays.length===1&&pays[0].mode&&!pays[0].amount&&fee){ setPay(0,"amount",fee); } },[pays[0]?.mode,fee]); // eslint-disable-line
+  // #21: auto-fill payment amount = remaining when ANY slot picks a mode (not just first)
+  // logic: if a slot has mode but no amount, fill with (fee - already-allocated)
+  useEffect(()=>{
+    const f=Number(fee)||0;
+    if(f<=0) return;
+    let allocated=0;
+    pays.forEach(p=>{ if(p.amount) allocated += Number(p.amount)||0; });
+    let changed=false;
+    const next=pays.map((p)=>{
+      if(p.mode&&!p.amount){
+        const remaining=Math.max(0,f-allocated);
+        if(remaining>0){ changed=true; allocated += remaining; return {...p, amount:String(remaining)}; }
+      }
+      return p;
+    });
+    if(changed) setPays(next);
+  // eslint-disable-next-line
+  },[pays.map(p=>p.mode).join("|"),fee]);
 
   const handleSubmit=async()=>{
     if(!shift){ showToast("Pick a shift","error"); return; }
@@ -374,6 +639,7 @@ function StepBooking({ init, resolvedLib, resolvedBranch, ctx, post, showToast, 
       shift:shiftKey, shift_name:shiftObj?.shift_name||"", shift_time:shiftObj?.shift_time||"",
       seat_no: needsSeat?seat:"",
       booking_from:bookingFrom, booking_to:bookingTo,
+      receipt_date:receiptDate, // #9
       fee:Number(fee),
       pay_modes:validPays.map(p=>({mode:p.mode,amount:Number(p.amount)})),
       fees_due:Number(feesDue),
@@ -392,7 +658,6 @@ function StepBooking({ init, resolvedLib, resolvedBranch, ctx, post, showToast, 
     const res=await post("createReceipt",payload);
     setSubmitting(false);
     if(res){
-      // if renewal, mark the old receipt RENEWED
       if(ctx.admitType==="RENEWAL"&&ctx.renewFrom){
         await post("markReceiptRenewed",{ receipt_no:ctx.renewFrom.receipt_no, successor:res.receipt_no });
       }
@@ -403,8 +668,13 @@ function StepBooking({ init, resolvedLib, resolvedBranch, ctx, post, showToast, 
   return (
     <div className="lma-slide-up">
       <button onClick={onBack} className="text-sm text-lma-slate-500 mb-3">← Back</button>
+      {ctx.preload?.fromHold&&(
+        <div className="mb-3 bg-lma-warn/10 border border-lma-warn/30 rounded-xl p-3 text-sm">
+          <div className="font-extrabold text-lma-warn text-[12px] uppercase tracking-wide mb-0.5">⏳ Converting Hold → Receipt</div>
+          <div className="text-lma-slate-700 text-[12px]">Details below are pre-filled from the hold. Change anything before saving — the hold has already been removed.</div>
+        </div>
+      )}
       <div className="bg-white rounded-2xl p-4 shadow-sm space-y-3">
-        {/* student banner */}
         <div className="bg-lma-slate-50 rounded-xl p-2.5 flex items-center gap-2">
           <span className="text-[10px] font-bold bg-lma-primary/10 text-lma-primary px-2 py-0.5 rounded">{ctx.admitType}</span>
           <span className="text-sm font-bold text-lma-slate-900">{ctx.student?.student_id||"New"}</span>
@@ -412,7 +682,6 @@ function StepBooking({ init, resolvedLib, resolvedBranch, ctx, post, showToast, 
           {ctx.isCross&&<span className="text-[9px] font-bold text-lma-warn bg-lma-warn/10 px-1.5 py-0.5 rounded ml-auto">CROSS · {ctx.crossOrigin}</span>}
         </div>
 
-        {/* shift */}
         <div>
           <FieldLabel>Shift *</FieldLabel>
           <div className="grid grid-cols-2 gap-2">
@@ -424,7 +693,6 @@ function StepBooking({ init, resolvedLib, resolvedBranch, ctx, post, showToast, 
           </div>
         </div>
 
-        {/* seat */}
         {needsSeat&&(
           <div>
             <FieldLabel>Seat</FieldLabel>
@@ -436,16 +704,16 @@ function StepBooking({ init, resolvedLib, resolvedBranch, ctx, post, showToast, 
           </div>
         )}
 
-        {/* dates */}
         <div className="grid grid-cols-2 gap-3">
           <div><FieldLabel>From</FieldLabel><input type="date" value={dmyToIso(bookingFrom)} onChange={e=>{setBookingFrom(isoToDmy(e.target.value));}} className="w-full px-3 py-2.5 rounded-xl border-[1.5px] border-lma-slate-200 bg-lma-slate-50 text-sm font-medium"/></div>
           <div><FieldLabel>To</FieldLabel><input type="date" value={dmyToIso(bookingTo)} onChange={e=>{setBookingTo(isoToDmy(e.target.value));setToEdited(true);}} className="w-full px-3 py-2.5 rounded-xl border-[1.5px] border-lma-slate-200 bg-lma-slate-50 text-sm font-medium"/></div>
         </div>
 
-        {/* fee */}
+        {/* #9: Receipt Date */}
+        <div><FieldLabel>Receipt Date</FieldLabel><input type="date" value={dmyToIso(receiptDate)} onChange={e=>setReceiptDate(isoToDmy(e.target.value))} className="w-full px-3 py-2.5 rounded-xl border-[1.5px] border-lma-slate-200 bg-lma-slate-50 text-sm font-medium"/></div>
+
         <div><FieldLabel>Fee (₹)</FieldLabel><Inp type="number" inputMode="numeric" value={fee} onChange={e=>setFee(e.target.value)}/></div>
 
-        {/* payment */}
         <div>
           <FieldLabel>Payment</FieldLabel>
           {pays.map((p,i)=>(
@@ -461,7 +729,6 @@ function StepBooking({ init, resolvedLib, resolvedBranch, ctx, post, showToast, 
           {pays.length<3&&<button onClick={addSplit} className="text-xs font-bold text-lma-primary">+ Split payment</button>}
         </div>
 
-        {/* dues */}
         <div><FieldLabel>Fees Due (auto)</FieldLabel><Inp type="number" inputMode="numeric" value={feesDue} onChange={e=>setFeesDue(e.target.value)}/>
           {Number(feesDue)>0&&<p className="text-[10px] text-lma-warn font-bold mt-1">Due will be logged as PENDING.</p>}
         </div>
@@ -482,7 +749,7 @@ function StepBooking({ init, resolvedLib, resolvedBranch, ctx, post, showToast, 
   );
 }
 
-// ── SEAT PICKER (Option B visual grid) ───────────────────────────
+// ── SEAT PICKER ──────────────────────────────────────────────────
 function SeatPickerSheet({ library, branch, shift, current, onClose, onPick }:{
   library:string; branch:string; shift:string; current:string;
   onClose:()=>void; onPick:(label:string)=>void;
@@ -505,7 +772,6 @@ function SeatPickerSheet({ library, branch, shift, current, onClose, onPick }:{
           <h3 className="text-base font-extrabold text-lma-slate-900">Pick a seat · {shift}</h3>
           <button onClick={()=>onPick("")} className="text-xs font-bold text-lma-primary">Assign later</button>
         </div>
-        {/* legend */}
         <div className="flex gap-3 mb-3 text-[10px] text-lma-slate-500 flex-wrap">
           <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-lma-accent/20 border border-lma-accent inline-block"></span>vacant</span>
           <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-lma-slate-200 inline-block"></span>taken</span>
@@ -534,7 +800,6 @@ function SeatPickerSheet({ library, branch, shift, current, onClose, onPick }:{
                       if(cell.state==="BLOCKED"){
                         return <div key={idx} className="aspect-square rounded bg-lma-danger/20 border border-lma-danger/40 flex items-center justify-center text-[10px] text-lma-danger" title="Blocked">{cell.display_label}</div>;
                       }
-                      // OCCUPIED
                       return <div key={idx} className="aspect-square rounded bg-lma-slate-200 border border-lma-slate-300 flex flex-col items-center justify-center text-[10px] text-lma-slate-500" title={cell.occupant?`${cell.occupant.name} (${cell.occupant.shift})`:"taken"}>{cell.display_label}<span className="text-[7px] leading-none truncate w-full text-center px-0.5">{cell.occupant?.student_id||""}</span></div>;
                     })}
                   </div>

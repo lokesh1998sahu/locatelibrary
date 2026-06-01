@@ -216,7 +216,7 @@ function QueueCard({ it, router, onCancel, onDoNotRenew }:{ it:QueueItem; router
         {it.fees_due_balance>0&&<span className="font-bold text-lma-danger">· Due ₹{it.fees_due_balance}</span>}
       </div>
       <div className="grid grid-cols-3 gap-2 mt-2.5">
-        <button onClick={()=>router.push("/lma/admissions")} className="py-2 rounded-lg bg-lma-primary/10 text-lma-primary font-bold text-xs">Renew</button>
+        <button onClick={()=>{ const lib=it.branch||it.library; const q=new URLSearchParams({lib,student_id:it.student_id,renew_from:it.receipt_no}); router.push(`/lma/admissions?${q}`); }} className="py-2 rounded-lg bg-lma-primary/10 text-lma-primary font-bold text-xs">Renew</button>
         <button onClick={onCancel} className="py-2 rounded-lg bg-lma-danger/10 text-lma-danger font-bold text-xs">Cancel</button>
         <button onClick={onDoNotRenew} className="py-2 rounded-lg bg-lma-slate-100 text-lma-slate-600 font-bold text-xs">Don't Renew</button>
       </div>
