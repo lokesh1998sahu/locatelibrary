@@ -2,13 +2,9 @@
 
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
+import { useLMA } from "./layout";
 
 const API = "/api/lma";
-const PASSWORD = process.env.NEXT_PUBLIC_LMA_PASSWORD!;
-
-interface Library { library_code:string; display_name:string; active:boolean; has_branches:boolean; emoji:string; color?:string; }
-interface Branch  { library_code:string; branch_code:string; active:boolean; emoji?:string; color?:string; }
-interface InitData{ ok:boolean; libraries:Library[]; branches:Branch[]; }
 
 type Card = { href:string; label:string; emoji:string; desc:string; badgeKey?:"renewals"|"dues" };
 const CARDS: Card[] = [
@@ -29,11 +25,7 @@ const fmtINR=(n:number)=>"₹"+Math.round(n).toLocaleString("en-IN");
 const todayDmy=()=>{ const d=new Date(); return `${d.getDate()}-${d.getMonth()+1}-${d.getFullYear()}`; };
 
 export default function LmaHomePage() {
-  const [unlocked, setUnlocked] = useState(false);
-  const [pwInput, setPwInput] = useState("");
-  const [pwErr, setPwErr] = useState("");
-
-  const [init,setInit]=useState<InitData|null>(null);
+  const { init, lock } = useLMA();
   const [connected, setConnected] = useState<boolean|null>(null);
   const [scope,setScope]=useState("");
 
@@ -42,12 +34,8 @@ export default function LmaHomePage() {
   const [badges,setBadges]=useState<{renewals:number;dues:number}>({renewals:0,dues:0});
   const [statsLoading,setStatsLoading]=useState(false);
 
-  useEffect(() => { if (typeof window!=="undefined" && sessionStorage.getItem("lma_ok")==="1") setUnlocked(true); }, []);
-  const tryUnlock=()=>{ if(pwInput&&pwInput===PASSWORD){sessionStorage.setItem("lma_ok","1");setUnlocked(true);setPwErr("");}else setPwErr("Incorrect password."); };
-  const lock=()=>{ sessionStorage.removeItem("lma_ok"); setUnlocked(false); setPwInput(""); };
-
-  // init (for chips + connection dot)
-  useEffect(()=>{ if(!unlocked)return; fetch(`${API}?action=getInitData`).then(r=>r.json()).then((r:InitData)=>{ setInit(r); setConnected(!!r?.ok); }).catch(()=>setConnected(false)); },[unlocked]);
+  // Mark connected once init lands (or stay loading if still null)
+  useEffect(()=>{ if(init) setConnected(true); },[init]);
 
   // live stats — non-blocking; refetch on scope change
   const loadStats=useCallback(async()=>{
@@ -63,23 +51,10 @@ export default function LmaHomePage() {
       else setToday({net:0,receipts:0,dues:0});
       const expiring=(ren?.expiring?.length||0)+(ren?.expired?.length||0);
       setBadges({ renewals:expiring, dues:(dues?.pending?.length||dues?.total||0) });
-    }catch{ setToday({net:0,receipts:0,dues:0}); }
+    }catch{ setToday({net:0,receipts:0,dues:0}); setConnected(false); }
     setStatsLoading(false);
   },[scope]);
-  useEffect(()=>{ if(unlocked) loadStats(); },[unlocked,loadStats]);
-
-  if (!unlocked) {
-    return (
-      <div className="min-h-screen flex items-center justify-center px-4">
-        <div className="w-full max-w-sm bg-white rounded-2xl shadow-lg p-7 lma-slide-up">
-          <div className="text-center mb-5"><div className="text-4xl mb-2">📚</div><h1 className="text-xl font-extrabold text-lma-slate-900">LMA</h1><p className="text-sm text-lma-slate-500 mt-1">Library Management App</p></div>
-          <input type="password" autoFocus value={pwInput} onChange={e=>{setPwInput(e.target.value);setPwErr("");}} onKeyDown={e=>{if(e.key==="Enter")tryUnlock();}} placeholder="Password" className="w-full px-4 py-3 rounded-xl border-[1.5px] border-lma-slate-200 bg-lma-slate-50 focus:bg-white focus:border-lma-primary outline-none text-[15px] font-medium"/>
-          {pwErr&&<p className="text-sm text-lma-danger mt-2 font-medium">{pwErr}</p>}
-          <button onClick={tryUnlock} className="w-full mt-4 py-3 rounded-xl bg-gradient-to-br from-lma-primary to-lma-primary-2 text-white font-bold text-[15px] shadow-md hover:shadow-lg active:scale-[0.98] transition">Unlock</button>
-        </div>
-      </div>
-    );
-  }
+  useEffect(()=>{ loadStats(); },[loadStats]);
 
   const dotCls = connected===null ? "bg-lma-warn animate-pulse" : connected ? "bg-lma-accent" : "bg-lma-danger";
   const dotTxt = connected===null ? "Checking…" : connected ? "Connected" : "Offline";

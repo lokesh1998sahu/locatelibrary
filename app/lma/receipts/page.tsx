@@ -2,15 +2,10 @@
 
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import Link from "next/link";
+import { useLMA, type LMAInitData as InitData } from "../layout";
 
 const API = "/api/lma";
-const PASSWORD = process.env.NEXT_PUBLIC_LMA_PASSWORD!;
 
-interface Library { library_code:string; display_name:string; active:boolean; has_branches:boolean; emoji:string; color?:string; }
-interface Branch  { library_code:string; branch_code:string; branch_display:string; active:boolean; emoji?:string; color?:string; }
-interface Shift   { shift_key:string; shift_name:string; shift_time:string; active:boolean; }
-interface PaymentTag { tag_name:string; fees_mode:string; active:boolean; }
-interface InitData{ ok:boolean; libraries:Library[]; branches:Branch[]; shifts:Shift[]; paymentTags:PaymentTag[]; fees?:Record<string,Record<string,number>>; settings?:Record<string,Record<string,any>>; }
 interface PhoneEntry { number:string; tag:string; }
 interface Receipt {
   receipt_no:string; student_id:string; library:string; branch:string; name:string; phones:PhoneEntry[];
@@ -78,9 +73,7 @@ function normalizePhoneR(input:string):string{
 }
 
 export default function ReceiptsPage(){
-  const [unlocked,setUnlocked]=useState(false);
-  const [pwInput,setPwInput]=useState(""); const [pwErr,setPwErr]=useState("");
-  const [init,setInit]=useState<InitData|null>(null);
+  const { init } = useLMA();
   const [toast,setToast]=useState<Toast>(null);
 
   const [scope,setScope]=useState("");          // library/branch filter, "" = all
@@ -96,14 +89,10 @@ export default function ReceiptsPage(){
   const [shareText,setShareText]=useState<string|null>(null);
   const debounceRef=useRef<ReturnType<typeof setTimeout>|null>(null);
 
-  useEffect(()=>{ if(typeof window!=="undefined"&&sessionStorage.getItem("lma_ok")==="1")setUnlocked(true); },[]);
-  const tryUnlock=()=>{ if(pwInput&&pwInput===PASSWORD){sessionStorage.setItem("lma_ok","1");setUnlocked(true);setPwErr("");}else setPwErr("Incorrect password."); };
   const showToast=useCallback((msg:string,type:"success"|"error"="success")=>{ setToast({msg,type}); setTimeout(()=>setToast(null),3000); },[]);
 
   const inflightRef = useRef<Set<string>>(new Set());
   const post=useCallback(async(action:string,payload:any)=>{ const _k=action+"|"+JSON.stringify(payload); if(inflightRef.current.has(_k))return null; inflightRef.current.add(_k); try{ try{ const res=await fetch(API,{method:"POST",headers:{"Content-Type":"text/plain;charset=utf-8"},body:JSON.stringify({action,payload})}).then(r=>r.json()); if(!res.ok){showToast(res.error||"Operation failed","error");return null;} return res; }catch(e){ showToast(e instanceof Error?e.message:String(e),"error"); return null; }  } finally { inflightRef.current.delete(_k); }},[showToast]);
-
-  useEffect(()=>{ if(unlocked) fetch(`${API}?action=getInitData`).then(r=>r.json()).then((r:InitData)=>{if(r.ok)setInit(r);}); },[unlocked]);
 
   const load=useCallback(async(pg:number,replace:boolean)=>{
     setLoading(true);
@@ -121,10 +110,9 @@ export default function ReceiptsPage(){
 
   // reload on scope change / search (debounced)
   useEffect(()=>{
-    if(!unlocked) return;
     if(debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current=setTimeout(()=>load(1,true),300);
-  },[scope,search,unlocked,load]);
+  },[scope,search,load]);
 
   const openHistory=async(r:Receipt)=>{
     const res=await fetch(`${API}?action=getReceiptEditHistory&receipt_no=${encodeURIComponent(r.receipt_no)}`).then(x=>x.json());
@@ -156,19 +144,6 @@ export default function ReceiptsPage(){
     const n=Number(v);
     return (v!==undefined&&v!==null&&v!==""&&!isNaN(n)&&n>0)?n:def;
   },[init]);
-
-  if(!unlocked){
-    return (
-      <div className="min-h-screen flex items-center justify-center px-4">
-        <div className="w-full max-w-sm bg-white rounded-2xl shadow-lg p-7 lma-slide-up">
-          <div className="text-center mb-5"><div className="text-4xl mb-2">🧾</div><h1 className="text-xl font-extrabold text-lma-slate-900">Receipts</h1></div>
-          <input type="password" autoFocus value={pwInput} onChange={e=>{setPwInput(e.target.value);setPwErr("");}} onKeyDown={e=>{if(e.key==="Enter")tryUnlock();}} placeholder="Password" className="w-full px-4 py-3 rounded-xl border-[1.5px] border-lma-slate-200 bg-lma-slate-50 focus:bg-white focus:border-lma-primary outline-none text-[15px] font-medium"/>
-          {pwErr&&<p className="text-sm text-lma-danger mt-2 font-medium">{pwErr}</p>}
-          <button onClick={tryUnlock} className="w-full mt-4 py-3 rounded-xl bg-gradient-to-br from-lma-primary to-lma-primary-2 text-white font-bold text-[15px] shadow-md">Unlock</button>
-        </div>
-      </div>
-    );
-  }
 
   
 

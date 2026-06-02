@@ -2,17 +2,13 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
+import { useLMA, type LMAInitData as InitData } from "../layout";
 
 const API = "/api/lma";
-const PASSWORD = process.env.NEXT_PUBLIC_LMA_PASSWORD!;
 
 // REFUND_LOG headers (exact, 16): s_no, refund_id, original_receipt_no, student_id,
 //   library, branch, name, phone, refund_mode, refund_fees_mode, amount, refund_date,
 //   refund_reason, linked_to_cancellation, timestamp, refund_whatsapp_text
-interface Library { library_code:string; display_name:string; active:boolean; has_branches:boolean; emoji:string; color?:string; }
-interface Branch  { library_code:string; branch_code:string; active:boolean; emoji?:string; color?:string; }
-interface PaymentTag { tag_name:string; fees_mode:string; active:boolean; }
-interface InitData{ ok:boolean; libraries:Library[]; branches:Branch[]; paymentTags:PaymentTag[]; }
 interface Refund {
   s_no:number; refund_id:string; original_receipt_no:string; student_id:string;
   library:string; branch:string; name:string; phone:string;
@@ -24,9 +20,7 @@ type Toast = { msg:string; type:"success"|"error" } | null;
 type LinkFilter = "ANY"|"TRUE"|"FALSE";
 
 export default function RefundsPage(){
-  const [unlocked,setUnlocked]=useState(false);
-  const [pwInput,setPwInput]=useState(""); const [pwErr,setPwErr]=useState("");
-  const [init,setInit]=useState<InitData|null>(null);
+  const { init } = useLMA();
   const [toast,setToast]=useState<Toast>(null);
 
   const [scope,setScope]=useState("");
@@ -40,14 +34,11 @@ export default function RefundsPage(){
   const [viewFor,setViewFor]=useState<Refund|null>(null);
   const [resultText,setResultText]=useState<{title:string;text:string}|null>(null);
 
-  useEffect(()=>{ if(typeof window!=="undefined"&&sessionStorage.getItem("lma_ok")==="1")setUnlocked(true); },[]);
-  const tryUnlock=()=>{ if(pwInput&&pwInput===PASSWORD){sessionStorage.setItem("lma_ok","1");setUnlocked(true);setPwErr("");}else setPwErr("Incorrect password."); };
   const showToast=useCallback((msg:string,type:"success"|"error"="success")=>{ setToast({msg,type}); setTimeout(()=>setToast(null),3000); },[]);
 
   const inflightRef = useRef<Set<string>>(new Set());
   const post=useCallback(async(action:string,payload:any)=>{ const _k=action+"|"+JSON.stringify(payload); if(inflightRef.current.has(_k))return null; inflightRef.current.add(_k); try{ try{ const res=await fetch(API,{method:"POST",headers:{"Content-Type":"text/plain;charset=utf-8"},body:JSON.stringify({action,payload})}).then(r=>r.json()); if(!res.ok&&res.error){showToast(res.error,"error");return null;} return res; }catch(e){ showToast(e instanceof Error?e.message:String(e),"error"); return null; }  } finally { inflightRef.current.delete(_k); }},[showToast]);
 
-  useEffect(()=>{ if(unlocked) fetch(`${API}?action=getInitData`).then(r=>r.json()).then((r:InitData)=>{if(r.ok)setInit(r);}); },[unlocked]);
 
   const load=useCallback(async()=>{
     setLoading(true);
@@ -81,20 +72,8 @@ export default function RefundsPage(){
     setSum(typeof r.sum==="number"?r.sum:list.reduce((s,d)=>s+d.amount,0));
   },[scope,linkFilter]);
 
-  useEffect(()=>{ if(unlocked) load(); },[unlocked,scope,linkFilter,load]);
+  useEffect(()=>{ load(); },[scope,linkFilter,load]);
 
-  if(!unlocked){
-    return (
-      <div className="min-h-screen flex items-center justify-center px-4">
-        <div className="w-full max-w-sm bg-white rounded-2xl shadow-lg p-7 lma-slide-up">
-          <div className="text-center mb-5"><div className="text-4xl mb-2">↩️</div><h1 className="text-xl font-extrabold text-lma-slate-900">Refunds</h1></div>
-          <input type="password" autoFocus value={pwInput} onChange={e=>{setPwInput(e.target.value);setPwErr("");}} onKeyDown={e=>{if(e.key==="Enter")tryUnlock();}} placeholder="Password" className="w-full px-4 py-3 rounded-xl border-[1.5px] border-lma-slate-200 bg-lma-slate-50 focus:bg-white focus:border-lma-primary outline-none text-[15px] font-medium"/>
-          {pwErr&&<p className="text-sm text-lma-danger mt-2 font-medium">{pwErr}</p>}
-          <button onClick={tryUnlock} className="w-full mt-4 py-3 rounded-xl bg-gradient-to-br from-lma-primary to-lma-primary-2 text-white font-bold text-[15px] shadow-md">Unlock</button>
-        </div>
-      </div>
-    );
-  }
 
   const chips:{code:string;label:string;color?:string}[]=[{code:"",label:"All"}];
   if(init){ init.libraries.filter(l=>l.active).forEach(l=>{

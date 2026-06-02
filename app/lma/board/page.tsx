@@ -3,13 +3,12 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { useLMA } from "../layout";
 
 const API = "/api/lma";
-const PASSWORD = process.env.NEXT_PUBLIC_LMA_PASSWORD!;
 
 interface Library { library_code:string; display_name:string; active:boolean; has_branches:boolean; emoji:string; color?:string; }
 interface Branch  { library_code:string; branch_code:string; branch_display:string; active:boolean; emoji?:string; color?:string; }
-interface InitData{ ok:boolean; libraries:Library[]; branches:Branch[]; }
 interface Occupant {
   receipt_no:string; student_id:string; name:string; shift:string; shift_name:string;
   booking_to:string; fees_due_balance:number; dues_status:string; is_cross_library:string;
@@ -97,9 +96,7 @@ function panelItemToCell(it:SidePanelItem):BoardCell{
 
 export default function BoardPage(){
   const router = useRouter();
-  const [unlocked,setUnlocked]=useState(false);
-  const [pwInput,setPwInput]=useState(""); const [pwErr,setPwErr]=useState("");
-  const [init,setInit]=useState<InitData|null>(null);
+  const { init } = useLMA();
   const [scope,setScope]=useState<string>("");           // library or branch code
   const [board,setBoard]=useState<BoardResp|null>(null);
   const [loading,setLoading]=useState(false);
@@ -128,13 +125,16 @@ export default function BoardPage(){
     } finally { inflightRef.current.delete(_k); }
   },[]);
 
-  useEffect(()=>{ if(typeof window!=="undefined"&&sessionStorage.getItem("lma_ok")==="1")setUnlocked(true); },[]);
-  const tryUnlock=()=>{ if(pwInput&&pwInput===PASSWORD){sessionStorage.setItem("lma_ok","1");setUnlocked(true);setPwErr("");}else setPwErr("Incorrect password."); };
-
-  useEffect(()=>{ if(!unlocked)return; fetch(`${API}?action=getInitData`).then(r=>r.json()).then((r:InitData)=>{ if(r.ok){ setInit(r);
-    // default scope = first library (or its first branch)
-    const first=r.libraries.find(l=>l.active);
-    if(first){ if(first.has_branches){ const b=r.branches.find(x=>x.library_code===first.library_code&&x.active); setScope(b?b.branch_code:first.library_code);} else setScope(first.library_code);} } }); },[unlocked]);
+  // Pick a default scope (first active library or branch) once init lands.
+  useEffect(()=>{
+    if(!init||scope) return;
+    const first=init.libraries.find(l=>l.active);
+    if(!first) return;
+    if(first.has_branches){
+      const b=init.branches.find(x=>x.library_code===first.library_code&&x.active);
+      setScope(b?b.branch_code:first.library_code);
+    } else setScope(first.library_code);
+  },[init,scope]);
 
   const resolved = useMemo(()=>{
     if(!init||!scope) return {lib:"",branch:"",label:""};
@@ -186,19 +186,6 @@ export default function BoardPage(){
       alert("Export failed: "+(e instanceof Error?e.message:String(e)));
     }finally{ setExporting(false); setShowExport(false); }
   };
-
-  if(!unlocked){
-    return (
-      <div className="min-h-screen flex items-center justify-center px-4">
-        <div className="w-full max-w-sm bg-white rounded-2xl shadow-lg p-7 lma-slide-up">
-          <div className="text-center mb-5"><div className="text-4xl mb-2">🪑</div><h1 className="text-xl font-extrabold text-lma-slate-900">Seat Chart</h1></div>
-          <input type="password" autoFocus value={pwInput} onChange={e=>{setPwInput(e.target.value);setPwErr("");}} onKeyDown={e=>{if(e.key==="Enter")tryUnlock();}} placeholder="Password" className="w-full px-4 py-3 rounded-xl border-[1.5px] border-lma-slate-200 bg-lma-slate-50 focus:bg-white focus:border-lma-primary outline-none text-[15px] font-medium"/>
-          {pwErr&&<p className="text-sm text-lma-danger mt-2 font-medium">{pwErr}</p>}
-          <button onClick={tryUnlock} className="w-full mt-4 py-3 rounded-xl bg-gradient-to-br from-lma-primary to-lma-primary-2 text-white font-bold text-[15px] shadow-md">Unlock</button>
-        </div>
-      </div>
-    );
-  }
 
   // chip list (libraries + branches, no "All")
   const chips:{code:string;label:string;emoji:string;color?:string}[]=[];

@@ -2,9 +2,9 @@
 
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import Link from "next/link";
+import { useLMA } from "../layout";
 
 const API = "/api/lma";
-const PASSWORD = process.env.NEXT_PUBLIC_LMA_PASSWORD!;
 const PAGE_SIZE = 50;
 
 // ── TYPES ─────────────────────────────────────────────────────────
@@ -15,9 +15,8 @@ interface Student   {
   address:string; preparing_for:string; aadhaar_last4:string; date_of_birth:string;
   is_past:boolean;
 }
-interface Library   { library_code:string; library_name:string; display_name:string; active:boolean; has_branches:boolean; emoji:string; color?:string; }
+interface Library   { library_code:string; library_name?:string; display_name:string; active:boolean; has_branches:boolean; emoji:string; color?:string; }
 interface Branch    { library_code:string; branch_code:string; branch_display:string; active:boolean; emoji?:string; color?:string; }
-interface InitData  { ok:boolean; libraries:Library[]; branches:Branch[]; }
 interface AllResp   { ok:boolean; students:Student[]; total:number; page:number; totalPages:number; limit:number; }
 interface SearchResp{ ok:boolean; results:Student[]; }
 interface CountsResp{ ok:boolean; total:number; active:number; past:number; byLibrary:Record<string,{total:number; active:number; past:number}>; }
@@ -42,11 +41,7 @@ function autoDetectSearchType(q:string): "NAME"|"PHONE"|"STUDENT_ID" {
 
 // ── PAGE ──────────────────────────────────────────────────────────
 export default function LmaStudentsPage() {
-  const [unlocked, setUnlocked] = useState(false);
-  const [pwInput, setPwInput] = useState("");
-  const [pwErr, setPwErr] = useState("");
-
-  const [init, setInit] = useState<InitData|null>(null);
+  const { init } = useLMA();
   const [counts, setCounts] = useState<CountsResp|null>(null);
   const [students, setStudents] = useState<Student[]>([]);
   const [page, setPage] = useState(1);
@@ -64,16 +59,6 @@ export default function LmaStudentsPage() {
   const [confirm, setConfirm] = useState<{ msg:string; onYes:()=>void } | null>(null);
 
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  // ── Auth ──
-  useEffect(() => {
-    if (typeof window !== "undefined" && sessionStorage.getItem("lma_ok") === "1") setUnlocked(true);
-  }, []);
-  const tryUnlock = () => {
-    if (pwInput && pwInput === PASSWORD) {
-      sessionStorage.setItem("lma_ok","1"); setUnlocked(true); setPwErr("");
-    } else setPwErr("Incorrect password.");
-  };
 
   // ── Toast ──
   const showToast = useCallback((msg:string, type:"success"|"error"="success") => {
@@ -103,14 +88,10 @@ export default function LmaStudentsPage() {
     } finally { inflightRef.current.delete(_k); }
   }, [showToast]);
 
-  // ── Load init (libraries) + counts ──
+  // ── Load counts (init comes from context) ──
   useEffect(() => {
-    if (!unlocked) return;
-    Promise.all([
-      fetch(`${API}?action=getInitData`).then(r => r.json()).then((r:InitData) => { if (r.ok) setInit(r); }),
-      fetch(`${API}?action=getStudentCounts`).then(r => r.json()).then((r:CountsResp) => { if (r.ok) setCounts(r); }),
-    ]);
-  }, [unlocked]);
+    fetch(`${API}?action=getStudentCounts`).then(r => r.json()).then((r:CountsResp) => { if (r.ok) setCounts(r); });
+  }, []);
 
   // ── Build & fetch student list ──
   const fetchPage = useCallback(async (pageNum:number, append:boolean) => {
@@ -157,13 +138,12 @@ export default function LmaStudentsPage() {
 
   // ── Refetch when filters change (debounced for search) ──
   useEffect(() => {
-    if (!unlocked) return;
     setPage(1);
     if (debounceRef.current) clearTimeout(debounceRef.current);
     const delay = search.trim().length >= 2 ? 300 : 0;
     debounceRef.current = setTimeout(() => { fetchPage(1, false); }, delay);
     return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
-  }, [unlocked, search, pastFilter, libFilter, fetchPage]);
+  }, [search, pastFilter, libFilter, fetchPage]);
 
   const loadMore = () => {
     const next = page + 1;
@@ -178,30 +158,6 @@ export default function LmaStudentsPage() {
     const c:CountsResp = await fetch(`${API}?action=getStudentCounts`).then(r => r.json());
     if (c.ok) setCounts(c);
   }, [fetchPage]);
-
-  // ── PASSWORD GATE ──
-  if (!unlocked) {
-    return (
-      <div className="min-h-screen flex items-center justify-center px-4">
-        <div className="w-full max-w-sm bg-white rounded-2xl shadow-lg p-7 lma-slide-up">
-          <div className="text-center mb-5">
-            <div className="text-4xl mb-2">👥</div>
-            <h1 className="text-xl font-extrabold text-lma-slate-900">Students</h1>
-            <p className="text-sm text-lma-slate-500 mt-1">LMA</p>
-          </div>
-          <input
-            type="password" autoFocus value={pwInput}
-            onChange={e=>{setPwInput(e.target.value); setPwErr("");}}
-            onKeyDown={e=>{if(e.key==="Enter") tryUnlock();}}
-            placeholder="Password"
-            className="w-full px-4 py-3 rounded-xl border-[1.5px] border-lma-slate-200 bg-lma-slate-50 focus:bg-white focus:border-lma-primary outline-none text-[15px] font-medium"
-          />
-          {pwErr && <p className="text-sm text-lma-danger mt-2 font-medium">{pwErr}</p>}
-          <button onClick={tryUnlock} className="w-full mt-4 py-3 rounded-xl bg-gradient-to-br from-lma-primary to-lma-primary-2 text-white font-bold text-[15px] shadow-md">Unlock</button>
-        </div>
-      </div>
-    );
-  }
 
   const totalShown = students.length;
   const isSearching = search.trim().length >= 2;

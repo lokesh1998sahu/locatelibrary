@@ -2,14 +2,11 @@
 
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
+import { useLMA } from "../layout";
 
 const API = "/api/lma";
-const PASSWORD = process.env.NEXT_PUBLIC_LMA_PASSWORD!;
 
 // ── Types matching getDashboard() (11_Dashboard.gs) ──
-interface Library { library_code:string; display_name:string; active:boolean; has_branches:boolean; emoji:string; color?:string; }
-interface Branch  { library_code:string; branch_code:string; active:boolean; emoji?:string; color?:string; }
-interface InitData{ ok:boolean; libraries:Library[]; branches:Branch[]; }
 interface BreakRow { key:string; gross:number; refund:number; net:number; }
 interface DailyPt  { date:string; gross:number; refund:number; net:number; }
 interface Dash {
@@ -44,22 +41,15 @@ function presetRange(p:Preset):{from:Date;to:Date}{
 }
 
 export default function DashboardPage(){
-  const [unlocked,setUnlocked]=useState(false);
-  const [pwInput,setPwInput]=useState(""); const [pwErr,setPwErr]=useState("");
-  const [init,setInit]=useState<InitData|null>(null);
+  const { init } = useLMA();
 
   const [scope,setScope]=useState("");
-  const [preset,setPreset]=useState<Preset>("today");
-  const [from,setFrom]=useState<Date>(presetRange("today").from);
-  const [to,setTo]=useState<Date>(presetRange("today").to);
+  const [preset,setPreset]=useState<Preset>("month");
+  const [from,setFrom]=useState<Date>(presetRange("month").from);
+  const [to,setTo]=useState<Date>(presetRange("month").to);
   const [data,setData]=useState<Dash|null>(null);
   const [loading,setLoading]=useState(false);
   const [customOpen,setCustomOpen]=useState(false);
-
-  useEffect(()=>{ if(typeof window!=="undefined"&&sessionStorage.getItem("lma_ok")==="1")setUnlocked(true); },[]);
-  const tryUnlock=()=>{ if(pwInput&&pwInput===PASSWORD){sessionStorage.setItem("lma_ok","1");setUnlocked(true);setPwErr("");}else setPwErr("Incorrect password."); };
-
-  useEffect(()=>{ if(unlocked) fetch(`${API}?action=getInitData`).then(r=>r.json()).then((r:InitData)=>{if(r.ok)setInit(r);}); },[unlocked]);
 
   const applyPreset=(p:Preset)=>{ const r=presetRange(p); setPreset(p); setFrom(r.from); setTo(r.to); setCustomOpen(false); };
 
@@ -74,20 +64,7 @@ export default function DashboardPage(){
     setLoading(false);
   },[from,to,scope]);
 
-  useEffect(()=>{ if(unlocked) load(); },[unlocked,load]);
-
-  if(!unlocked){
-    return (
-      <div className="min-h-screen flex items-center justify-center px-4">
-        <div className="w-full max-w-sm bg-white rounded-2xl shadow-lg p-7 lma-slide-up">
-          <div className="text-center mb-5"><div className="text-4xl mb-2">📊</div><h1 className="text-xl font-extrabold text-lma-slate-900">Dashboard</h1></div>
-          <input type="password" autoFocus value={pwInput} onChange={e=>{setPwInput(e.target.value);setPwErr("");}} onKeyDown={e=>{if(e.key==="Enter")tryUnlock();}} placeholder="Password" className="w-full px-4 py-3 rounded-xl border-[1.5px] border-lma-slate-200 bg-lma-slate-50 focus:bg-white focus:border-lma-primary outline-none text-[15px] font-medium"/>
-          {pwErr&&<p className="text-sm text-lma-danger mt-2 font-medium">{pwErr}</p>}
-          <button onClick={tryUnlock} className="w-full mt-4 py-3 rounded-xl bg-gradient-to-br from-lma-primary to-lma-primary-2 text-white font-bold text-[15px] shadow-md">Unlock</button>
-        </div>
-      </div>
-    );
-  }
+  useEffect(()=>{ load(); },[load]);
 
   const chips:{code:string;label:string;color?:string}[]=[{code:"",label:"All"}];
   if(init){ init.libraries.filter(l=>l.active).forEach(l=>{

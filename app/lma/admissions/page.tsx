@@ -3,14 +3,10 @@
 import { useState, useEffect, useCallback, useMemo, useRef, Suspense } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
+import { useLMA, type LMAInitData as InitData } from "../layout";
 
 const API = "/api/lma";
-const PASSWORD = process.env.NEXT_PUBLIC_LMA_PASSWORD!;
 
-interface Library  { library_code:string; library_name:string; display_name:string; active:boolean; has_branches:boolean; emoji:string; color?:string; }
-interface Branch   { library_code:string; branch_code:string; branch_display:string; active:boolean; emoji?:string; color?:string; }
-interface Shift    { shift_key:string; shift_name:string; shift_time:string; active:boolean; }
-interface InitData { ok:boolean; libraries:Library[]; branches:Branch[]; shifts:Shift[]; paymentTags:{tag_name:string;fees_mode:string;active:boolean}[]; activeTags:string[]; fees:Record<string,Record<string,number>>; }
 interface PhoneEntry { number:string; tag:string; }
 interface Student  { student_id:string; library:string; branch:string; name:string; phones:PhoneEntry[]; address:string; preparing_for:string; aadhaar_last4:string; date_of_birth:string; is_past:boolean; }
 interface Receipt  { receipt_no:string; student_id:string; library:string; branch:string; name:string; phones:PhoneEntry[]; seat_no:string; shift:string; shift_name:string; shift_time:string; booking_from:string; booking_to:string; status:string; fee?:number; }
@@ -65,9 +61,7 @@ export default function AdmissionsPage(){
 
 function AdmissionsPageInner(){
   const searchParams=useSearchParams();
-  const [unlocked,setUnlocked]=useState(false);
-  const [pwInput,setPwInput]=useState(""); const [pwErr,setPwErr]=useState("");
-  const [init,setInit]=useState<InitData|null>(null);
+  const { init } = useLMA();
   const [toast,setToast]=useState<Toast>(null);
   const [step,setStep]=useState(1);
   const [libCode,setLibCode]=useState("");
@@ -84,13 +78,9 @@ function AdmissionsPageInner(){
     return {resolvedLib:libCode,resolvedBranch:"",scopeLabel:lib?.display_name||libCode};
   },[init,libCode]);
 
-  useEffect(()=>{ if(typeof window!=="undefined"&&sessionStorage.getItem("lma_ok")==="1")setUnlocked(true); },[]);
-  const tryUnlock=()=>{ if(pwInput&&pwInput===PASSWORD){sessionStorage.setItem("lma_ok","1");setUnlocked(true);setPwErr("");}else setPwErr("Incorrect password."); };
   const showToast=useCallback((msg:string,type:"success"|"error"="success")=>{ setToast({msg,type}); setTimeout(()=>setToast(null),3500); },[]);
   const inflightRef = useRef<Set<string>>(new Set());
   const post=useCallback(async(action:string,payload:any)=>{ const _k=action+"|"+JSON.stringify(payload); if(inflightRef.current.has(_k))return null; inflightRef.current.add(_k); try{ try{ const res=await fetch(API,{method:"POST",headers:{"Content-Type":"text/plain;charset=utf-8"},body:JSON.stringify({action,payload})}).then(r=>r.json()); if(!res.ok){showToast(res.error||"Operation failed","error");return null;} return res; }catch(e){ showToast(e instanceof Error?e.message:String(e),"error"); return null; }  } finally { inflightRef.current.delete(_k); }},[showToast]);
-
-  useEffect(()=>{ if(!unlocked)return; fetch(`${API}?action=getInitData`).then(r=>r.json()).then((r:InitData)=>{if(r.ok)setInit(r);}); },[unlocked]);
 
   // ── #8 + Hold conversion URL PRELOAD ──
   // Supports:
@@ -99,7 +89,7 @@ function AdmissionsPageInner(){
   //   ?lib=X&admit_type=NEW&hold_name=...&hold_phone=...&seat=...&shift=...&fee=...&from=...&to=...&from_hold=1
   //   ?lib=X&admit_type=RENEWAL&student_id=F123&seat=...&shift=...&fee=...&from=...&to=...&from_hold=1
   useEffect(()=>{
-    if(!unlocked||!init||preloadHandled)return;
+    if(!init||preloadHandled)return;
     const lib=searchParams.get("lib")||"";
     const sid=searchParams.get("student_id")||"";
     const rno=searchParams.get("renew_from")||"";
@@ -183,25 +173,12 @@ function AdmissionsPageInner(){
       }
       setPreloadHandled(true);
     })();
-  },[unlocked,init,searchParams,preloadHandled,showToast]);
+  },[init,searchParams,preloadHandled,showToast]);
 
   const resetWizard=()=>{ setStep(1); setLibCode(""); setAdmitType(null); setBookingCtx(null); setResult(null); };
 
   // ── #10: DYNAMIC HEADER TITLE ──
   const headerTitle = step<=1 ? "Admissions" : (admitType==="RENEWAL"?"Renewal":"New Admission");
-
-  if(!unlocked){
-    return (
-      <div className="min-h-screen flex items-center justify-center px-4">
-        <div className="w-full max-w-sm bg-white rounded-2xl shadow-lg p-7 lma-slide-up">
-          <div className="text-center mb-5"><div className="text-4xl mb-2">📝</div><h1 className="text-xl font-extrabold text-lma-slate-900">Admissions</h1></div>
-          <input type="password" autoFocus value={pwInput} onChange={e=>{setPwInput(e.target.value);setPwErr("");}} onKeyDown={e=>{if(e.key==="Enter")tryUnlock();}} placeholder="Password" className="w-full px-4 py-3 rounded-xl border-[1.5px] border-lma-slate-200 bg-lma-slate-50 focus:bg-white focus:border-lma-primary outline-none text-[15px] font-medium"/>
-          {pwErr&&<p className="text-sm text-lma-danger mt-2 font-medium">{pwErr}</p>}
-          <button onClick={tryUnlock} className="w-full mt-4 py-3 rounded-xl bg-gradient-to-br from-lma-primary to-lma-primary-2 text-white font-bold text-[15px] shadow-md">Unlock</button>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="lma-page-body max-w-md mx-auto px-4 pt-4">
