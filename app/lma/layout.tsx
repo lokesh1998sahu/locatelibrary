@@ -4,17 +4,19 @@
 //   1) Single password gate for everything under /lma
 //   2) Single getInitData() fetch shared via React context (LMAProvider)
 //   3) Pages call `useLMA()` to read libraries/branches/fees/shifts/etc.
+//   4) Shared toast + post() + duplicate-action guard (was duplicated in every page)
+//   5) Shared chip-builder hook `useScopeChips()` for the library/branch filter UI
 //
-// Result: switching tabs feels instant — no re-auth, no re-fetch.
-// Mirrors the old admissions app's persistent single-page feel while
-// keeping Next.js App Router routes (URLs still bookmarkable).
+// Result: switching tabs feels instant — no re-auth, no re-fetch. Toasts
+// triggered on page A stay visible after navigating away. ~120 lines of
+// duplicated boilerplate removed across pages.
 //
 // NOTE: metadata/viewport export was removed from this file because
 // `"use client"` files can't export those. If you need them back, put
 // them in a sibling `app/lma/metadata.ts` or move them up to the root
 // layout. The TechToolNav is preserved.
 
-import { createContext, useContext, useEffect, useState, useCallback, ReactNode } from "react";
+import { createContext, useContext, useEffect, useState, useCallback, useRef, useMemo, ReactNode } from "react";
 import TechToolNav from "@/components/TechToolNav";
 
 const API      = "/api/lma";
@@ -38,11 +40,20 @@ export interface LMAInitData {
   settings:Record<string,Record<string,any>>;
 }
 
+export type ToastKind = "success"|"error";
+export type ToastState = { msg:string; type:ToastKind } | null;
+
+export interface ScopeChip { code:string; label:string; emoji?:string; color?:string; }
+
 interface LMAContextValue {
   init: LMAInitData | null;       // null until first load
   refreshInit: () => Promise<void>; // force re-fetch (e.g. after Settings edits)
   loading: boolean;               // true during the very first fetch only
   lock: () => void;               // sign out of LMA
+  // Shared toast (renders at layout level — persists across page navigation)
+  showToast: (msg:string, type?:ToastKind) => void;
+  // Shared POST helper (with duplicate-action guard + auto toast on backend error)
+  post: (action:string, payload:any) => Promise<any | null>;
 }
 
 const LMAContext = createContext<LMAContextValue | null>(null);
@@ -53,6 +64,38 @@ export function useLMA(): LMAContextValue {
   return v;
 }
 
+// ── useScopeChips() ───────────────────────────────────────────────
+// Builds the library/branch filter chips used by Board, Dashboard, Receipts,
+// Renewals, Dues, MiscIncome, Refunds, Students.
+// Options:
+//   includeAll: true  → prefixes an "All" chip with code="" (default)
+//   includeAll: false → no "All" chip (Board uses this; the chip list is
+//                        mandatory-pick, never "all libraries").
+// Returns [] until init has loaded.
+export function useScopeChips(options?: { includeAll?: boolean }): ScopeChip[] {
+  const { init } = useLMA();
+  const includeAll = options?.includeAll !== false;
+  return useMemo<ScopeChip[]>(() => {
+    if (!init) return [];
+    const out: ScopeChip[] = includeAll ? [{ code:"", label:"All" }] : [];
+    init.libraries.filter(l => l.active).forEach(l => {
+      if (l.has_branches) {
+        init.branches
+          .filter(b => b.library_code === l.library_code && b.active)
+          .forEach(b => out.push({
+            code:  b.branch_code,
+            label: b.branch_code,
+            emoji: b.emoji || l.emoji,
+            color: b.color || l.color,
+          }));
+      } else {
+        out.push({ code: l.library_code, label: l.library_code, emoji: l.emoji, color: l.color });
+      }
+    });
+    return out;
+  }, [init, includeAll]);
+}
+
 // ── Layout shell ───────────────────────────────────────────────────
 export default function LmaLayout({ children }: { children: ReactNode }) {
   const [hydrated, setHydrated] = useState(false);
@@ -61,6 +104,7 @@ export default function LmaLayout({ children }: { children: ReactNode }) {
   const [pwErr, setPwErr]     = useState("");
   const [init, setInit]       = useState<LMAInitData|null>(null);
   const [loading, setLoading] = useState(false);
+  const [toast, setToast]     = useState<ToastState>(null);
 
   useEffect(() => {
     setHydrated(true);
@@ -98,6 +142,41 @@ export default function LmaLayout({ children }: { children: ReactNode }) {
     if (unlocked && !init) refreshInit();
   }, [unlocked, init, refreshInit]);
 
+  // ── Shared toast helper ─────────────────────────────────────────
+  const toastTimerRef = useRef<ReturnType<typeof setTimeout>|null>(null);
+  const showToast = useCallback((msg: string, type: ToastKind = "success") => {
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    setToast({ msg, type });
+    toastTimerRef.current = setTimeout(() => setToast(null), 3500);
+  }, []);
+
+  // ── Shared POST with duplicate-action guard ─────────────────────
+  const inflightRef = useRef<Set<string>>(new Set());
+  const post = useCallback(async (action: string, payload: any) => {
+    const key = action + "|" + JSON.stringify(payload);
+    if (inflightRef.current.has(key)) return null;
+    inflightRef.current.add(key);
+    try {
+      try {
+        const res = await fetch(API, {
+          method: "POST",
+          headers: { "Content-Type": "text/plain;charset=utf-8" },
+          body: JSON.stringify({ action, payload }),
+        }).then(r => r.json());
+        if (!res.ok) {
+          showToast(res.error || "Operation failed", "error");
+          return null;
+        }
+        return res;
+      } catch (e) {
+        showToast(e instanceof Error ? e.message : String(e), "error");
+        return null;
+      }
+    } finally {
+      inflightRef.current.delete(key);
+    }
+  }, [showToast]);
+
   const tryUnlock = () => {
     if (pwInput && pwInput === PASSWORD) {
       sessionStorage.setItem("lma_ok", "1");
@@ -112,6 +191,7 @@ export default function LmaLayout({ children }: { children: ReactNode }) {
     setUnlocked(false);
     setInit(null);
     setPwInput("");
+    setToast(null);
   };
 
   if (!hydrated) return null;
@@ -149,10 +229,16 @@ export default function LmaLayout({ children }: { children: ReactNode }) {
   }
 
   return (
-    <LMAContext.Provider value={{ init, refreshInit, loading, lock }}>
+    <LMAContext.Provider value={{ init, refreshInit, loading, lock, showToast, post }}>
       <div className="lma-app">
         {children}
         <TechToolNav />
+        {/* Shared toast — renders once at layout level so it persists across page navigation */}
+        {toast && (
+          <div className={`fixed bottom-6 left-1/2 -translate-x-1/2 px-4 py-3 rounded-xl shadow-lg z-50 lma-slide-up text-[14px] font-semibold ${toast.type==="error" ? "bg-lma-danger text-white" : "bg-lma-slate-900 text-white"}`}>
+            {toast.msg}
+          </div>
+        )}
       </div>
     </LMAContext.Provider>
   );

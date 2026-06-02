@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import Link from "next/link";
-import { useLMA, type LMAInitData as InitData } from "../layout";
+import { useLMA, useScopeChips, type LMAInitData as InitData } from "../layout";
 
 const API = "/api/lma";
 
@@ -18,7 +18,6 @@ interface Receipt {
 }
 interface EditEvent { letter:string; edited_at:string; remark:string; changed_fields:string; before:string; after:string;  whatsapp_text?:string; }
 
-type Toast = { msg:string; type:"success"|"error" } | null;
 type SearchType = "NAME"|"PHONE"|"STUDENT_ID"|"RECEIPT_NO";
 
 function autoDetect(q:string): SearchType {
@@ -73,8 +72,7 @@ function normalizePhoneR(input:string):string{
 }
 
 export default function ReceiptsPage(){
-  const { init } = useLMA();
-  const [toast,setToast]=useState<Toast>(null);
+  const { init, showToast, post } = useLMA();
 
   const [scope,setScope]=useState("");          // library/branch filter, "" = all
   const [search,setSearch]=useState("");
@@ -89,10 +87,7 @@ export default function ReceiptsPage(){
   const [shareText,setShareText]=useState<string|null>(null);
   const debounceRef=useRef<ReturnType<typeof setTimeout>|null>(null);
 
-  const showToast=useCallback((msg:string,type:"success"|"error"="success")=>{ setToast({msg,type}); setTimeout(()=>setToast(null),3000); },[]);
 
-  const inflightRef = useRef<Set<string>>(new Set());
-  const post=useCallback(async(action:string,payload:any)=>{ const _k=action+"|"+JSON.stringify(payload); if(inflightRef.current.has(_k))return null; inflightRef.current.add(_k); try{ try{ const res=await fetch(API,{method:"POST",headers:{"Content-Type":"text/plain;charset=utf-8"},body:JSON.stringify({action,payload})}).then(r=>r.json()); if(!res.ok){showToast(res.error||"Operation failed","error");return null;} return res; }catch(e){ showToast(e instanceof Error?e.message:String(e),"error"); return null; }  } finally { inflightRef.current.delete(_k); }},[showToast]);
 
   const load=useCallback(async(pg:number,replace:boolean)=>{
     setLoading(true);
@@ -120,11 +115,7 @@ export default function ReceiptsPage(){
   };
 
 // chips (libraries + branches + an "All")
-  const chips:{code:string;label:string;color?:string}[]=[{code:"",label:"All"}];
-  if(init){ init.libraries.filter(l=>l.active).forEach(l=>{
-    if(l.has_branches){ init.branches.filter(b=>b.library_code===l.library_code&&b.active).forEach(b=>chips.push({code:b.branch_code,label:b.branch_code,color:b.color||l.color})); }
-    else chips.push({code:l.library_code,label:l.library_code,color:l.color});
-  }); }
+  const chips = useScopeChips();
 
   // #4: set of receipt_nos that are referenced as a predecessor (renewed_from) by another loaded receipt.
   const successorOf = useMemo(()=>{
@@ -263,11 +254,6 @@ export default function ReceiptsPage(){
         </div>
       )}
 
-      {toast&&(
-        <div className={`fixed bottom-24 left-1/2 -translate-x-1/2 px-5 py-3 rounded-2xl text-white font-bold text-sm shadow-lg z-[9999] lma-slide-up ${toast.type==="success"?"bg-lma-accent":"bg-lma-danger"}`}>
-          {toast.type==="success"?"✓ ":"✕ "}{toast.msg}
-        </div>
-      )}
     </div>
   );
 }

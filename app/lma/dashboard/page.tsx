@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
-import { useLMA } from "../layout";
+import { useLMA, useScopeChips } from "../layout";
 
 const API = "/api/lma";
 
@@ -41,7 +41,7 @@ function presetRange(p:Preset):{from:Date;to:Date}{
 }
 
 export default function DashboardPage(){
-  const { init } = useLMA();
+  const { init, showToast, post } = useLMA();
 
   const [scope,setScope]=useState("");
   const [preset,setPreset]=useState<Preset>("month");
@@ -66,11 +66,7 @@ export default function DashboardPage(){
 
   useEffect(()=>{ load(); },[load]);
 
-  const chips:{code:string;label:string;color?:string}[]=[{code:"",label:"All"}];
-  if(init){ init.libraries.filter(l=>l.active).forEach(l=>{
-    if(l.has_branches){ init.branches.filter(b=>b.library_code===l.library_code&&b.active).forEach(b=>chips.push({code:b.branch_code,label:b.branch_code,color:b.color||l.color})); }
-    else chips.push({code:l.library_code,label:l.library_code,color:l.color});
-  }); }
+  const chips = useScopeChips();
 
   const presets:{k:Preset;label:string}[]=[
     {k:"today",label:"Today"},{k:"week",label:"This Week"},{k:"month",label:"This Month"},

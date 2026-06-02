@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useLMA, type LMAInitData as InitData } from "../layout";
+import { useLMA, useScopeChips, type LMAInitData as InitData } from "../layout";
 
 const API = "/api/lma";
 
@@ -15,13 +15,11 @@ interface QueueItem {
   receipt_text:string; cancel_whatsapp_text?:string;
 }
 
-type Toast = { msg:string; type:"success"|"error" } | null;
 type Tab = "RENEW"|"CANCEL";
 
 export default function RenewalsPage(){
   const router = useRouter();
-  const { init } = useLMA();
-  const [toast,setToast]=useState<Toast>(null);
+  const { init, showToast, post } = useLMA();
   const [confirmAction,setConfirmAction]=useState<{title:string;message:string;confirmLabel:string;danger?:boolean;onYes:()=>void}|null>(null);
 
   const [tab,setTab]=useState<Tab>("RENEW");
@@ -34,10 +32,7 @@ export default function RenewalsPage(){
   const [actionFor,setActionFor]=useState<QueueItem|null>(null);   // cancel/refund sheet
   const [resultText,setResultText]=useState<{title:string;text:string}|null>(null);
 
-  const showToast=useCallback((msg:string,type:"success"|"error"="success")=>{ setToast({msg,type}); setTimeout(()=>setToast(null),3000); },[]);
 
-  const inflightRef = useRef<Set<string>>(new Set());
-  const post=useCallback(async(action:string,payload:any)=>{ const _k=action+"|"+JSON.stringify(payload); if(inflightRef.current.has(_k))return null; inflightRef.current.add(_k); try{ try{ const res=await fetch(API,{method:"POST",headers:{"Content-Type":"text/plain;charset=utf-8"},body:JSON.stringify({action,payload})}).then(r=>r.json()); if(!res.ok&&res.error){showToast(res.error,"error");return null;} return res; }catch(e){ showToast(e instanceof Error?e.message:String(e),"error"); return null; }  } finally { inflightRef.current.delete(_k); }},[showToast]);
 
   const load=useCallback(async()=>{
     setLoading(true);
@@ -63,11 +58,7 @@ export default function RenewalsPage(){
     else if(r&&r.error) showToast(r.error,"error");
   };
 
-  const chips:{code:string;label:string;color?:string}[]=[{code:"",label:"All"}];
-  if(init){ init.libraries.filter(l=>l.active).forEach(l=>{
-    if(l.has_branches){ init.branches.filter(b=>b.library_code===l.library_code&&b.active).forEach(b=>chips.push({code:b.branch_code,label:b.branch_code,color:b.color||l.color})); }
-    else chips.push({code:l.library_code,label:l.library_code,color:l.color});
-  }); }
+  const chips = useScopeChips();
 
   return (
     <div className="lma-page-body max-w-md mx-auto px-4 pt-4">
@@ -155,11 +146,6 @@ export default function RenewalsPage(){
 
       {confirmAction&&<ConfirmDialog c={confirmAction} onClose={()=>setConfirmAction(null)}/>}
 
-      {toast&&(
-        <div className={`fixed bottom-24 left-1/2 -translate-x-1/2 px-5 py-3 rounded-2xl text-white font-bold text-sm shadow-lg z-[9999] lma-slide-up ${toast.type==="success"?"bg-lma-accent":"bg-lma-danger"}`}>
-          {toast.type==="success"?"✓ ":"✕ "}{toast.msg}
-        </div>
-      )}
     </div>
   );
 }

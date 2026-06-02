@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
-import { useLMA } from "./layout";
+import { useLMA, useScopeChips } from "./layout";
 
 const API = "/api/lma";
 
@@ -59,11 +59,7 @@ export default function LmaHomePage() {
   const dotCls = connected===null ? "bg-lma-warn animate-pulse" : connected ? "bg-lma-accent" : "bg-lma-danger";
   const dotTxt = connected===null ? "Checking…" : connected ? "Connected" : "Offline";
 
-  const chips:{code:string;label:string;color?:string}[]=[{code:"",label:"All"}];
-  if(init?.libraries){ init.libraries.filter(l=>l.active).forEach(l=>{
-    if(l.has_branches){ init.branches.filter(b=>b.library_code===l.library_code&&b.active).forEach(b=>chips.push({code:b.branch_code,label:b.branch_code,color:b.color||l.color})); }
-    else chips.push({code:l.library_code,label:l.library_code,color:l.color});
-  }); }
+  const chips = useScopeChips();
 
   return (
     <div className="lma-page-body max-w-md mx-auto px-4 pt-6 pb-10">

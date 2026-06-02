@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo, useRef, Suspense } from "react";
+import { useState, useEffect, useMemo, useRef, Suspense } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useLMA, type LMAInitData as InitData } from "../layout";
@@ -13,10 +13,9 @@ interface Receipt  { receipt_no:string; student_id:string; library:string; branc
 interface SeatCell { row_in_section:number; col_in_section:number; seat_no:number; display_label:string; notes:string; cell_type:string; state?:string; occupant?:{receipt_no:string;student_id:string;name:string;shift:string}|null; share_note?:string|null; }
 interface VacantResp { ok:boolean; needs_seat:boolean; sections:{section_name:string;section_order:number;rows:number;cols:number;seats:SeatCell[]}[]; }
 
-type Toast = { msg:string; type:"success"|"error" } | null;
 type PayMode = { mode:string; amount:string };
-interface HoldPreload { seat?:string; shift?:string; fee?:string; from?:string; to?:string; fromHold?:boolean; }
-interface BookingCtx { admitType:"NEW"|"RENEWAL"; student:Student|null; isCross:boolean; crossOrigin:string; renewFrom?:Receipt|null; preload?:HoldPreload; }
+interface BookingPreload { seat?:string; shift?:string; fee?:string; from?:string; to?:string; }
+interface BookingCtx { admitType:"NEW"|"RENEWAL"; student:Student|null; isCross:boolean; crossOrigin:string; renewFrom?:Receipt|null; preload?:BookingPreload; }
 interface ResultData { receipt_no:string; student_id:string; receipt_text:string; registration_text:string; }
 
 // ── HELPERS ──────────────────────────────────────────────────────
@@ -61,8 +60,7 @@ export default function AdmissionsPage(){
 
 function AdmissionsPageInner(){
   const searchParams=useSearchParams();
-  const { init } = useLMA();
-  const [toast,setToast]=useState<Toast>(null);
+  const { init, showToast, post } = useLMA();
   const [step,setStep]=useState(1);
   const [libCode,setLibCode]=useState("");
   const [admitType,setAdmitType]=useState<"NEW"|"RENEWAL"|null>(null);
@@ -78,30 +76,17 @@ function AdmissionsPageInner(){
     return {resolvedLib:libCode,resolvedBranch:"",scopeLabel:lib?.display_name||libCode};
   },[init,libCode]);
 
-  const showToast=useCallback((msg:string,type:"success"|"error"="success")=>{ setToast({msg,type}); setTimeout(()=>setToast(null),3500); },[]);
-  const inflightRef = useRef<Set<string>>(new Set());
-  const post=useCallback(async(action:string,payload:any)=>{ const _k=action+"|"+JSON.stringify(payload); if(inflightRef.current.has(_k))return null; inflightRef.current.add(_k); try{ try{ const res=await fetch(API,{method:"POST",headers:{"Content-Type":"text/plain;charset=utf-8"},body:JSON.stringify({action,payload})}).then(r=>r.json()); if(!res.ok){showToast(res.error||"Operation failed","error");return null;} return res; }catch(e){ showToast(e instanceof Error?e.message:String(e),"error"); return null; }  } finally { inflightRef.current.delete(_k); }},[showToast]);
-
-  // ── #8 + Hold conversion URL PRELOAD ──
+  // ── #8 URL PRELOAD ──
   // Supports:
   //   ?lib=X&student_id=Y&renew_from=R123     → renewal (existing)
   //   ?lib=X&seat=12&shift=MORNING            → "Book this seat" deep-link from board vacant tap (NEW)
-  //   ?lib=X&admit_type=NEW&hold_name=...&hold_phone=...&seat=...&shift=...&fee=...&from=...&to=...&from_hold=1
-  //   ?lib=X&admit_type=RENEWAL&student_id=F123&seat=...&shift=...&fee=...&from=...&to=...&from_hold=1
   useEffect(()=>{
     if(!init||preloadHandled)return;
     const lib=searchParams.get("lib")||"";
     const sid=searchParams.get("student_id")||"";
     const rno=searchParams.get("renew_from")||"";
-    const admitParam=(searchParams.get("admit_type")||"").toUpperCase();
     const seatP=searchParams.get("seat")||"";
     const shiftP=(searchParams.get("shift")||"").toUpperCase();
-    const feeP=searchParams.get("fee")||"";
-    const fromP=searchParams.get("from")||"";
-    const toP=searchParams.get("to")||"";
-    const holdName=searchParams.get("hold_name")||"";
-    const holdPhone=searchParams.get("hold_phone")||"";
-    const fromHold=searchParams.get("from_hold")==="1";
     if(!lib){ setPreloadHandled(true); return; }
     (async()=>{
       // resolve library/branch code
@@ -110,16 +95,13 @@ function AdmissionsPageInner(){
       if(!isBranch&&!isLib){ showToast(`Unknown library: ${lib}`,"error"); setPreloadHandled(true); return; }
       setLibCode(lib);
 
-      // Decide admit type:
-      //   explicit admit_type wins
-      //   else if renew_from or student_id → RENEWAL
-      //   else (book/hold-NEW with seat+shift only) → NEW
-      const isRenewalIntent = admitParam==="RENEWAL" || (!admitParam && (rno||sid));
+      // Decide admit type: renew_from or student_id → RENEWAL, else NEW
+      const isRenewalIntent = !!(rno||sid);
       const finalAdmit:"NEW"|"RENEWAL" = isRenewalIntent ? "RENEWAL" : "NEW";
       setAdmitType(finalAdmit);
 
-      const preload:HoldPreload = {
-        seat: seatP, shift: shiftP, fee: feeP, from: fromP, to: toP, fromHold,
+      const preload:BookingPreload = {
+        seat: seatP, shift: shiftP, fee: "", from: "", to: "",
       };
 
       try{
@@ -148,25 +130,16 @@ function AdmissionsPageInner(){
           setBookingCtx({ admitType:"RENEWAL", student, isCross, crossOrigin: isCross?(renewFrom!.branch||renewFrom!.library):"", renewFrom, preload });
           setStep(4);
         } else {
-          // NEW preload — for "Book this seat" or hold-NEW conversion
-          // Resolve target library/branch codes from the lib token
+          // NEW preload — for "Book this seat" from board
           const br=init.branches.find(b=>b.branch_code===lib);
           const targetLib = br ? br.library_code : lib;
           const targetBranch = br ? br.branch_code : "";
-          const phones = holdPhone ? [{number:holdPhone,tag:"SELF"}] : [{number:"",tag:"SELF"}];
           const student:Student = {
             student_id:"", library:targetLib, branch:targetBranch,
-            name: holdName ? holdName.toUpperCase() : "",
-            phones, address:"", preparing_for:"", aadhaar_last4:"", date_of_birth:"", is_past:false,
+            name: "", phones:[{number:"",tag:"SELF"}], address:"", preparing_for:"", aadhaar_last4:"", date_of_birth:"", is_past:false,
           };
           setBookingCtx({ admitType:"NEW", student, isCross:false, crossOrigin:"", preload });
-          // If this is a hold-NEW conversion AND we already have a name, skip Step 3.
-          // Otherwise (book-from-board with no student details, or hold with no name) → go to Step 3 so user can fill student info.
-          if(fromHold && holdName){
-            setStep(4);
-          } else {
-            setStep(3);
-          }
+          setStep(3);
         }
       } catch(e){
         showToast("Preload failed","error");
@@ -204,12 +177,6 @@ function AdmissionsPageInner(){
           {step===4&&bookingCtx&&<StepBooking init={init} resolvedLib={resolvedLib} resolvedBranch={resolvedBranch} ctx={bookingCtx} post={post} showToast={showToast} onBack={()=>setStep(3)} onDone={r=>{setResult(r);setStep(5);}}/>}
           {step===5&&result&&<StepResult result={result} onNew={resetWizard}/>}
         </>
-      )}
-
-      {toast&&(
-        <div className={`fixed bottom-24 left-1/2 -translate-x-1/2 px-5 py-3 rounded-2xl text-white font-bold text-sm shadow-lg z-[9999] lma-slide-up max-w-[90vw] text-center ${toast.type==="success"?"bg-lma-accent":"bg-lma-danger"}`}>
-          {toast.type==="success"?"✓ ":"✕ "}{toast.msg}
-        </div>
       )}
     </div>
   );
@@ -645,12 +612,6 @@ function StepBooking({ init, resolvedLib, resolvedBranch, ctx, post, showToast, 
   return (
     <div className="lma-slide-up">
       <button onClick={onBack} className="text-sm text-lma-slate-500 mb-3">← Back</button>
-      {ctx.preload?.fromHold&&(
-        <div className="mb-3 bg-lma-warn/10 border border-lma-warn/30 rounded-xl p-3 text-sm">
-          <div className="font-extrabold text-lma-warn text-[12px] uppercase tracking-wide mb-0.5">⏳ Converting Hold → Receipt</div>
-          <div className="text-lma-slate-700 text-[12px]">Details below are pre-filled from the hold. Change anything before saving — the hold has already been removed.</div>
-        </div>
-      )}
       <div className="bg-white rounded-2xl p-4 shadow-sm space-y-3">
         <div className="bg-lma-slate-50 rounded-xl p-2.5 flex items-center gap-2">
           <span className="text-[10px] font-bold bg-lma-primary/10 text-lma-primary px-2 py-0.5 rounded">{ctx.admitType}</span>

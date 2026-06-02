@@ -21,7 +21,6 @@ interface AllResp   { ok:boolean; students:Student[]; total:number; page:number;
 interface SearchResp{ ok:boolean; results:Student[]; }
 interface CountsResp{ ok:boolean; total:number; active:number; past:number; byLibrary:Record<string,{total:number; active:number; past:number}>; }
 
-type Toast       = { msg:string; type:"success"|"error" } | null;
 type PastFilter  = "ANY"|"FALSE"|"TRUE";
 type SearchType  = "AUTO"|"NAME"|"PHONE"|"STUDENT_ID";
 
@@ -41,13 +40,12 @@ function autoDetectSearchType(q:string): "NAME"|"PHONE"|"STUDENT_ID" {
 
 // ── PAGE ──────────────────────────────────────────────────────────
 export default function LmaStudentsPage() {
-  const { init } = useLMA();
+  const { init, showToast, post } = useLMA();
   const [counts, setCounts] = useState<CountsResp|null>(null);
   const [students, setStudents] = useState<Student[]>([]);
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [toast, setToast] = useState<Toast>(null);
 
   // Filters
   const [pastFilter, setPastFilter] = useState<PastFilter>("ANY");
@@ -59,34 +57,6 @@ export default function LmaStudentsPage() {
   const [confirm, setConfirm] = useState<{ msg:string; onYes:()=>void } | null>(null);
 
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  // ── Toast ──
-  const showToast = useCallback((msg:string, type:"success"|"error"="success") => {
-    setToast({ msg, type });
-    setTimeout(() => setToast(null), 3000);
-  }, []);
-
-  // ── Generic POST wrapper ──
-  const inflightRef = useRef<Set<string>>(new Set());
-  const post = useCallback(async (action:string, payload:any) => {
-    const _k=action+"|"+JSON.stringify(payload);
-    if(inflightRef.current.has(_k)) return null;
-    inflightRef.current.add(_k);
-    try{
-    try {
-      const res = await fetch(API, {
-        method:"POST",
-        headers:{ "Content-Type":"text/plain;charset=utf-8" },
-        body: JSON.stringify({ action, payload }),
-      }).then(r => r.json());
-      if (!res.ok) { showToast(res.error || "Operation failed", "error"); return null; }
-      return res;
-    } catch (e) {
-      showToast(e instanceof Error ? e.message : String(e), "error");
-      return null;
-    }
-    } finally { inflightRef.current.delete(_k); }
-  }, [showToast]);
 
   // ── Load counts (init comes from context) ──
   useEffect(() => {
@@ -313,13 +283,6 @@ export default function LmaStudentsPage() {
             />
           )}
         </BottomSheet>
-      )}
-
-      {/* Toast */}
-      {toast && (
-        <div className={`fixed bottom-24 left-1/2 -translate-x-1/2 px-5 py-3 rounded-2xl text-white font-bold text-sm shadow-lg z-[9999] lma-slide-up ${toast.type==="success"?"bg-lma-accent":"bg-lma-danger"}`}>
-          {toast.type==="success"?"✓ ":"✕ "}{toast.msg}
-        </div>
       )}
 
       {/* Confirm dialog */}
