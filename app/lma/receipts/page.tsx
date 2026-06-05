@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import Link from "next/link";
 import { useLMA, useScopeChips, type LMAInitData as InitData } from "../layout";
+import { fmtDMY, toIsoInput, daysFromToday, toDmy } from "../_lib/dates";
 
 const API = "/api/lma";
 
@@ -44,22 +45,10 @@ function lifecycleBadge(r:Receipt, alertDays:number, hasSuccessor:boolean):{labe
   if(days<=alertDays) return {label:"Expiring",cls:"bg-lma-danger/15 text-lma-danger"}; // #12: per-library threshold
   return {label:"Current", cls:"bg-lma-accent/15 text-lma-accent"};
 }
-function daysFromToday(dmy:string):number|null{
-  if(!dmy) return null;
-  const p=dmy.split("-"); if(p.length!==3) return null;
-  const d=new Date(Number(p[2]),Number(p[1])-1,Number(p[0]));
-  const today=new Date(); today.setHours(0,0,0,0);
-  return Math.round((d.getTime()-today.getTime())/86400000);
-}
-// #19: tolerant date → DD-M-YYYY
-function normDateR(v:string):string{
-  if(!v) return "";
-  if(typeof v!=="string") v=String(v);
-  if(/^\d{1,2}-\d{1,2}-\d{4}$/.test(v)) return v;
-  if(/^\d{4}-\d{2}-\d{2}$/.test(v)){ const p=v.split("-"); return `${+p[2]}-${+p[1]}-${p[0]}`; }
-  try{ const d=new Date(v); if(!isNaN(d.getTime())) return `${d.getDate()}-${d.getMonth()+1}-${d.getFullYear()}`; }catch{}
-  return v;
-}
+
+// d-m-yyyy normalizer (used by date inputs) — delegates to shared toDmy
+const normDateR = toDmy;
+
 // #17: phone normalizer
 function normalizePhoneR(input:string):string{
   if(!input) return "";
@@ -177,7 +166,7 @@ export default function ReceiptsPage(){
                   <span>{r.library}{r.branch?`/${r.branch}`:""}</span>
                   <span>· Seat {r.seat_no||"—"}</span>
                   <span>· {r.shift_name||r.shift}</span>
-                  <span>· till {r.booking_to}</span>
+                  <span>· till {fmtDMY(r.booking_to)}</span>
                   {r.fees_due_balance>0&&<span className="font-bold text-lma-danger">· Due ₹{r.fees_due_balance}</span>}
                 </div>
               </button>
@@ -364,10 +353,10 @@ function EditForm({ receipt, init, onCancel, onSave }:{ receipt:Receipt; init:In
       </div>
       <div className="grid grid-cols-2 gap-3">
         <div><L>From</L><I value={bookingFrom} onChange={e=>setBookingFrom(e.target.value)} placeholder="DD-M-YYYY"/></div>
-        <div><L>To</L><I value={bookingTo} onChange={e=>setBookingTo(e.target.value)} placeholder="DD-M-YYYY"/></div>
+        <div><L>To</L><I type="date" value={toIsoInput(bookingTo)} onChange={e=>setBookingTo(normDateR(e.target.value))}/></div>
       </div>
       {/* #13: receipt date */}
-      <L>Receipt date</L><I value={receiptDate} onChange={e=>setReceiptDate(e.target.value)} placeholder="DD-M-YYYY"/>
+      <L>Receipt date</L><I type="date" value={toIsoInput(receiptDate)} onChange={e=>setReceiptDate(normDateR(e.target.value))}/>
       <L>Fee (₹)</L><I type="number" value={fee} onChange={e=>setFee(e.target.value)}/>
       {shiftChanged&&(
         <div className="mt-1 mb-1 text-[11px] font-semibold text-lma-warn bg-lma-warn/10 rounded-lg px-2.5 py-1.5">

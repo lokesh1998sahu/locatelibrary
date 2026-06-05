@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useLMA, useScopeChips, type LMAInitData as InitData } from "../layout";
+import { fmtDMY } from "../_lib/dates";
 
 const API = "/api/lma";
 
@@ -175,7 +176,7 @@ function QueueCard({ it, router, onCancel, onDoNotRenew }:{ it:QueueItem; router
         <span>{it.library}{it.branch?`/${it.branch}`:""}</span>
         <span>· Seat {it.seat_no||"—"}</span>
         <span>· {it.shift_name||it.shift}</span>
-        <span>· till {it.booking_to}</span>
+        <span>· till {fmtDMY(it.booking_to)}</span>
         {it.fees_due_balance>0&&<span className="font-bold text-lma-danger">· Due ₹{it.fees_due_balance}</span>}
       </div>
       <div className="grid grid-cols-3 gap-2 mt-2.5">

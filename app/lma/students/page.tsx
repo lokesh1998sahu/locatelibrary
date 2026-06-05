@@ -3,9 +3,11 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import Link from "next/link";
 import { useLMA } from "../layout";
+import { fmtDMY, toIsoInput } from "../_lib/dates";
 
 const API = "/api/lma";
 const PAGE_SIZE = 50;
+
 
 // ── TYPES ─────────────────────────────────────────────────────────
 interface PhoneEntry { number:string; tag:string; }
@@ -377,7 +379,7 @@ function StudentDetail({ student, librariesMap, branchesMap, onEdit, onDelete, o
         {student.preparing_for && <DetailRow label="Preparing For">{student.preparing_for}</DetailRow>}
         {student.aadhaar_last4 && <DetailRow label="Aadhaar (last 4)">●●●●-{student.aadhaar_last4}</DetailRow>}
         {student.date_of_birth && <DetailRow label="DOB">{student.date_of_birth}</DetailRow>}
-        {student.added_on && <DetailRow label="Added">{student.added_on}</DetailRow>}
+        {student.added_on && <DetailRow label="Added">{fmtDMY(student.added_on)}</DetailRow>}
       </div>
 
       <div className="flex gap-2">
@@ -489,7 +491,7 @@ function StudentForm({ libraries, branches, initial, onCancel, onSubmit }:{ libr
         </div>
         <div>
           <Label>Date of Birth</Label>
-          <Input value={f.date_of_birth} onChange={e=>setF({...f, date_of_birth:e.target.value})} placeholder="DD-MM-YYYY"/>
+          <Input type="date" value={toIsoInput(f.date_of_birth)} onChange={e=>setF({...f, date_of_birth:e.target.value})}/>
         </div>
       </div>
 

@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
 import { useLMA, useScopeChips, type LMAInitData as InitData } from "../layout";
+import { fmtDMY } from "../_lib/dates";
 
 const API = "/api/lma";
 
@@ -133,7 +134,7 @@ export default function DuesPage(){
                   <span className="text-sm font-extrabold text-lma-danger ml-auto">₹{d.fees_due_balance}</span>
                 </div>
                 <div className="text-sm font-semibold text-lma-slate-800 truncate">{d.name}</div>
-                <div className="text-[11px] text-lma-slate-500 mt-0.5">{d.library}{d.branch?`/${d.branch}`:""} · Seat {d.seat_no||"—"} · {d.shift_name||d.shift} · till {d.booking_to}</div>
+                <div className="text-[11px] text-lma-slate-500 mt-0.5">{d.library}{d.branch?`/${d.branch}`:""} · Seat {d.seat_no||"—"} · {d.shift_name||d.shift} · till {fmtDMY(d.booking_to)}</div>
                 <div className="grid grid-cols-2 gap-2 mt-2.5">
                   <button onClick={()=>setPayFor(d)} className="py-2 rounded-lg bg-lma-accent/10 text-lma-accent font-bold text-xs">Log Payment</button>
                   <button onClick={()=>setIrrecFor(d)} className="py-2 rounded-lg bg-lma-slate-100 text-lma-slate-600 font-bold text-xs">Write Off</button>
@@ -154,7 +155,7 @@ export default function DuesPage(){
                   {p.name&&<span className="text-[11px] text-lma-slate-500 truncate">{p.name}</span>}
                   <span className="text-sm font-extrabold text-lma-accent ml-auto">+₹{p.amount_received}</span>
                 </div>
-                <div className="text-[11px] text-lma-slate-500">{p.payment_mode} · {p.received_on} · ₹{p.balance_before}→₹{p.balance_after}</div>
+                <div className="text-[11px] text-lma-slate-500">{p.payment_mode} · {fmtDMY(p.received_on)} · ₹{p.balance_before}→₹{p.balance_after}</div>
                 {p.notes&&<div className="text-[11px] text-lma-slate-400 mt-0.5">{p.notes}</div>}
                 {p.whatsapp_text&&<button onClick={()=>{navigator.clipboard.writeText(p.whatsapp_text);showToast("Copied receipt message");}} className="mt-2 py-1.5 px-3 rounded-lg bg-lma-accent/10 text-lma-accent font-bold text-xs">Copy WhatsApp</button>}
               </div>

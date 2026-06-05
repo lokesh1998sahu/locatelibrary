@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
 import { useLMA, useScopeChips, type LMAInitData as InitData } from "../layout";
+import { fmtDMY, toIsoInput } from "../_lib/dates";
 
 const API = "/api/lma";
 
@@ -112,7 +113,7 @@ export default function RefundsPage(){
                 <span className="text-sm font-extrabold text-lma-danger ml-auto">−₹{r.amount}</span>
               </div>
               <div className="text-sm font-semibold text-lma-slate-800 truncate">{r.name} <span className="text-[10px] font-bold text-lma-slate-400">{r.student_id}</span></div>
-              <div className="text-[11px] text-lma-slate-500 mt-0.5">{r.library}{r.branch?`/${r.branch}`:""} · vs {r.original_receipt_no} · {r.refund_mode} · {r.refund_date}</div>
+              <div className="text-[11px] text-lma-slate-500 mt-0.5">{r.library}{r.branch?`/${r.branch}`:""} · vs {r.original_receipt_no} · {r.refund_mode} · {fmtDMY(r.refund_date)}</div>
               {r.refund_reason&&<div className="text-[11px] text-lma-slate-400 mt-0.5">{r.refund_reason}</div>}
               <div className="grid grid-cols-3 gap-2 mt-2.5">
                 <button onClick={()=>setViewFor(r)} className="py-2 rounded-lg bg-lma-slate-100 text-lma-slate-600 font-bold text-xs">View</button>
@@ -149,7 +150,7 @@ export default function RefundsPage(){
           <Row k="Mode" v={`${viewFor.refund_mode} (${viewFor.refund_fees_mode})`}/>
           <Row k="Against receipt" v={viewFor.original_receipt_no}/>
           <Row k="Library" v={`${viewFor.library}${viewFor.branch?`/${viewFor.branch}`:""}`}/>
-          <Row k="Date" v={viewFor.refund_date}/>
+          <Row k="Date" v={fmtDMY(viewFor.refund_date)}/>
           <Row k="Type" v={viewFor.linked_to_cancellation?"From cancellation":"Standalone"}/>
           {viewFor.refund_reason&&<Row k="Reason" v={viewFor.refund_reason}/>}
           {viewFor.refund_whatsapp_text&&(
@@ -289,7 +290,7 @@ function IssueForm({ init, onCancel, post, onDone }:{ init:InitData; onCancel:()
                     <span className="text-[10px] text-lma-slate-400 ml-auto">{rc.library}{rc.branch?`/${rc.branch}`:""}</span>
                   </div>
                   <div className="text-sm font-semibold text-lma-slate-800 truncate">{rc.name}</div>
-                  <div className="text-[11px] text-lma-slate-500 mt-0.5">{rc.shift_name||rc.shift}{rc.seat_no?` · seat ${rc.seat_no}`:""}{rc.booking_to?` · till ${rc.booking_to}`:""}{rc.phone?` · 📱 ${rc.phone}`:""}</div>
+                  <div className="text-[11px] text-lma-slate-500 mt-0.5">{rc.shift_name||rc.shift}{rc.seat_no?` · seat ${rc.seat_no}`:""}{rc.booking_to?` · till ${fmtDMY(rc.booking_to)}`:""}{rc.phone?` · 📱 ${rc.phone}`:""}</div>
                 </div>
                 <span className="text-lma-slate-400">›</span>
               </button>
@@ -317,7 +318,7 @@ function IssueForm({ init, onCancel, post, onDone }:{ init:InitData; onCancel:()
 
           <div className="grid grid-cols-2 gap-3">
             <div><L>Amount (₹)</L><I type="number" value={amount} onChange={e=>setAmount(e.target.value)} autoFocus/></div>
-            <div><L>Date</L><I value={date} onChange={e=>setDate(e.target.value)} placeholder="DD-M-YYYY"/></div>
+            <div><L>Date</L><I type="date" value={toIsoInput(date)} onChange={e=>setDate(e.target.value)}/></div>
           </div>
           <L>Refund Mode</L>
           <select value={mode} onChange={e=>setMode(e.target.value)} className="w-full px-3 py-2.5 rounded-xl border-[1.5px] border-lma-slate-200 bg-lma-slate-50 text-sm font-medium">

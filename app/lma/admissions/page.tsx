@@ -4,6 +4,7 @@ import { useState, useEffect, useMemo, useRef, Suspense } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useLMA, type LMAInitData as InitData } from "../layout";
+import { toDmy } from "../_lib/dates";
 
 const API = "/api/lma";
 
@@ -40,15 +41,8 @@ function normalizePhone(input:string):string{
 
 // ── #19: TOLERANT DATE NORMALIZER ────────────────────────────────
 // Handles: DMY, ISO, GMT/IST strings, locale-formatted dates. Returns DD-M-YYYY.
-function normDate(v:string):string{
-  if(!v)return"";
-  if(typeof v!=="string")v=String(v);
-  if(/^\d{1,2}-\d{1,2}-\d{4}$/.test(v))return v;
-  if(/^\d{4}-\d{2}-\d{2}$/.test(v)){const p=v.split("-");return `${+p[2]}-${+p[1]}-${p[0]}`;}
-  // try JS Date as fallback (handles GMT/IST/locale strings)
-  try{const d=new Date(v); if(!isNaN(d.getTime()))return `${d.getDate()}-${d.getMonth()+1}-${d.getFullYear()}`;}catch{}
-  return v; // give back as-is if unparseable
-}
+// Delegates to the shared toDmy implementation.
+const normDate = toDmy;
 
 export default function AdmissionsPage(){
   return (

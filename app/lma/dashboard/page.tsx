@@ -23,6 +23,9 @@ interface Dash {
 // ── date helpers (local, dd-mm-yyyy <-> Date) ──
 const pad=(n:number)=>("0"+n).slice(-2);
 const toDmy=(d:Date)=>`${d.getDate()}-${d.getMonth()+1}-${d.getFullYear()}`;
+const _MON=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+const fmtDMY=(iso:string)=>{const p=String(iso).slice(0,10).split("-");return p.length===3?`${+p[2]}-${_MON[+p[1]-1]}-${p[0]}`:iso;};
+const fmtDM=(iso:string)=>{const p=String(iso).slice(0,10).split("-");return p.length===3?`${+p[2]}-${_MON[+p[1]-1]}`:iso;};
 const fmtINR=(n:number)=>"₹"+Math.round(n).toLocaleString("en-IN");
 const fmtShort=(n:number)=>{ const a=Math.abs(n); if(a>=100000)return (n/100000).toFixed(a>=1000000?0:1)+"L"; if(a>=1000)return (n/1000).toFixed(a>=10000?0:1)+"k"; return String(Math.round(n)); };
 
@@ -211,14 +214,14 @@ function DailyChart({daily}:{daily:DailyPt[]}){
         {daily.map((d,i)=>{
           const h=Math.max((d.net/max)*40,d.net>0?0.6:0);
           const x=i*barW+barW*0.15, w=barW*0.7;
-          return <rect key={i} x={x} y={40-h} width={w} height={h} rx="0.4" fill={d.net===peak.net?"#4f46e5":"#a5b4fc"}><title>{d.date}: {fmtINR(d.net)}</title></rect>;
+          return <rect key={i} x={x} y={40-h} width={w} height={h} rx="0.4" fill={d.net===peak.net?"#4f46e5":"#a5b4fc"}><title>{fmtDMY(d.date)}: {fmtINR(d.net)}</title></rect>;
         })}
         <line x1="0" x2="100" y1="40" y2="40" stroke="#e2e8f0" strokeWidth="0.5"/>
       </svg>
       <div className="flex justify-between text-[9px] text-lma-slate-400 font-medium mt-1">
-        <span>{daily[0].date.slice(5)}</span>
-        <span className="text-lma-slate-500">Peak {peak.date.slice(5)} · {fmtINR(peak.net)}</span>
-        <span>{daily[daily.length-1].date.slice(5)}</span>
+        <span>{fmtDM(daily[0].date)}</span>
+        <span className="text-lma-slate-500">Peak {fmtDM(peak.date)} · {fmtINR(peak.net)}</span>
+        <span>{fmtDM(daily[daily.length-1].date)}</span>
       </div>
     </div>
   );
