@@ -176,6 +176,10 @@ export default function BoardPage(){
       <header className="flex items-center gap-3 mb-3">
         <Link href="/lma" className="text-xl text-lma-slate-600 hover:text-lma-slate-900">←</Link>
         <div className="flex-1"><h1 className="text-xl font-extrabold tracking-tight text-lma-slate-900">Seat Chart</h1><p className="text-[11px] text-lma-slate-500 font-medium">{resolved.label}</p></div>
+        <div className="inline-flex items-center rounded-lg bg-lma-slate-100 overflow-hidden">
+          <button onClick={()=>setZoomPx(z=> z===0?0:(z<=44?0:z-14))} disabled={zoomPx===0} className="px-2.5 py-2 text-sm font-extrabold text-lma-slate-600 disabled:opacity-40">−</button>
+          <button onClick={()=>setZoomPx(z=> z===0?44:Math.min(z+14,100))} className="px-2.5 py-2 text-sm font-extrabold text-lma-primary">+</button>
+        </div>
         <button onClick={loadBoard} disabled={loading} className="text-xs font-bold px-3 py-2 rounded-lg bg-lma-slate-100 text-lma-slate-600 disabled:opacity-50">{loading?"...":"↻"}</button>
         <button onClick={downloadPng} disabled={exporting||!board} className="text-xs font-bold px-3 py-2 rounded-lg bg-lma-primary text-white disabled:opacity-50">{exporting?"...":"⬇ PNG"}</button>
       </header>
@@ -212,13 +216,6 @@ export default function BoardPage(){
             <div className="text-[10px] text-lma-slate-500">{new Date().toLocaleDateString()} · {shiftView==="ALL"?"All shifts":shiftView}</div>
           </div>
 
-          <div className="flex justify-end mb-1.5">
-            <div className="inline-flex items-center rounded-full border border-lma-slate-200 bg-white overflow-hidden text-[11px] leading-none">
-              <button onClick={()=>setZoomPx(z=> z===0?0:(z<=44?0:z-14))} disabled={zoomPx===0} className="px-2.5 py-1 text-lma-slate-600 font-extrabold disabled:opacity-40">−</button>
-              <span className="px-1.5 font-bold text-lma-slate-500 min-w-[30px] text-center">{zoomPx===0?"Fit":zoomPx}</span>
-              <button onClick={()=>setZoomPx(z=> z===0?44:Math.min(z+14,100))} className="px-2.5 py-1 text-lma-primary font-extrabold">+</button>
-            </div>
-          </div>
           {board.sections.sort((a,b)=>a.section_order-b.section_order).map(sec=>(
             <div key={sec.section_name} className="mb-4">
               {board.sections.length>1&&<div className="text-[11px] font-bold text-lma-slate-500 mb-1.5">{sec.section_name}</div>}
@@ -756,7 +753,7 @@ function DetailedExport({ board, label, shiftView }:{ board:BoardResp; label:str
 
     // number band (middle) — transparent when fully vacant so wrapper's dark fill shows uninterrupted
     const numberBand=(
-      <div style={{flexShrink:0,minHeight:"30px",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",background: vacantTile?"transparent":"#fff",padding:"2px 0"}}>
+      <div style={{flexShrink:0,minHeight:"30px",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",background: vacantTile?"transparent":"#fff",padding:"0px 0px 6px"}}>
         <span style={{fontWeight:900,fontSize:"24px",color:"#0f172a",lineHeight:1}}>{cell.display_label}</span>
         {notesText && <span style={{fontSize:"8px",fontWeight:700,color:"#94a3b8",lineHeight:1,marginTop:"1px",maxWidth:"100%",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{notesText}</span>}
       </div>
