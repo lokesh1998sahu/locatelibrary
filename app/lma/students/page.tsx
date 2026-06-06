@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import Link from "next/link";
-import { useLMA } from "../layout";
+import { useLMA } from "../_components/LMAProvider";
 import { fmtDMY, toIsoInput } from "../_lib/dates";
 
 const API = "/api/lma";

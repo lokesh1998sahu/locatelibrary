@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useLMA, useScopeChips, type LMAInitData as InitData } from "../layout";
+import { useLMA, useScopeChips, type LMAInitData as InitData } from "../_components/LMAProvider";
 import { fmtDMY } from "../_lib/dates";
 
 const API = "/api/lma";

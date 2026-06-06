@@ -3,7 +3,7 @@
 import { useState, useEffect, useMemo, useRef, Suspense } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { useLMA, type LMAInitData as InitData } from "../layout";
+import { useLMA, type LMAInitData as InitData } from "../_components/LMAProvider";
 import { toDmy } from "../_lib/dates";
 
 const API = "/api/lma";

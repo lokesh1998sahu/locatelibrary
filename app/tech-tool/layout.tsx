@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import TechToolNav from "@/components/TechToolNav";
+import TechToolPwaRegister from "./_components/TechToolPwaRegister";
 
 export const metadata: Metadata = {
   title: "Tech Tools — Locate Library",
@@ -21,5 +22,10 @@ export const viewport: Viewport = {
 };
 
 export default function TechToolLayout({ children }: { children: React.ReactNode }) {
-  return <>{children}</>;
+  return (
+    <>
+      <TechToolPwaRegister />
+      {children}
+    </>
+  );
 }

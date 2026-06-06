@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import Link from "next/link";
-import { useLMA, useScopeChips, type LMAInitData as InitData } from "../layout";
+import { useLMA, useScopeChips, type LMAInitData as InitData } from "../_components/LMAProvider";
 import { fmtDMY, toIsoInput, daysFromToday, toDmy } from "../_lib/dates";
 
 const API = "/api/lma";

@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
-import { useLMA, useScopeChips } from "../layout";
+import { useLMA, useScopeChips } from "../_components/LMAProvider";
 
 const API = "/api/lma";
 

@@ -2,6 +2,7 @@
   "name": "Tech Tools — Locate Library",
   "short_name": "Tech Tools",
   "description": "Internal tools dashboard for Locate Library",
+  "id": "/tech-tool",
   "start_url": "/tech-tool",
   "scope": "/tech-tool",
   "display": "standalone",

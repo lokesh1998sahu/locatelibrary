@@ -2,9 +2,10 @@
 // Served from /whatsapp/sw.js and registered with scope:"/whatsapp".
 // It will not touch /lma or any other app on this domain.
 const CACHE = 'wa-open-v1';
+// '/whatsapp/index.html' was removed — it is a Next route, not a static file,
+// so it 404s. The route itself is cached at navigation time by the fetch handler.
 const ASSETS = [
-  '/whatsapp/',
-  '/whatsapp/index.html',
+  '/whatsapp',
   '/whatsapp/manifest.json'
 ];
 

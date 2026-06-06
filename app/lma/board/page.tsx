@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useLMA, useScopeChips } from "../layout";
+import { useLMA, useScopeChips } from "../_components/LMAProvider";
 
 const API = "/api/lma";
 
@@ -13,6 +13,7 @@ interface Occupant {
   receipt_no:string; student_id:string; name:string; shift:string; shift_name:string;
   booking_to:string; fees_due_balance:number; dues_status:string; is_cross_library:string;
   color:"OK"|"EXPIRING"|"EXPIRED";
+  urgent?:boolean;   // B1: within PRIMARY window → darkest-red text
   has_dues?:boolean;
   temporary_seat?:string;
 }
@@ -22,8 +23,9 @@ interface BlockInfo {
   block_id:string;
   reason:string;
   shift:string; // shift_blocked normalized
-  block_from?:string; // formatted D-M-YYYY (blank if column absent)
+  block_from?:string; // formatted d-MMM-yyyy (blank if column absent)
   block_to?:string;
+  expired?:boolean;   // A3: block_to has passed — block stays active, show hint
 }
 interface BoardCell {
   row_in_section:number; col_in_section:number; seat_no:number; display_label:string; notes:string; cell_type:string;
@@ -50,16 +52,18 @@ type ShiftView = "ALL"|"MORNING"|"EVENING"|"FULL DAY";
 
 const COLOR: Record<string,{bg:string;text:string;border:string;label:string}> = {
   OK:       { bg:"#dcfce7", text:"#15803d", border:"#86efac", label:"OK" },
-  EXPIRING: { bg:"#fee2e2", text:"#b91c1c", border:"#fca5a5", label:"Expiring" },
-  EXPIRED:  { bg:"#7f1d1d", text:"#ffffff", border:"#991b1b", label:"Expired" },
+  EXPIRING:         { bg:"#fee2e2", text:"#b91c1c", border:"#fca5a5", label:"Expiring" },
+  EXPIRING_PRIMARY: { bg:"#dc2626", text:"#ffffff", border:"#7f1d1d", label:"Expiring soon" },
+  EXPIRED:          { bg:"#6b0a0a", text:"#ffffff", border:"#450a0a", label:"Expired" },
   DUES:     { bg:"#fde68a", text:"#92400e", border:"#f59e0b", label:"Dues" },
 };
 const GOLD = "#f59e0b";
 // Resolve an occupant's tile look: expiry decides the FILL; dues shows as a
 // gold FILL when the seat is OK, or a gold RING when Expiring/Expired (so the
 // expiry is never hidden but dues is always visible).
-function occLook(o:{color:"OK"|"EXPIRING"|"EXPIRED";has_dues?:boolean}){
-  const base = COLOR[o.color] || COLOR.OK;
+function occLook(o:{color:"OK"|"EXPIRING"|"EXPIRED";urgent?:boolean;has_dues?:boolean}){
+  const key = (o.color==="EXPIRING" && o.urgent) ? "EXPIRING_PRIMARY" : o.color; // B1: primary window → solid red fill
+  const base = COLOR[key] || COLOR.OK;
   if(o.has_dues && o.color==="OK") return { bg:COLOR.DUES.bg, text:COLOR.DUES.text, border:COLOR.DUES.border, ring:false };
   if(o.has_dues) return { bg:base.bg, text:base.text, border:GOLD, ring:true };  // expiring/expired + dues
   return { bg:base.bg, text:base.text, border:base.border, ring:false };
@@ -323,31 +327,38 @@ function FitText({ text, color="currentColor", maxPx=11 }:{ text:string; color?:
 function SeatTile({ cell, shiftView, onOpen }:{ cell:BoardCell; shiftView:ShiftView; onOpen:()=>void }){
   if(cell.cell_type==="DEAD") return <div className="aspect-square rounded" style={{background:"#f8fafc",border:"1px solid #e2e8f0"}}/>;
 
-  // which occupants are visible given the shift view
-  const showM = (shiftView==="ALL"||shiftView==="MORNING")&&!cell.fullday;
-  const showE = (shiftView==="ALL"||shiftView==="EVENING")&&!cell.fullday;
-  const showF = (shiftView==="ALL"||shiftView==="FULL DAY");
-
-  const fd = showF?cell.fullday:null;
-  const m = showM?cell.morning:null;
-  const e = showE?cell.evening:null;
-
-  // soft-hold: a temp-vacated receipt that parked THIS seat (for a visible shift)
-  const th = cell.temp_held;
-  const heldHolder = th ? (th.fullday||th.morning||th.evening) : null;
-  const heldLabel = heldHolder ? heldHolder.student_id : "";
-
-  // BLOCK info for each shift (null if none on that shift)
+  // TRUE occupancy — NEVER hidden by the shift view (the toggle bug: occupants
+  // were nulled per-view, so taken seats looked vacant/bookable).
   const bi = cell.block_info || { morning:null, evening:null, fullday:null };
-  const bM = showM?bi.morning:null;
-  const bE = showE?bi.evening:null;
-  const bF = showF?bi.fullday:null;
+  const fd = cell.fullday;          // full-day booking → occupies whole seat
+  const bF = bi.fullday;            // full-day block
+  const m  = cell.morning, e  = cell.evening;
+  const bM = bi.morning,   bE = bi.evening;
 
-  // FULL DAY occupant fills whole tile (unchanged path)
+  // soft-hold: a temp-vacated receipt parked on THIS seat, tracked PER SHIFT.
+  // (A2: full-day vacate holds BOTH halves; an evening vacate must affect the
+  //  LOWER half only — never the whole tile.)
+  const th = cell.temp_held;
+  const heldFD = th ? th.fullday : null;
+  const heldM  = th ? (th.morning || th.fullday) : null;
+  const heldE  = th ? (th.evening || th.fullday) : null;
+
+  // Bookability for the SELECTED shift (Morning + Evening = Full Day).
+  const morningFree = !fd && !bF && !m && !bM;
+  const eveningFree = !fd && !bF && !e && !bE;
+  const bookableForView =
+      shiftView==="MORNING"  ? morningFree :
+      shiftView==="EVENING"  ? eveningFree :
+      shiftView==="FULL DAY" ? (morningFree && eveningFree) :
+      true; // ALL → no filtering
+  const dim = shiftView!=="ALL" && !bookableForView;
+  const dimStyle = dim ? { opacity:0.32 } : null;
+
+  // FULL DAY occupant fills whole tile
   if(fd){
     const col=occLook(fd);
     return (
-      <button onClick={onOpen} className="aspect-square rounded flex flex-col items-center justify-center overflow-hidden px-0.5" style={{background:col.bg,color:col.text,border:col.ring?`2px solid ${col.border}`:`1px solid ${col.border}`,boxShadow:col.ring?`inset 0 0 0 1px ${col.border}`:undefined}}>
+      <button onClick={onOpen} className="aspect-square rounded flex flex-col items-center justify-center overflow-hidden px-0.5" style={{background:col.bg,color:col.text,border:col.ring?`2px solid ${col.border}`:`1px solid ${col.border}`,boxShadow:col.ring?`inset 0 0 0 1px ${col.border}`:undefined,...dimStyle}}>
         <span className="text-[10px] font-extrabold leading-none">{cell.display_label}</span>
         <div className="w-full px-0.5 mt-0.5"><FitText text={shortDate(fd.booking_to)} color={col.text} maxPx={11}/></div>
       </button>
@@ -359,8 +370,8 @@ function SeatTile({ cell, shiftView, onOpen }:{ cell:BoardCell; shiftView:ShiftV
     return (
       <button onClick={onOpen} className="aspect-square rounded flex flex-col items-center justify-center overflow-hidden px-0.5" style={{
         background: "repeating-linear-gradient(45deg,#fecaca,#fecaca 4px,#fee2e2 4px,#fee2e2 8px)",
-        border: "1.5px solid #b91c1c",
-        color: "#7f1d1d"
+        border: bF.expired?"1.5px dashed #b91c1c":"1.5px solid #b91c1c",
+        color: "#7f1d1d", ...dimStyle
       }}>
         <span className="text-[10px] font-extrabold leading-none">{cell.display_label}</span>
         <div className="w-full px-0.5 mt-0.5"><FitText text={shortDate(bF.block_to||"")||"BLK"} color="#7f1d1d" maxPx={11}/></div>
@@ -371,43 +382,45 @@ function SeatTile({ cell, shiftView, onOpen }:{ cell:BoardCell; shiftView:ShiftV
   // split tile: upper morning, lower evening
   const mCol = m?occLook(m):null;
   const eCol = e?occLook(e):null;
-  const vacant = !m&&!e&&!bM&&!bE;
-  const softHeld = vacant && !!heldLabel;
+  const vacant = !m&&!e&&!bM&&!bE&&!heldM&&!heldE;   // truly empty (nothing booked/blocked/parked)
+  const bothHeld = !!heldFD || (!!heldM && !!heldE); // whole-tile hold only when full-day or both halves parked
 
-
-  const halfStyle=(occCol:any, blk:BlockInfo|null)=>{
+  const halfStyle=(occCol:any, blk:BlockInfo|null, held:any)=>{
     if(blk){
       return {
         background: "repeating-linear-gradient(45deg,#fecaca,#fecaca 3px,#fee2e2 3px,#fee2e2 6px)",
         color: "#7f1d1d",
+        outline: blk.expired?"1.5px dashed #7f1d1d":undefined,
+        outlineOffset: "-2px",
       };
     }
     if(occCol) return {background:occCol.bg,color:occCol.text,boxShadow:occCol.ring?`inset 0 0 0 2px ${occCol.border}`:undefined};
+    if(held) return {background:"#fffbeb",color:"#b45309",boxShadow:"inset 0 0 0 1.5px #f59e0b"}; // soft-hold on THIS half only
     return (!vacant?{background:"rgba(0,0,0,0.08)",color:"#475569"}:{color:"#cbd5e1"});
   };
-  const halfText=(occ:Occupant|null, blk:BlockInfo|null, defaultDot:string)=>{
+  const halfText=(occ:Occupant|null, blk:BlockInfo|null, held:any, defaultDot:string)=>{
     if(occ) return <div className="w-full px-0.5"><FitText text={shortDate(occ.booking_to)} maxPx={9}/></div>;
     if(blk) return <div className="w-full px-0.5"><FitText text={shortDate(blk.block_to||"")||"BLK"} color="#7f1d1d" maxPx={9}/></div>;
-    if(softHeld) return <div className="w-full px-0.5"><FitText text={heldLabel} color="#b45309" maxPx={9}/></div>;
+    if(held) return <div className="w-full px-0.5"><FitText text={held.student_id} color="#b45309" maxPx={9}/></div>;
     return defaultDot;
   };
 
   return (
     <div className="aspect-square rounded overflow-hidden flex flex-col" style={{
-      border: softHeld?"1.5px dashed #f59e0b":(vacant?"1.5px solid rgba(0,0,0,0.5)":"1px solid #cbd5e1"),
-      background: softHeld?"#fffbeb":(vacant?"rgba(0,0,0,0.06)":"#fff")
+      border: bothHeld?"1.5px dashed #f59e0b":(vacant?"1.5px solid rgba(0,0,0,0.5)":"1px solid #cbd5e1"),
+      background: bothHeld?"#fffbeb":(vacant?"rgba(0,0,0,0.06)":"#fff"),
+      ...dimStyle
     }}>
-      <button onClick={onOpen} className="flex-1 flex items-center justify-center text-[7px] font-bold leading-none" style={halfStyle(mCol,bM)}>
-        {halfText(m,bM,(shiftView==="ALL"||shiftView==="MORNING")?"·":"") }
+      <button onClick={onOpen} className="flex-1 flex items-center justify-center text-[7px] font-bold leading-none" style={halfStyle(mCol,bM,heldM)}>
+        {halfText(m,bM,heldM,(shiftView==="ALL"||shiftView==="MORNING")?"·":"") }
       </button>
       <button onClick={onOpen} className="text-[9px] font-extrabold text-lma-slate-700 leading-none py-0.5">{cell.display_label}</button>
-      <button onClick={onOpen} className="flex-1 flex items-center justify-center text-[7px] font-bold leading-none" style={halfStyle(eCol,bE)}>
-        {halfText(e,bE,(shiftView==="ALL"||shiftView==="EVENING")?"·":"") }
+      <button onClick={onOpen} className="flex-1 flex items-center justify-center text-[7px] font-bold leading-none" style={halfStyle(eCol,bE,heldE)}>
+        {halfText(e,bE,heldE,(shiftView==="ALL"||shiftView==="EVENING")?"·":"") }
       </button>
     </div>
   );
 }
-
 // ── SIDE PANEL ───────────────────────────────────────────────────
 function SidePanel({ title, items, emoji, onReAllot, onTap }:{ title:string; items:SidePanelItem[]; emoji:string; onReAllot?:(it:SidePanelItem)=>void; onTap?:(it:SidePanelItem)=>void }){
   if(!items||items.length===0) return null;
@@ -415,7 +428,8 @@ function SidePanel({ title, items, emoji, onReAllot, onTap }:{ title:string; ite
   // Dues = gold FILL when otherwise OK; gold RING when expiring/expired.
   const look=(it:SidePanelItem)=>{
     const dueGold = it.has_dues;
-    if(it.color==="EXPIRED")  return { bg:"#7f1d1d", fg:"#ffffff", sub:"rgba(255,255,255,0.75)", ring:dueGold?"#f59e0b":"" };
+    if(it.color==="EXPIRED")  return { bg:"#6b0a0a", fg:"#ffffff", sub:"rgba(255,255,255,0.78)", ring:dueGold?"#f59e0b":"" };
+    if(it.color==="EXPIRING" && (it as any).urgent) return { bg:"#dc2626", fg:"#ffffff", sub:"rgba(255,255,255,0.85)", ring:dueGold?"#f59e0b":"" };
     if(it.color==="EXPIRING") return { bg:"#fee2e2", fg:"#991b1b", sub:"#b91c1c", ring:dueGold?"#f59e0b":"" };
     if(dueGold)               return { bg:"#fde68a", fg:"#92400e", sub:"#a16207", ring:"" };
     return { bg:"#dcfce7", fg:"#15803d", sub:"#16a34a", ring:"" };
@@ -663,14 +677,16 @@ function DetailSheet({ cell, panel, onClose, router, scope, lib, branch, post, s
 function DetailedExport({ board, label, shiftView }:{ board:BoardResp; label:string; shiftView:ShiftView }){
   const EXPORT_COLOR: Record<string,{bg:string;text:string;border:string}> = {
     OK:       { bg:"#dcfce7", text:"#15803d", border:"#86efac" },
-    EXPIRING: { bg:"#fee2e2", text:"#b91c1c", border:"#fca5a5" },
-    EXPIRED:  { bg:"#7f1d1d", text:"#ffffff", border:"#991b1b" },
+    EXPIRING:         { bg:"#fee2e2", text:"#b91c1c", border:"#fca5a5" },
+    EXPIRING_PRIMARY: { bg:"#dc2626", text:"#ffffff", border:"#7f1d1d" },
+    EXPIRED:          { bg:"#6b0a0a", text:"#ffffff", border:"#450a0a" },
     DUES:     { bg:"#fde68a", text:"#92400e", border:"#f59e0b" },
   };
   const EXPORT_GOLD = "#f59e0b";
   // Export look: expiry = fill; dues = gold fill when OK, else gold ring.
   function exLook(o:Occupant){
-    const base = EXPORT_COLOR[o.color] || EXPORT_COLOR.OK;
+    const key = (o.color==="EXPIRING" && o.urgent) ? "EXPIRING_PRIMARY" : o.color; // B1: primary → solid red fill
+    const base = EXPORT_COLOR[key] || EXPORT_COLOR.OK;
     if(o.has_dues && o.color==="OK") return { bg:EXPORT_COLOR.DUES.bg, text:EXPORT_COLOR.DUES.text, ring:false };
     if(o.has_dues) return { bg:base.bg, text:base.text, ring:true };
     return { bg:base.bg, text:base.text, ring:false };

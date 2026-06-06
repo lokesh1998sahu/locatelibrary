@@ -15,7 +15,12 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "Locate Library",
   description: "Discover and book premium study libraries near you.",
-  manifest: "/manifest.json",
+  // NOTE: intentionally NO `manifest` here. The root site (/) is not a PWA.
+  // Each sub-app (/lma, /whatsapp, /tech-tool) declares its OWN manifest in its
+  // own layout, so it installs as an independent app. A root manifest used to
+  // point at a non-existent /manifest.json — causing a 404 on every sub-app
+  // that inherited it ("No manifest detected" on /lma) and risking accidental
+  // install of the root website.
 };
 
 export const viewport: Viewport = {

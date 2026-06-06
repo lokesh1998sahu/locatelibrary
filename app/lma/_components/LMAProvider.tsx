@@ -11,11 +11,10 @@
 // triggered on page A stay visible after navigating away.
 //
 // NOTE: This used to live in app/lma/layout.tsx. It was split out so the
-// layout can be a SERVER component that exports `viewport.themeColor`
-// (#6366f1 indigo) — a `"use client"` file can't export viewport. The
-// thin server `app/lma/layout.tsx` re-exports `useLMA`, `useScopeChips`
-// and the types below so existing page imports (`from "../layout"`) keep
-// working unchanged.
+// layout can be a pure SERVER component that exports `metadata` (manifest
+// link) and `viewport.themeColor` (#6366f1 indigo) — a `"use client"` file
+// can't export those. Pages import the hooks and types below directly from
+// this module (e.g. `from "../_components/LMAProvider"`).
 
 import { createContext, useContext, useEffect, useState, useCallback, useRef, useMemo, ReactNode } from "react";
 import TechToolNav from "@/components/TechToolNav";
