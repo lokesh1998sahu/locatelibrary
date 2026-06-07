@@ -51,9 +51,9 @@ interface BoardResp {
 type ShiftView = "ALL"|"MORNING"|"EVENING"|"FULL DAY";
 
 const COLOR: Record<string,{bg:string;text:string;border:string;label:string}> = {
-  OK:       { bg:"#dcfce7", text:"#15803d", border:"#86efac", label:"OK" },
+  OK:       { bg:"#dcfce7", text:"#15803d", border:"#86efac", label:"Occupied" },
   EXPIRING:         { bg:"#fee2e2", text:"#b91c1c", border:"#fca5a5", label:"Expiring" },
-  EXPIRING_PRIMARY: { bg:"#dc2626", text:"#ffffff", border:"#7f1d1d", label:"Expiring soon" },
+  EXPIRING_PRIMARY: { bg:"#dc2626", text:"#ffffff", border:"#7f1d1d", label:"Expiring Soon" },
   EXPIRED:          { bg:"#6b0a0a", text:"#ffffff", border:"#450a0a", label:"Expired" },
   DUES:     { bg:"#fde68a", text:"#92400e", border:"#f59e0b", label:"Dues" },
 };
@@ -203,9 +203,9 @@ export default function BoardPage(){
       </div>
 
       {/* legend */}
-      <div className="flex gap-2 mb-3 flex-wrap text-[10px] text-lma-slate-500">
-        {Object.entries(COLOR).map(([k,v])=>(<span key={k} className="flex items-center gap-1"><span className="w-3 h-3 rounded inline-block" style={{background:v.bg,border:`1px solid ${v.border}`}}></span>{v.label}</span>))}
-        <span className="flex items-center gap-1"><span className="w-3 h-3 rounded inline-block bg-lma-slate-100 border border-lma-slate-200"></span>Vacant</span>
+      <div className="flex gap-3 mb-3 text-[10px] text-lma-slate-500 overflow-x-auto whitespace-nowrap pb-1">
+        {(["OK","EXPIRING_PRIMARY","EXPIRING","EXPIRED","DUES"] as const).map((k)=>{const v=COLOR[k];return (<span key={k} className="flex items-center gap-1"><span className="w-3 h-3 rounded inline-block" style={{background:v.bg,border:`1px solid ${v.border}`}}></span>{v.label}</span>);})}
+        <span className="flex items-center gap-1 shrink-0"><span className="w-3 h-3 rounded inline-block" style={{background:"repeating-linear-gradient(45deg,#fecaca,#fecaca 2px,#fee2e2 2px,#fee2e2 4px)",border:"1px solid #b91c1c"}}></span>Blocked</span><span className="flex items-center gap-1 shrink-0"><span className="w-3 h-3 rounded inline-block bg-lma-slate-100 border border-lma-slate-200"></span>Vacant</span>
       </div>
 
       {loading&&!board?(
@@ -755,7 +755,7 @@ function DetailedExport({ board, label, shiftView }:{ board:BoardResp; label:str
       }
       if(blk){
         return (
-          <div style={{height:"100%",width:"100%",background:"repeating-linear-gradient(45deg,#fecaca,#fecaca 6px,#fee2e2 6px,#fee2e2 12px)",borderRadius:"4px",padding:"5px 7px",display:"flex",flexDirection:"column",boxSizing:"border-box",overflow:"hidden",border:"1px solid #f87171"}}>
+          <div style={{height:"100%",width:"100%",background:"repeating-linear-gradient(45deg,#fecaca,#fecaca 6px,#fee2e2 6px,#fee2e2 12px)",borderRadius:"4px",padding:"5px 7px",display:"flex",flexDirection:"column",boxSizing:"border-box",overflow:"hidden",border: blk.expired?"2px dashed #b91c1c":"1px solid #f87171"}}>
             {blockRows(blk)}
           </div>
         );
@@ -800,9 +800,9 @@ function DetailedExport({ board, label, shiftView }:{ board:BoardResp; label:str
       const blk=bi.fullday;
       const dates=(blk.block_from||blk.block_to)?`${blk.block_from||"…"} → ${blk.block_to||"…"}`:"";
       return (
-        <div style={{border:"1.5px solid #b91c1c",borderRadius:"8px",overflow:"hidden",height:"100%",display:"flex",flexDirection:"column",background:"repeating-linear-gradient(45deg,#fecaca,#fecaca 6px,#fee2e2 6px,#fee2e2 12px)",color:"#b91c1c",boxSizing:"border-box",padding:"5px 7px"}}>
+        <div style={{border: blk.expired?"2px dashed #b91c1c":"1.5px solid #b91c1c",borderRadius:"8px",overflow:"hidden",height:"100%",display:"flex",flexDirection:"column",background:"repeating-linear-gradient(45deg,#fecaca,#fecaca 6px,#fee2e2 6px,#fee2e2 12px)",color:"#b91c1c",boxSizing:"border-box",padding:"5px 7px"}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",fontSize:"11px",fontWeight:900,gap:"4px",flexShrink:0}}>
-            <span style={{whiteSpace:"nowrap"}}>BLOCKED</span>
+            <span style={{whiteSpace:"nowrap"}}>{blk.expired?"BLOCK ENDED":"BLOCKED"}</span>
             {blk.block_id&&<span style={{whiteSpace:"nowrap",fontSize:"8px",fontWeight:700,opacity:0.85}}>{blk.block_id}</span>}
           </div>
           <div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",fontSize:"12px",fontWeight:800,textAlign:"center",lineHeight:1.25,wordBreak:"break-word",overflow:"hidden",color:"#7f1d1d"}}>{blk.reason||"—"}</div>
