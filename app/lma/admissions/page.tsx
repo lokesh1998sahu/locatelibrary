@@ -235,7 +235,7 @@ function StepStudent({ init, resolvedLib, resolvedBranch, admitType, post, showT
 }){
   // NEW: collect details locally
   const [name,setName]=useState("");
-  const [phones,setPhones]=useState<PhoneEntry[]>([{number:"",tag:"SELF"},{number:"",tag:""},{number:"",tag:""},{number:"",tag:""}]);
+  const [phones,setPhones]=useState<PhoneEntry[]>([{number:"",tag:"SELF"}]);
   const [address,setAddress]=useState("");
   const [preparingFor,setPreparingFor]=useState("");
   const [aadhaar,setAadhaar]=useState("");
@@ -249,9 +249,7 @@ function StepStudent({ init, resolvedLib, resolvedBranch, admitType, post, showT
   const [hasSearched,setHasSearched]=useState(false);
   const [isCross,setIsCross]=useState(false);
   const [crossOrigin,setCrossOrigin]=useState("");
-  // #23: manual entry path
-  const [manualSid,setManualSid]=useState("");
-
+ 
   const searchScope = isCross ? crossOrigin : resolvedBranch || resolvedLib;
 
   const doSearch=async()=>{
@@ -318,21 +316,7 @@ function StepStudent({ init, resolvedLib, resolvedBranch, admitType, post, showT
     onReady({ admitType:"RENEWAL", student, isCross: autoCross||isCross, crossOrigin: autoCross?autoOrigin:(isCross?crossOrigin:""), renewFrom:r });
   };
 
-  // #23: manual student_id path (jump straight to booking with a typed ID, no search needed)
-  const pickManual=async()=>{
-    const sid=manualSid.trim().toUpperCase();
-    if(!sid){ showToast("Enter a Student ID","error"); return; }
-    // Try to fetch their latest receipt for date chaining
-    const params=new URLSearchParams({action:"getReceiptLog",q:sid,search_type:"STUDENT_ID",library:resolvedBranch||resolvedLib,limit:"5"});
-    const r=await fetch(`${API}?${params}`).then(r=>r.json());
-    const renewFrom = (r.ok&&r.receipts&&r.receipts.length)?r.receipts[0]:null;
-    const baseName = renewFrom?renewFrom.name:"";
-    const baseLib = renewFrom?renewFrom.library:resolvedLib;
-    const baseBranch = renewFrom?renewFrom.branch:resolvedBranch;
-    const phonesFromR = renewFrom?(renewFrom.phones||[]):[];
-    const student:Student={ student_id:sid, library:baseLib, branch:baseBranch, name:baseName, phones:phonesFromR, address:"", preparing_for:"", aadhaar_last4:"", date_of_birth:"", is_past:false };
-    onReady({ admitType:"RENEWAL", student, isCross, crossOrigin: isCross?crossOrigin:"", renewFrom });
-  };
+  
 
   return (
     <div className="lma-slide-up">
@@ -351,11 +335,13 @@ function StepStudent({ init, resolvedLib, resolvedBranch, admitType, post, showT
               <input type="tel" inputMode="numeric" value={ph.number}
                 onChange={e=>{const n=[...phones];n[i]={...n[i],number:e.target.value};setPhones(n);}}
                 onBlur={()=>{const n=[...phones];n[i]={...n[i],number:normalizePhone(n[i].number)};setPhones(n);}}
-                placeholder={i===0?"Primary":`Phone ${i+1}`}
+                placeholder={i===0?"SELF (primary)":`Phone ${i+1}`}
                 className="flex-1 px-3 py-2.5 rounded-xl border-[1.5px] border-lma-slate-200 bg-lma-slate-50 text-sm font-medium"/>
               <input value={ph.tag} onChange={e=>{const n=[...phones];n[i]={...n[i],tag:e.target.value.toUpperCase()};setPhones(n);}} placeholder="TAG" className="w-20 px-2 py-2.5 rounded-xl border-[1.5px] border-lma-slate-200 bg-lma-slate-50 text-sm font-medium uppercase"/>
+              {i>0&&<button type="button" onClick={()=>setPhones(phones.filter((_,j)=>j!==i))} className="px-3 rounded-xl bg-lma-slate-100 text-lma-slate-500 font-extrabold text-lg leading-none">×</button>}
             </div>
           ))}
+          <button type="button" onClick={()=>setPhones([...phones,{number:"",tag:""}])} className="text-sm font-bold text-lma-primary mb-3">+ Add phone</button>
           <div className="grid grid-cols-1 gap-0 mt-1">
             <FieldLabel>Address</FieldLabel>
             <Inp value={address} onChange={e=>setAddress(e.target.value.toUpperCase())}/>
@@ -363,7 +349,7 @@ function StepStudent({ init, resolvedLib, resolvedBranch, admitType, post, showT
             <Inp value={preparingFor} onChange={e=>setPreparingFor(e.target.value.toUpperCase())} placeholder="NEET, UPSC…"/>
             <div className="grid grid-cols-2 gap-3">
               <div><FieldLabel>Aadhaar (last 4)</FieldLabel><Inp value={aadhaar} onChange={e=>setAadhaar(e.target.value.replace(/\D/g,"").slice(0,4))} maxLength={4}/></div>
-              <div><FieldLabel>DOB</FieldLabel><Inp value={dob} onChange={e=>setDob(e.target.value)} placeholder="DD-MM-YYYY"/></div>
+              <div><FieldLabel>DOB</FieldLabel><input type="date" value={dob} onChange={e=>setDob(e.target.value)} className="w-full px-3 py-2.5 rounded-xl border-[1.5px] border-lma-slate-200 bg-lma-slate-50 text-sm font-medium"/></div>
             </div>
           </div>
           <button onClick={handleNewNext} className="w-full mt-3 py-3 rounded-xl bg-gradient-to-br from-lma-primary to-lma-primary-2 text-white font-bold shadow-md">Next: Booking →</button>
@@ -443,15 +429,7 @@ function StepStudent({ init, resolvedLib, resolvedBranch, admitType, post, showT
             <div className="text-center text-sm text-lma-slate-500 py-3">No matches.</div>
           )}
 
-          {/* #23: manual entry escape hatch */}
-          <div className="mt-3 bg-white rounded-2xl p-3 shadow-sm border border-dashed border-lma-slate-200">
-            <p className="text-[11px] font-bold text-lma-slate-500 uppercase tracking-wider mb-1.5">Or enter Student ID directly</p>
-            <div className="flex gap-2">
-              <input value={manualSid} onChange={e=>setManualSid(e.target.value.toUpperCase())} placeholder="F123" className="flex-1 px-3 py-2 rounded-lg border border-lma-slate-200 bg-lma-slate-50 text-sm font-medium uppercase"/>
-              <button onClick={pickManual} className="px-4 py-2 rounded-lg bg-lma-slate-100 text-lma-slate-700 font-bold text-sm">Continue →</button>
-            </div>
-            <p className="text-[10px] text-lma-slate-500 mt-1">Useful for past students or when search misses.</p>
-          </div>
+          
         </div>
       )}
     </div>

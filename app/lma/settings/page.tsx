@@ -12,7 +12,7 @@ interface Library    { library_code:string; library_name:string; display_name:st
 interface Branch     { library_code:string; branch_code:string; branch_display:string; active:boolean; emoji?:string; color?:string; }
 interface Shift      { shift_key:string; shift_name:string; shift_time:string; active:boolean; }
 interface PaymentTag { tag_name:string; fees_mode:string; active:boolean; created_at:string; }
-interface LibSettings { library:string; last_student_id:number; last_receipt_no:number; cutoff_student_id:number; cutoff_receipt_no:number; renewal_alert_days:number; }
+interface LibSettings { library:string; last_student_id:number; last_receipt_no:number; cutoff_student_id:number; cutoff_receipt_no:number; renewal_alert_days:number; renewal_alert_days_primary:number; }
 interface InitData   { ok:boolean; libraries:Library[]; branches:Branch[]; fees:Record<string,Record<string,number>>; shifts:Shift[]; paymentTags:PaymentTag[]; activeTags:string[]; settings:Record<string,LibSettings>; }
 
 type Toast = { msg:string; type:"success"|"error" } | null;
@@ -225,7 +225,7 @@ export default function LmaSettingsPage() {
                 >
                   <div className="flex items-center justify-between mb-1.5">
                     <div className="text-sm font-bold text-lma-slate-900">{s.library}</div>
-                    <div className="text-[10px] font-bold text-lma-warn bg-lma-warn/10 px-2 py-0.5 rounded">alert {s.renewal_alert_days}d</div>
+                    <div className="text-[10px] font-bold text-lma-warn bg-lma-warn/10 px-2 py-0.5 rounded">alert {s.renewal_alert_days}d · urgent {s.renewal_alert_days_primary}d</div>
                   </div>
                   <div className="grid grid-cols-2 gap-1.5 text-[11px]">
                     <Counter label="Last Student" value={s.last_student_id}/>
@@ -585,7 +585,8 @@ function CountersForm({ initial, onCancel, onSubmit }:{ initial:LibSettings; onC
     last_receipt_no: initial.last_receipt_no,
     cutoff_student_id: initial.cutoff_student_id,
     cutoff_receipt_no: initial.cutoff_receipt_no,
-    renewal_alert_days: initial.renewal_alert_days,
+   renewal_alert_days: initial.renewal_alert_days,
+    renewal_alert_days_primary: initial.renewal_alert_days_primary,
   });
   const cutoffsLocked = initial.cutoff_student_id > 0 || initial.cutoff_receipt_no > 0;
   return (
@@ -612,9 +613,12 @@ function CountersForm({ initial, onCancel, onSubmit }:{ initial:LibSettings; onC
           <Input type="number" value={f.cutoff_receipt_no} onChange={e=>setF({...f, cutoff_receipt_no:Number(e.target.value)})} disabled={cutoffsLocked}/>
         </div>
       </div>
-      <Label>Renewal Alert Days</Label>
-      <Input type="number" value={f.renewal_alert_days} onChange={e=>setF({...f, renewal_alert_days:Number(e.target.value)})} min={1} max={60}/>
-      <p className="text-[11px] text-lma-slate-500 mt-1.5">Days before booking_to to flag a receipt as &quot;expiring soon&quot;.</p>
+       <div className="mt-6 mb-3 text-center text-base font-extrabold uppercase tracking-wide text-lma-slate-700">Expiring Thresholds</div>
+    <div className="grid grid-cols-2 gap-3">
+        <div><Label>Expiring soon (pink)</Label><Input type="number" value={f.renewal_alert_days} onChange={e=>setF({...f, renewal_alert_days:Number(e.target.value)})} min={1} max={60}/></div>
+        <div><Label>Urgent (red)</Label><Input type="number" value={f.renewal_alert_days_primary} onChange={e=>setF({...f, renewal_alert_days_primary:Number(e.target.value)})} min={1} max={60}/></div>
+      </div>
+    <p className="text-[11px] text-lma-slate-500 mt-1.5">Seat goes pink within the expiring-soon window, then vivid red within the smaller urgent window. Urgent must be ≤ expiring-soon.</p>
       <FormActions onCancel={onCancel}/>
     </form>
   );

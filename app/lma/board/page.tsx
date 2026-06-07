@@ -108,6 +108,8 @@ export default function BoardPage(){
   const [reAllot,setReAllot]=useState<{receipt_no:string;name:string;student_id:string;shift:string;original?:string}|null>(null);
   const [shareEvent,setShareEvent]=useState<{text:string;label:string}|null>(null);
   const [exporting,setExporting]=useState(false);
+  const [showPngMenu,setShowPngMenu]=useState(false);
+  const [customScale,setCustomScale]=useState("2.5");
   const boardRef = useRef<HTMLDivElement>(null);
 
   // Pick a default scope (first active library or branch) once init lands.
@@ -185,13 +187,35 @@ export default function BoardPage(){
           <button onClick={()=>setZoomPx(z=> z===0?44:Math.min(z+14,100))} className="px-2.5 py-2 text-sm font-extrabold text-lma-primary">+</button>
         </div>
         <button onClick={loadBoard} disabled={loading} className="text-xs font-bold px-3 py-2 rounded-lg bg-lma-slate-100 text-lma-slate-600 disabled:opacity-50">{loading?"...":"↻"}</button>
-        <div className="flex gap-1">
-  {([2.5,1.8,1.2] as const).map((scale,i)=>(
-    <button key={scale} onClick={()=>downloadPng(scale)} disabled={exporting||!board}
-      className="text-xs font-bold px-2.5 py-2 rounded-lg bg-lma-primary text-white disabled:opacity-50">
-      {exporting?"…":`⬇${i===0?"HD":i===1?"MD":"SD"}`}
-    </button>
-  ))}
+        <div className="relative">
+  <button onClick={()=>setShowPngMenu(v=>!v)} disabled={exporting||!board}
+    className="text-xs font-bold px-3 py-2 rounded-lg bg-lma-primary text-white disabled:opacity-50">
+    {exporting?"…":"⬇ PNG"}
+  </button>
+  {showPngMenu&&(
+    <div className="absolute right-0 top-10 z-50 bg-white rounded-xl shadow-lg border border-lma-slate-200 p-2 flex flex-col gap-1 min-w-[120px]" onClick={e=>e.stopPropagation()}>
+      {([{label:"⬇ HD",scale:2.5},{label:"⬇ MD",scale:1.8},{label:"⬇ SD",scale:1.2}]).map(o=>(
+        <button key={o.scale} onClick={()=>{ setShowPngMenu(false); downloadPng(o.scale); }}
+          className="text-xs font-bold px-3 py-2 rounded-lg bg-lma-primary/10 text-lma-primary hover:bg-lma-primary hover:text-white text-center w-full">
+          {o.label} · {o.scale}x
+        </button>
+      ))}
+      <div className="h-px bg-lma-slate-200 my-1"/>
+      <div className="flex gap-1 items-center">
+        <button onClick={()=>setCustomScale(v=>String(Math.max(1.2,parseFloat(v)-0.1).toFixed(1)))}
+          className="text-xs font-extrabold px-2 py-1.5 rounded-lg bg-lma-slate-100 text-lma-slate-700">−</button>
+        <input type="number" min={1.2} max={2.5} step={0.1} value={customScale}
+          onChange={e=>setCustomScale(e.target.value)}
+          className="w-12 text-xs px-1 py-1.5 rounded-lg border border-lma-slate-200 bg-lma-slate-50 text-center font-bold"/>
+        <button onClick={()=>setCustomScale(v=>String(Math.min(2.5,parseFloat(v)+0.1).toFixed(1)))}
+          className="text-xs font-extrabold px-2 py-1.5 rounded-lg bg-lma-slate-100 text-lma-slate-700">＋</button>
+        <button onClick={()=>{ const v=parseFloat(customScale); if(v>=1.2&&v<=2.5){ setShowPngMenu(false); downloadPng(v); } else alert("Enter 1.2 – 2.5"); }}
+          className="text-xs font-bold px-2 py-1.5 rounded-lg bg-lma-slate-700 text-white">⬇</button>
+      </div>
+      <div className="text-[9px] text-lma-slate-400 text-center">custom (1.2 – 2.5)</div>
+    </div>
+  )}
+  {showPngMenu&&<div className="fixed inset-0 z-40" onClick={()=>setShowPngMenu(false)}/>}
 </div>
       </header>
 
