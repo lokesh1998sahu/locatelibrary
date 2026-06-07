@@ -143,7 +143,7 @@ export default function BoardPage(){
 
   const [showExport,setShowExport]=useState(false);
 
-  const downloadPng=async()=>{
+  const downloadPng=async(scale:number=2.5)=>{
     if(!board) return;
     setExporting(true);
     setShowExport(true);
@@ -161,7 +161,7 @@ export default function BoardPage(){
       const node=document.getElementById("board-detailed-export");
       if(!node){ alert("Export layout not found."); return; }
       const h2c=(window as any).html2canvas;
-      const canvas=await h2c(node,{ backgroundColor:"#ffffff", scale:2.5, logging:false, useCORS:true, width:node.scrollWidth, height:node.scrollHeight, windowWidth:node.scrollWidth, windowHeight:node.scrollHeight });
+      const canvas=await h2c(node,{ backgroundColor:"#ffffff", scale:scale, logging:false, useCORS:true, width:node.scrollWidth, height:node.scrollHeight, windowWidth:node.scrollWidth, windowHeight:node.scrollHeight });
       const link=document.createElement("a");
       link.download=`${resolved.label.replace(/[^a-z0-9]/gi,"_")}_${new Date().toISOString().slice(0,10)}.png`;
       link.href=canvas.toDataURL("image/png");
@@ -185,7 +185,14 @@ export default function BoardPage(){
           <button onClick={()=>setZoomPx(z=> z===0?44:Math.min(z+14,100))} className="px-2.5 py-2 text-sm font-extrabold text-lma-primary">+</button>
         </div>
         <button onClick={loadBoard} disabled={loading} className="text-xs font-bold px-3 py-2 rounded-lg bg-lma-slate-100 text-lma-slate-600 disabled:opacity-50">{loading?"...":"↻"}</button>
-        <button onClick={downloadPng} disabled={exporting||!board} className="text-xs font-bold px-3 py-2 rounded-lg bg-lma-primary text-white disabled:opacity-50">{exporting?"...":"⬇ PNG"}</button>
+        <div className="flex gap-1">
+  {([2.5,1.8,1.2] as const).map((scale,i)=>(
+    <button key={scale} onClick={()=>downloadPng(scale)} disabled={exporting||!board}
+      className="text-xs font-bold px-2.5 py-2 rounded-lg bg-lma-primary text-white disabled:opacity-50">
+      {exporting?"…":`⬇${i===0?"HD":i===1?"MD":"SD"}`}
+    </button>
+  ))}
+</div>
       </header>
 
       {/* library chips */}
