@@ -719,18 +719,29 @@ function DetailedExport({ board, label, shiftView }:{ board:BoardResp; label:str
     const VACANT_BORDER = "1.5px solid rgba(0,0,0,0.55)";
     const HELD_BORDER = "2px dashed rgba(0,0,0,0.75)";
 
+    // Shrinks font so 3-line names never bury the date
+const halfNameSize=(name:string)=>{
+  const l=name.replace(/\s+/g," ").trim().length;
+  if(l>22) return "9px";
+  if(l>16) return "11px";
+  return "13px";
+};
+
     // one occupant's data block (used in a half, or full-day upper area)
     const dataRows=(o:Occupant)=>(
-      <>
-        <div style={{display:"flex",justifyContent:"space-between",fontSize:"12px",fontWeight:900,lineHeight:1.2,gap:"4px",flexShrink:0}}>
-          <span style={{whiteSpace:"nowrap"}}>{o.student_id}</span>
-          <span style={{whiteSpace:"nowrap"}}>{o.receipt_no}</span>
-        </div>
-        <div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",fontSize:"13px",fontWeight:800,textAlign:"center",lineHeight:1.25,wordBreak:"break-word",overflow:"hidden"}}>{o.name}</div>
-        {dueAmt(o)}
-        <div style={{fontSize:"12px",fontWeight:800,textAlign:"center",lineHeight:1.2,flexShrink:0}}>{o.booking_to}</div>
-      </>
-    );
+  <>
+    <div style={{display:"flex",justifyContent:"space-between",fontSize:"12px",fontWeight:900,lineHeight:1.2,gap:"4px",flexShrink:0}}>
+      <span style={{whiteSpace:"nowrap"}}>{o.student_id}</span>
+      <span style={{whiteSpace:"nowrap"}}>{o.receipt_no}</span>
+    </div>
+
+    {/* ↓ minHeight:0 lets flex shrink it; overflow:hidden clips; dynamic fontSize; center-align */}
+    <div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",fontSize:halfNameSize(o.name),fontWeight:800,textAlign:"center",lineHeight:1.2,wordBreak:"break-word"}}>{o.name}</div>
+
+    {dueAmt(o)}
+    <div style={{fontSize:"12px",fontWeight:800,textAlign:"center",lineHeight:1.2,flexShrink:0,marginBottom:"3px"}}>{o.booking_to}</div>
+  </>
+);
 
     // block detail rows (mirrors a booking tile: tag+id top, reason middle, dates bottom)
     const blockRows=(blk:BlockInfo)=>{
@@ -751,7 +762,7 @@ function DetailedExport({ board, label, shiftView }:{ board:BoardResp; label:str
     const halfZone=(o:Occupant|null, blk:BlockInfo|null)=>{
       if(o){
         const col=exLook(o);
-        return <div style={{height:"100%",width:"100%",background:col.bg,color:col.text,borderRadius:"4px",padding:"5px 7px",display:"flex",flexDirection:"column",boxSizing:"border-box",overflow:"hidden",boxShadow:col.ring?`inset 0 0 0 3px ${EXPORT_GOLD}`:undefined}}>{dataRows(o)}</div>;
+        return <div style={{height:"100%",width:"100%",background:col.bg,color:col.text,borderRadius:"4px",padding:"1px 7px 9px 7px",display:"flex",flexDirection:"column",boxSizing:"border-box",overflow:"hidden",boxShadow:col.ring?`inset 0 0 0 3px ${EXPORT_GOLD}`:undefined}}>{dataRows(o)}</div>;
       }
       if(blk){
         return (
