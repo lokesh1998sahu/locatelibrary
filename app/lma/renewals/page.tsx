@@ -1,10 +1,12 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { useLMA, useScopeChips, type LMAInitData as InitData } from "../_components/LMAProvider";
 import { fmtDMY } from "../_lib/dates";
+import ReceiptModal from "../_components/ReceiptModal";
+import StudentModal from "../_components/StudentModal";
+import BookingFlow from "../_components/BookingFlow";
 
 const API = "/api/lma";
 
@@ -16,14 +18,21 @@ interface QueueItem {
   receipt_text:string; cancel_whatsapp_text?:string;
 }
 
-type Tab = "RENEW"|"CANCEL";
+type Tab = "EXPIRING"|"EXPIRED"|"CANCELLED";
+
+// student's HOME library (cross students keep their original ID/sheet)
+function homeLib(it:QueueItem){ return (it.is_cross_library&&it.is_cross_library!=="NO") ? it.is_cross_library : (it.branch||it.library); }
+
+function relTime(days:number, kind:"expiring"|"expired"){
+  if(kind==="expiring"){ if(days<=0) return "Due today"; if(days===1) return "1 day left"; return `${days} days left`; }
+  const d=Math.abs(days); if(d===0) return "Expired today"; if(d===1) return "1 day ago"; return `${d} days ago`;
+}
 
 export default function RenewalsPage(){
-  const router = useRouter();
   const { init, showToast, post } = useLMA();
   const [confirmAction,setConfirmAction]=useState<{title:string;message:string;confirmLabel:string;danger?:boolean;onYes:()=>void}|null>(null);
 
-  const [tab,setTab]=useState<Tab>("RENEW");
+  const [tab,setTab]=useState<Tab>("EXPIRING");
   const [scope,setScope]=useState("");          // "" = all
   const [expiring,setExpiring]=useState<QueueItem[]>([]);
   const [expired,setExpired]=useState<QueueItem[]>([]);
@@ -32,8 +41,10 @@ export default function RenewalsPage(){
 
   const [actionFor,setActionFor]=useState<QueueItem|null>(null);   // cancel/refund sheet
   const [resultText,setResultText]=useState<{title:string;text:string}|null>(null);
-
-
+  const [openRno,setOpenRno]=useState<string|null>(null);          // ReceiptModal
+  const [openStu,setOpenStu]=useState<{id:string;library:string}|null>(null); // StudentModal
+  const [renew,setRenew]=useState<QueueItem|null>(null);           // in-place renewal
+  const [expSub,setExpSub]=useState<"ALL"|"SOON"|"LATER">("ALL");   // sub-filter inside Expiring
 
   const load=useCallback(async()=>{
     setLoading(true);
@@ -61,18 +72,39 @@ export default function RenewalsPage(){
 
   const chips = useScopeChips();
 
+  const tabs:{key:Tab;label:string;count:number;bg:string}[]=[
+    { key:"EXPIRING",  label:"Expiring",  count:expiring.length,      bg:"#dc2626" },
+    { key:"EXPIRED",   label:"Expired",   count:expired.length,       bg:"#6b0a0a" },
+    { key:"CANCELLED", label:"Cancelled", count:cancellations.length, bg:"#0f172a" },
+  ];
+
+  // split EXPIRING into Soon (within primary window) vs Expiring (secondary) — mirrors seat-chart two-tier code
+  const primaryDays=(it:QueueItem)=>{ const s=(init?.settings as any)?.[it.branch||it.library]||(init?.settings as any)?.[it.library]; const n=Number(s?.renewal_alert_days_primary); return n>0?n:3; };
+  const tierOf=(it:QueueItem):"soon"|"expiring"=> it.days_until_expiry<=primaryDays(it) ? "soon" : "expiring";
+  const soonList=expiring.filter(it=>tierOf(it)==="soon");
+  const laterList=expiring.filter(it=>tierOf(it)==="expiring");
+  const expShown = expSub==="SOON"?soonList : expSub==="LATER"?laterList : expiring;
+
+  const secondaryFor=(it:QueueItem,kind:"expiring"|"expired")=>kind==="expiring"
+    ? ()=>setActionFor(it)
+    : ()=>setConfirmAction({ title:"Mark Do Not Renew?", message:`${it.name} · ${it.receipt_no} will be flagged DO NOT RENEW and leave the queue.`, confirmLabel:"Don't Renew", danger:true, onYes:()=>doDoNotRenew(it) });
+
   return (
     <div className="lma-page-body max-w-md mx-auto px-4 pt-4">
       <header className="flex items-center gap-3 mb-3">
         <Link href="/lma" className="text-xl text-lma-slate-600 hover:text-lma-slate-900">←</Link>
-        <div className="flex-1"><h1 className="text-xl font-extrabold tracking-tight text-lma-slate-900">Renewals</h1><p className="text-[11px] text-lma-slate-500 font-medium">{expiring.length+expired.length} to review · {cancellations.length} cancelled</p></div>
-        <button onClick={load} disabled={loading} className="text-xs font-bold px-3 py-2 rounded-lg bg-lma-slate-100 text-lma-slate-600 disabled:opacity-50">{loading?"...":"↻"}</button>
+        <div className="flex-1"><h1 className="text-xl font-extrabold tracking-tight text-lma-slate-900">Renewals</h1><p className="text-[11px] text-lma-slate-500 font-medium">{expiring.length} expiring · {expired.length} expired · {cancellations.length} cancelled</p></div>
+        <button onClick={load} disabled={loading} className="text-xs font-bold px-3 py-2 rounded-lg bg-lma-slate-100 text-lma-slate-600 disabled:opacity-50">{loading?"…":"↻"}</button>
       </header>
 
-      {/* tab toggle */}
+      {/* 3-tab segmented control */}
       <div className="bg-white rounded-2xl p-1 flex gap-1 mb-3 shadow-sm">
-        <button onClick={()=>setTab("RENEW")} className={`flex-1 py-2 rounded-xl text-xs font-bold transition ${tab==="RENEW"?"bg-lma-slate-900 text-white":"text-lma-slate-500"}`}>To Review ({expiring.length+expired.length})</button>
-        <button onClick={()=>setTab("CANCEL")} className={`flex-1 py-2 rounded-xl text-xs font-bold transition ${tab==="CANCEL"?"bg-lma-slate-900 text-white":"text-lma-slate-500"}`}>Cancelled ({cancellations.length})</button>
+        {tabs.map(t=>(
+          <button key={t.key} onClick={()=>setTab(t.key)} style={tab===t.key?{background:t.bg,color:"#fff"}:undefined} className={`flex-1 py-2 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 ${tab===t.key?"":"text-lma-slate-500"}`}>
+            {t.label}
+            <span className={`text-[10px] leading-none px-1.5 py-0.5 rounded-full ${tab===t.key?"bg-white/25":"bg-lma-slate-100 text-lma-slate-500"}`}>{t.count}</span>
+          </button>
+        ))}
       </div>
 
       {/* scope chips */}
@@ -84,49 +116,54 @@ export default function RenewalsPage(){
 
       {loading&&expiring.length===0&&expired.length===0&&cancellations.length===0?(
         <div className="text-center text-sm text-lma-slate-500 py-8">Loading…</div>
-      ):tab==="RENEW"?(
-        <>
-          {expiring.length===0&&expired.length===0?(
-            <div className="text-center text-sm text-lma-slate-500 py-8">Nothing to review. 🎉</div>
-          ):(
-            <>
-              {expired.length>0&&(
-                <Group title="Expired" tone="expired" count={expired.length}>
-                  {expired.map(it=><QueueCard key={it.receipt_no} it={it} router={router} onCancel={()=>setActionFor(it)} onDoNotRenew={()=>setConfirmAction({ title:"Mark Do Not Renew?", message:`${it.name} · ${it.receipt_no} will be flagged DO NOT RENEW and leave the review queue.`, confirmLabel:"Don't Renew", danger:true, onYes:()=>doDoNotRenew(it) })}/>)}
-                </Group>
-              )}
-              {expiring.length>0&&(
-                <Group title="Expiring soon" tone="expiring" count={expiring.length}>
-                  {expiring.map(it=><QueueCard key={it.receipt_no} it={it} router={router} onCancel={()=>setActionFor(it)} onDoNotRenew={()=>setConfirmAction({ title:"Mark Do Not Renew?", message:`${it.name} · ${it.receipt_no} will be flagged DO NOT RENEW and leave the review queue.`, confirmLabel:"Don't Renew", danger:true, onYes:()=>doDoNotRenew(it) })}/>)}
-                </Group>
-              )}
-            </>
-          )}
-        </>
-      ):(
-        <>
-          {cancellations.length===0?(
-            <div className="text-center text-sm text-lma-slate-500 py-8">No cancelled receipts.</div>
-          ):(
-            <div className="space-y-2">
-              {cancellations.map(it=>(
-                <div key={it.receipt_no} className="bg-white rounded-xl p-3 shadow-sm">
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className="text-sm font-extrabold text-lma-slate-900">{it.receipt_no}</span>
-                    <span className="text-[10px] font-bold text-lma-slate-400">{it.student_id}</span>
-                    <span className="text-[9px] font-bold px-1.5 py-0.5 rounded ml-auto bg-lma-danger/15 text-lma-danger">Cancelled</span>
-                  </div>
-                  <div className="text-sm font-semibold text-lma-slate-800 truncate">{it.name}</div>
-                  <div className="text-[11px] text-lma-slate-500 mt-0.5">{it.library}{it.branch?`/${it.branch}`:""} · Seat {it.seat_no||"—"} · {it.shift_name||it.shift}</div>
-                  <div className="grid grid-cols-2 gap-2 mt-2.5">
-                    {it.cancel_whatsapp_text&&<button onClick={()=>{navigator.clipboard.writeText(it.cancel_whatsapp_text!);showToast("Copied cancel message");}} className="py-2 rounded-lg bg-lma-accent/10 text-lma-accent font-bold text-xs">Copy WhatsApp</button>}
-                    <button onClick={()=>setConfirmAction({ title:"Reset status?", message:`${it.name} · ${it.receipt_no} will be set back to active (clears Cancelled/Do-Not-Renew).`, confirmLabel:"Reset", onYes:()=>doReset(it) })} className="py-2 rounded-lg bg-lma-slate-100 text-lma-slate-600 font-bold text-xs">Undo (Reset)</button>
-                  </div>
-                </div>
-              ))}
+      ):tab==="EXPIRING"?(
+        expiring.length===0?(
+          <div className="text-center text-sm text-lma-slate-500 py-10">Nothing expiring soon 🎉</div>
+        ):(
+          <>
+            <div className="flex gap-1.5 mb-2.5">
+              <SubPill active={expSub==="ALL"} onClick={()=>setExpSub("ALL")}>All {expiring.length}</SubPill>
+              <SubPill active={expSub==="SOON"} onClick={()=>setExpSub("SOON")} dot="#dc2626">Soon {soonList.length}</SubPill>
+              <SubPill active={expSub==="LATER"} onClick={()=>setExpSub("LATER")} dot="#fca5a5">Expiring {laterList.length}</SubPill>
             </div>
-          )}
-        </>
+            {expShown.length===0?(
+              <div className="text-center text-sm text-lma-slate-500 py-8">None in this group.</div>
+            ):(
+              <div className="space-y-2">
+                {expShown.map(it=>(
+                  <ReviewCard key={it.receipt_no} it={it} kind={tierOf(it)}
+                    onRenew={()=>setRenew(it)} onSecondary={secondaryFor(it,"expiring")}
+                    onRno={()=>setOpenRno(it.receipt_no)} onStu={()=>setOpenStu({id:it.student_id,library:homeLib(it)})}/>
+                ))}
+              </div>
+            )}
+          </>
+        )
+      ):tab==="EXPIRED"?(
+        expired.length===0?(
+          <div className="text-center text-sm text-lma-slate-500 py-10">No expired receipts ✨</div>
+        ):(
+          <div className="space-y-2">
+            {expired.map(it=>(
+              <ReviewCard key={it.receipt_no} it={it} kind="expired"
+                onRenew={()=>setRenew(it)} onSecondary={secondaryFor(it,"expired")}
+                onRno={()=>setOpenRno(it.receipt_no)} onStu={()=>setOpenStu({id:it.student_id,library:homeLib(it)})}/>
+            ))}
+          </div>
+        )
+      ):(
+        cancellations.length===0?(
+          <div className="text-center text-sm text-lma-slate-500 py-10">No cancelled receipts.</div>
+        ):(
+          <div className="space-y-2">
+            {cancellations.map(it=>(
+              <CancelledCard key={it.receipt_no} it={it} showToast={showToast}
+                onRenew={()=>setRenew(it)}
+                onReset={()=>setConfirmAction({ title:"Reset status?", message:`${it.name} · ${it.receipt_no} will be set back to active (clears Cancelled/Do-Not-Renew).`, confirmLabel:"Reset", onYes:()=>doReset(it) })}
+                onRno={()=>setOpenRno(it.receipt_no)} onStu={()=>setOpenStu({id:it.student_id,library:homeLib(it)})}/>
+            ))}
+          </div>
+        )
       )}
 
       {/* cancel / refund action sheet */}
@@ -140,49 +177,88 @@ export default function RenewalsPage(){
         <Sheet onClose={()=>setResultText(null)}>
           <h3 className="text-base font-extrabold text-lma-slate-900 mb-3">{resultText.title}</h3>
           <pre className="text-[11px] text-lma-slate-700 whitespace-pre-wrap font-mono bg-lma-slate-50 rounded-lg p-3 max-h-60 overflow-y-auto">{resultText.text}</pre>
-          <button onClick={()=>{navigator.clipboard.writeText(resultText.text);showToast("Copied");}} className="w-full mt-3 py-3 rounded-xl bg-gradient-to-br from-lma-primary to-lma-primary-2 text-white font-bold shadow-md">Copy message</button>
-          <button onClick={()=>setResultText(null)} className="w-full mt-2 py-2.5 rounded-xl bg-lma-slate-100 text-lma-slate-600 font-bold">Close</button>
+          <a href={`https://wa.me/?text=${encodeURIComponent(resultText.text)}`} target="_blank" rel="noopener noreferrer" className="block text-center w-full mt-3 py-3 rounded-xl bg-lma-accent text-white font-bold shadow-md">Share on WhatsApp</a>
+          <button onClick={()=>{navigator.clipboard.writeText(resultText.text);showToast("Copied");}} className="w-full mt-2 py-2.5 rounded-xl bg-lma-slate-100 text-lma-slate-600 font-bold">Copy message</button>
         </Sheet>
       )}
 
       {confirmAction&&<ConfirmDialog c={confirmAction} onClose={()=>setConfirmAction(null)}/>}
 
+      {/* universal modals */}
+      {openRno&&<ReceiptModal receiptNo={openRno} onClose={()=>setOpenRno(null)} onSaved={load}/>}
+      {openStu&&<StudentModal studentId={openStu.id} library={openStu.library} onClose={()=>setOpenStu(null)} onSaved={load}/>}
+      {renew&&<BookingFlow renewReceiptNo={renew.receipt_no} libCode={renew.branch||renew.library} onClose={()=>setRenew(null)} onComplete={load}/>}
+
     </div>
   );
 }
 
-function Group({ title, tone, count, children }:{ title:string; tone:"expired"|"expiring"; count:number; children:React.ReactNode }){
-  const cls=tone==="expired"?"text-red-900":"text-lma-danger";
-  return (
-    <div className="mb-4">
-      <div className={`text-[11px] font-bold uppercase tracking-wide mb-2 ${cls}`}>{title} · {count}</div>
-      <div className="space-y-2">{children}</div>
-    </div>
-  );
-}
+// seat-chart parity palette: soon = solid red, expiring = pink, expired = maroon
+const LOOK:Record<"soon"|"expiring"|"expired",{accent:string;pillBg:string;pillFg:string;tint:string}> = {
+  soon:     { accent:"#dc2626", pillBg:"#dc2626", pillFg:"#ffffff", tint:"#fff5f5" },
+  expiring: { accent:"#fca5a5", pillBg:"#fee2e2", pillFg:"#b91c1c", tint:"#ffffff" },
+  expired:  { accent:"#6b0a0a", pillBg:"#6b0a0a", pillFg:"#ffffff", tint:"#ffffff" },
+};
 
-function QueueCard({ it, router, onCancel, onDoNotRenew }:{ it:QueueItem; router:any; onCancel:()=>void; onDoNotRenew:()=>void }){
-  const daysLabel = it.days_until_expiry<0?`${Math.abs(it.days_until_expiry)}d ago`:it.days_until_expiry===0?"today":`in ${it.days_until_expiry}d`;
+// ── Review card (Soon + Expiring + Expired) ──
+function ReviewCard({ it, kind, onRenew, onSecondary, onRno, onStu }:{
+  it:QueueItem; kind:"soon"|"expiring"|"expired"; onRenew:()=>void; onSecondary:()=>void; onRno:()=>void; onStu:()=>void;
+}){
+  const lk = LOOK[kind];
+  const isExpired = kind==="expired";
   return (
-    <div className="bg-white rounded-xl p-3 shadow-sm">
+    <div className="rounded-xl p-3 shadow-sm border-l-4" style={{ borderLeftColor:lk.accent, background:lk.tint }}>
       <div className="flex items-center gap-2 mb-1">
-        <span className="text-sm font-extrabold text-lma-slate-900">{it.receipt_no}</span>
-        <span className="text-[10px] font-bold text-lma-slate-400">{it.student_id}</span>
+        <button onClick={onRno} className="text-sm font-extrabold text-lma-slate-900 hover:text-lma-primary">{it.receipt_no}</button>
+        <button onClick={onStu} className="text-[10px] font-bold text-lma-slate-400 hover:text-lma-primary">{it.student_id}</button>
         {it.is_cross_library&&it.is_cross_library!=="NO"&&<span className="text-[9px] font-bold text-lma-warn bg-lma-warn/10 px-1 rounded">CROSS</span>}
-        <span className={`text-[10px] font-extrabold ml-auto ${it.days_until_expiry<0?"text-red-900":"text-lma-danger"}`}>{daysLabel}</span>
+        <span className="text-[10px] font-extrabold ml-auto px-2 py-0.5 rounded-full" style={{ background:lk.pillBg, color:lk.pillFg }}>{relTime(it.days_until_expiry, isExpired?"expired":"expiring")}</span>
       </div>
-      <div className="text-sm font-semibold text-lma-slate-800 truncate">{it.name}</div>
-      <div className="text-[11px] text-lma-slate-500 flex items-center gap-2 flex-wrap mt-0.5">
+      <button onClick={onStu} className="block text-left text-sm font-semibold text-lma-slate-800 truncate hover:text-lma-primary w-full">{it.name}</button>
+      <div className="text-[11px] text-lma-slate-500 flex items-center gap-1.5 flex-wrap mt-0.5">
         <span>{it.library}{it.branch?`/${it.branch}`:""}</span>
         <span>· Seat {it.seat_no||"—"}</span>
         <span>· {it.shift_name||it.shift}</span>
         <span>· till {fmtDMY(it.booking_to)}</span>
         {it.fees_due_balance>0&&<span className="font-bold text-lma-danger">· Due ₹{it.fees_due_balance}</span>}
       </div>
-      <div className="grid grid-cols-3 gap-2 mt-2.5">
-        <button onClick={()=>{ const lib=it.branch||it.library; const q=new URLSearchParams({lib,student_id:it.student_id,renew_from:it.receipt_no}); router.push(`/lma/admissions?${q}`); }} className="py-2 rounded-lg bg-lma-primary/10 text-lma-primary font-bold text-xs">Renew</button>
-        <button onClick={onCancel} className="py-2 rounded-lg bg-lma-danger/10 text-lma-danger font-bold text-xs">Cancel</button>
-        <button onClick={onDoNotRenew} className="py-2 rounded-lg bg-lma-slate-100 text-lma-slate-600 font-bold text-xs">Don't Renew</button>
+      <div className="grid grid-cols-2 gap-2 mt-2.5">
+        <button onClick={onRenew} className="py-2 rounded-lg bg-gradient-to-br from-lma-primary to-lma-primary-2 text-white font-bold text-xs shadow-sm">Renew</button>
+        {isExpired
+          ? <button onClick={onSecondary} className="py-2 rounded-lg bg-lma-slate-100 text-lma-slate-600 font-bold text-xs">Don&apos;t Renew</button>
+          : <button onClick={onSecondary} className="py-2 rounded-lg bg-lma-danger/10 text-lma-danger font-bold text-xs">Cancel</button>}
+      </div>
+    </div>
+  );
+}
+
+// ── sub-filter pill (Soon / Expiring toggle) ──
+function SubPill({ active, onClick, dot, children }:{ active:boolean; onClick:()=>void; dot?:string; children:React.ReactNode }){
+  return (
+    <button onClick={onClick} className={`shrink-0 px-3 py-1.5 rounded-full text-[11px] font-bold flex items-center gap-1.5 transition ${active?"bg-lma-slate-900 text-white":"bg-white text-lma-slate-600 shadow-sm"}`}>
+      {dot&&<span className="w-2 h-2 rounded-full" style={{background:dot}}/>}
+      {children}
+    </button>
+  );
+}
+
+// ── Cancelled card ──
+function CancelledCard({ it, onRenew, onReset, onRno, onStu, showToast }:{
+  it:QueueItem; onRenew:()=>void; onReset:()=>void; onRno:()=>void; onStu:()=>void; showToast:(m:string,t?:"success"|"error")=>void;
+}){
+  return (
+    <div className="bg-white rounded-xl p-3 shadow-sm border-l-4 border-lma-slate-300">
+      <div className="flex items-center gap-2 mb-1">
+        <button onClick={onRno} className="text-sm font-extrabold text-lma-slate-900 hover:text-lma-primary">{it.receipt_no}</button>
+        <button onClick={onStu} className="text-[10px] font-bold text-lma-slate-400 hover:text-lma-primary">{it.student_id}</button>
+        <span className="text-[9px] font-extrabold px-2 py-0.5 rounded-full ml-auto bg-lma-danger/15 text-lma-danger tracking-wide">CANCELLED</span>
+      </div>
+      <button onClick={onStu} className="block text-left text-sm font-semibold text-lma-slate-800 truncate hover:text-lma-primary w-full">{it.name}</button>
+      <div className="text-[11px] text-lma-slate-500 mt-0.5">{it.library}{it.branch?`/${it.branch}`:""} · Seat {it.seat_no||"—"} · {it.shift_name||it.shift} · was till {fmtDMY(it.booking_to)}</div>
+      <div className={`grid ${it.cancel_whatsapp_text?"grid-cols-3":"grid-cols-2"} gap-2 mt-2.5`}>
+        <button onClick={onRenew} className="py-2 rounded-lg bg-gradient-to-br from-lma-primary to-lma-primary-2 text-white font-bold text-xs shadow-sm">Renew</button>
+        {it.cancel_whatsapp_text&&<button onClick={()=>{navigator.clipboard.writeText(it.cancel_whatsapp_text!);showToast("Copied cancel message");}} className="py-2 rounded-lg bg-lma-accent/10 text-lma-accent font-bold text-xs">Copy WA</button>}
+        <button onClick={onReset} className="py-2 rounded-lg bg-lma-slate-100 text-lma-slate-600 font-bold text-xs">Undo</button>
       </div>
     </div>
   );

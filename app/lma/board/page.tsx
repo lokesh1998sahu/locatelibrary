@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { useLMA, useScopeChips } from "../_components/LMAProvider";
 import ReceiptModal from "../_components/ReceiptModal";
 import StudentModal from "../_components/StudentModal";
+import BookingFlow from "../_components/BookingFlow";
 
 const API = "/api/lma";
 
@@ -104,6 +105,8 @@ export default function BoardPage(){
   const [detail,setDetail]=useState<{cell:BoardCell;panel?:boolean}|null>(null);
   const [openRno,setOpenRno]=useState<string|null>(null);
   const [openStu,setOpenStu]=useState<{id:string;library:string}|null>(null);
+  const [renew,setRenew]=useState<{rno:string;libCode:string;seat?:string;shift?:string}|null>(null);
+  const [addBk,setAddBk]=useState<{libCode:string;seat:string;shift?:string}|null>(null);
   const [zoomPx,setZoomPx]=useState(0); // 0 = fit-to-width; >0 = fixed px per seat (on-screen zoom)
   // Block form + block-detail sheets
   const [blockFormSeat,setBlockFormSeat]=useState<{label:string;suggestedShift:string;blockId?:string;reason?:string;from?:string;to?:string}|null>(null);
@@ -184,7 +187,9 @@ export default function BoardPage(){
   return (
    <div className="lma-page-body max-w-md mx-auto px-4 pt-4">
       {openRno && <ReceiptModal receiptNo={openRno} onClose={()=>setOpenRno(null)} onSaved={loadBoard}/>}
-      {openStu && <StudentModal studentId={openStu.id} library={openStu.library} onClose={()=>setOpenStu(null)} onSaved={loadBoard}/>}
+     {openStu && <StudentModal studentId={openStu.id} library={openStu.library} onClose={()=>setOpenStu(null)} onSaved={loadBoard}/>}
+      {renew && <BookingFlow renewReceiptNo={renew.rno} libCode={renew.libCode} presetSeat={renew.seat} presetShift={renew.shift} onClose={()=>setRenew(null)} onComplete={loadBoard}/>}
+      {addBk && <BookingFlow addMode libCode={addBk.libCode} presetSeat={addBk.seat} presetShift={addBk.shift} onClose={()=>setAddBk(null)} onComplete={loadBoard}/>}
       <header className="flex items-center gap-3 mb-3">
         <Link href="/lma" className="text-xl text-lma-slate-600 hover:text-lma-slate-900">←</Link>
         <div className="flex-1"><h1 className="text-xl font-extrabold tracking-tight text-lma-slate-900">Seat Chart</h1><p className="text-[11px] text-lma-slate-500 font-medium">{resolved.label}</p></div>
@@ -290,6 +295,8 @@ export default function BoardPage(){
        router={router}
         onViewReceipt={(rno:string)=>{ setDetail(null); setOpenRno(rno); }}
         onViewStudent={(sid:string)=>{ setDetail(null); setOpenStu({id:sid,library:resolved.branch||resolved.lib}); }}
+        onRenew={(rno:string,seat:string,shift:string)=>{ setDetail(null); setRenew({rno,libCode:resolved.branch||resolved.lib,seat,shift}); }}
+        onAddBooking={(seat:string,shift:string)=>{ setDetail(null); setAddBk({libCode:resolved.branch||resolved.lib,seat,shift}); }}
         scope={scope}
         lib={resolved.lib}
         branch={resolved.branch}
@@ -544,13 +551,13 @@ function Lane({ emoji, label, tone, children }:{ emoji:string; label:string; ton
 // Every seat tap opens this. A seat has up to 3 lanes (FULL DAY, or
 // MORNING + EVENING). Each lane is independently BOOKED / BLOCKED / VACANT,
 // rendered with the SAME architecture so blocks read like bookings.
-function DetailSheet({ cell, panel, onClose, router, scope, lib, branch, post, showToast, onChanged, onReAllot, onShare, onBlock, onEdit, onViewReceipt, onViewStudent }:{ cell:BoardCell; panel?:boolean; onClose:()=>void; router:any; scope:string; lib:string; branch:string; post:(a:string,p:any)=>Promise<any>; showToast:(m:string,t?:"success"|"error")=>void; onChanged:()=>void; onReAllot:(o:Occupant)=>void; onShare:(text:string,label:string)=>void; onBlock:(seatLabel:string,shift:string)=>void; onEdit:(seatLabel:string,blk:BlockInfo)=>void; onViewReceipt:(rno:string)=>void; onViewStudent:(sid:string)=>void }){
+function DetailSheet({ cell, panel, onClose, router, scope, lib, branch, post, showToast, onChanged, onReAllot, onShare,  onBlock, onEdit, onViewReceipt, onViewStudent, onRenew, onAddBooking }:{ cell:BoardCell; panel?:boolean; onClose:()=>void; router:any; scope:string; lib:string; branch:string; post:(a:string,p:any)=>Promise<any>; showToast:(m:string,t?:"success"|"error")=>void; onChanged:()=>void; onReAllot:(o:Occupant)=>void; onShare:(text:string,label:string)=>void; onBlock:(seatLabel:string,shift:string)=>void; onEdit:(seatLabel:string,blk:BlockInfo)=>void; onViewReceipt:(rno:string)=>void; onViewStudent:(sid:string)=>void; onRenew:(rno:string,seat:string,shift:string)=>void; onAddBooking:(seat:string,shift:string)=>void }){
   const [busy,setBusy]=useState(false);
   const [confirmVacate,setConfirmVacate]=useState<Occupant|null>(null);
   const [chooseMode,setChooseMode]=useState<""|"ADD"|"BLOCK">(""); // fully-vacant: ask shift before booking/blocking
   const L = branch||lib;
 
-  const goBook=(shift?:string)=>{ const q=new URLSearchParams({lib:L,seat:cell.display_label}); if(shift) q.set("shift",shift); router.push(`/lma/admissions?${q}`); };
+  const goBook=(shift?:string)=>{ onAddBooking(cell.display_label, shift||""); };
 
   const doVacate=async(o:Occupant)=>{
     setBusy(true);
@@ -591,7 +598,7 @@ function DetailSheet({ cell, panel, onClose, router, scope, lib, branch, post, s
         {o.fees_due_balance>0&&<div className="text-[11px] font-bold text-lma-danger mt-0.5">Dues: ₹{o.fees_due_balance} ({o.dues_status})</div>}
         <DetailCopyRow occupant={o} lib={lib} branch={branch} showToast={showToast}/>
         <div className="grid grid-cols-2 gap-2 mt-2">
-          <button onClick={()=>{ const q=new URLSearchParams({lib:L,student_id:o.student_id,renew_from:o.receipt_no}); router.push(`/lma/admissions?${q}`); }} className="py-2 rounded-lg bg-lma-primary/10 text-lma-primary font-bold text-xs">Renew</button>
+          <button onClick={()=>onRenew(o.receipt_no, cell.display_label, o.shift)} className="py-2 rounded-lg bg-lma-primary/10 text-lma-primary font-bold text-xs">Renew</button>
           <button onClick={()=>router.push("/lma/renewals")} className="py-2 rounded-lg bg-lma-slate-100 text-lma-slate-600 font-bold text-xs">Cancel</button>
           {o.temporary_seat
             ? <div className="py-2 rounded-lg bg-lma-warn/10 text-lma-warn font-bold text-xs text-center">Floating · was {o.temporary_seat}</div>
