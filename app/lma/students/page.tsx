@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import Link from "next/link";
 import { useLMA } from "../_components/LMAProvider";
 import { fmtDMY, toIsoInput } from "../_lib/dates";
+import StudentModal from "../_components/StudentModal";
 
 const API = "/api/lma";
 const PAGE_SIZE = 50;
@@ -56,6 +57,7 @@ export default function LmaStudentsPage() {
 
   // Modal
   const [modal, setModal] = useState<{ kind:"add"|"edit"|"view"; student?:Student } | null>(null);
+  const [openStu, setOpenStu] = useState<{ id:string; library:string } | null>(null);
   const [confirm, setConfirm] = useState<{ msg:string; onYes:()=>void } | null>(null);
 
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -218,7 +220,7 @@ export default function LmaStudentsPage() {
                 key={`${s.library}-${s.student_id}`}
                 student={s}
                 librariesMap={init?.libraries || []}
-                onTap={()=>setModal({ kind:"view", student:s })}
+                onTap={()=>setOpenStu({ id:s.student_id, library:s.library })}
               />
             ))}
           </div>
@@ -243,24 +245,7 @@ export default function LmaStudentsPage() {
       {/* MODAL */}
       {modal && (
         <BottomSheet onClose={()=>setModal(null)}>
-          {modal.kind === "view" && modal.student && (
-            <StudentDetail
-              student={modal.student}
-              librariesMap={init?.libraries || []}
-              branchesMap={init?.branches || []}
-              onEdit={()=>setModal({ kind:"edit", student: modal.student })}
-              onDelete={()=>{
-                setConfirm({
-                  msg: `Delete ${modal.student!.student_id} — ${modal.student!.name}? This cannot be undone.`,
-                  onYes: async () => {
-                    const r = await post("deleteStudent", { student_id: modal.student!.student_id, library: modal.student!.library });
-                    if (r) { setModal(null); showToast("Student deleted"); refreshAll(); }
-                  }
-                });
-              }}
-              onClose={()=>setModal(null)}
-            />
-          )}
+          
           {modal.kind === "add" && init && (
             <StudentForm
               libraries={init.libraries}
@@ -272,19 +257,26 @@ export default function LmaStudentsPage() {
               }}
             />
           )}
-          {modal.kind === "edit" && modal.student && init && (
-            <StudentForm
-              libraries={init.libraries}
-              branches={init.branches}
-              initial={modal.student}
-              onCancel={()=>setModal(null)}
-              onSubmit={async (p)=>{
-                const r = await post("updateStudent", { ...p, student_id: modal.student!.student_id, library: modal.student!.library });
-                if (r) { setModal(null); showToast("Updated"); refreshAll(); }
-              }}
-            />
-          )}
+          
         </BottomSheet>
+      )}
+
+      {/* Shared student view/edit modal (universal) */}
+      {openStu && (
+        <StudentModal
+          studentId={openStu.id}
+          library={openStu.library}
+          onClose={()=>setOpenStu(null)}
+          onSaved={()=>refreshAll()}
+          onDelete={()=>{
+            const id=openStu.id, lib=openStu.library;
+            setOpenStu(null);
+            setConfirm({
+              msg: `Delete ${id}? This cannot be undone.`,
+              onYes: async () => { const r = await post("deleteStudent", { student_id:id, library:lib }); if (r) { showToast("Student deleted"); refreshAll(); } }
+            });
+          }}
+        />
       )}
 
       {/* Confirm dialog */}
@@ -343,60 +335,6 @@ function StudentCard({ student, librariesMap, onTap }:{ student:Student; librari
         </div>
       </div>
     </button>
-  );
-}
-
-function StudentDetail({ student, librariesMap, branchesMap, onEdit, onDelete, onClose }:{ student:Student; librariesMap:Library[]; branchesMap:Branch[]; onEdit:()=>void; onDelete:()=>void; onClose:()=>void }) {
-  const lib = librariesMap.find(l => l.library_code === student.library);
-  const branch = branchesMap.find(b => b.branch_code === student.branch);
-  return (
-    <div>
-      <div className="flex items-center gap-3 mb-4">
-        <div className="w-12 h-12 rounded-2xl flex items-center justify-center text-xl font-extrabold" style={lib?.color ? { background: lib.color+"22", color: lib.color } : { background:"#e2e8f0" }}>
-          {lib?.emoji || "📚"}
-        </div>
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-1.5">
-            <h3 className="text-base font-extrabold text-lma-slate-900">{student.student_id}</h3>
-            {student.is_past && <span className="text-[10px] font-bold text-lma-warn bg-lma-warn/10 px-1.5 py-0.5 rounded">PAST</span>}
-          </div>
-          <div className="text-sm font-semibold text-lma-slate-700">{student.name}</div>
-          <div className="text-[11px] text-lma-slate-500">{lib?.display_name}{branch?` · ${branch.branch_display}`:""}</div>
-        </div>
-      </div>
-
-      <div className="space-y-2 mb-4">
-        {student.phones.filter(p=>p.number).length > 0 && (
-          <DetailRow label="Phones">
-            <div className="space-y-0.5">
-              {student.phones.filter(p=>p.number).map((p,i) => (
-                <div key={i} className="text-sm text-lma-slate-800 font-mono">📱 {p.number}{p.tag && p.tag !== "SELF" ? <span className="ml-1.5 text-[10px] text-lma-slate-500 font-sans font-bold">({p.tag})</span> : null}</div>
-              ))}
-            </div>
-          </DetailRow>
-        )}
-        {student.address && <DetailRow label="Address">{student.address}</DetailRow>}
-        {student.preparing_for && <DetailRow label="Preparing For">{student.preparing_for}</DetailRow>}
-        {student.aadhaar_last4 && <DetailRow label="Aadhaar (last 4)">●●●●-{student.aadhaar_last4}</DetailRow>}
-        {student.date_of_birth && <DetailRow label="DOB">{student.date_of_birth}</DetailRow>}
-        {student.added_on && <DetailRow label="Added">{fmtDMY(student.added_on)}</DetailRow>}
-      </div>
-
-      <div className="flex gap-2">
-        <button onClick={onClose} className="flex-1 py-3 rounded-xl bg-lma-slate-100 text-lma-slate-600 font-bold text-sm">Close</button>
-        <button onClick={onDelete} className="px-4 py-3 rounded-xl bg-lma-danger/10 text-lma-danger font-bold text-sm">Delete</button>
-        <button onClick={onEdit} className="flex-1 py-3 rounded-xl bg-gradient-to-br from-lma-primary to-lma-primary-2 text-white font-bold text-sm shadow-md">Edit</button>
-      </div>
-    </div>
-  );
-}
-
-function DetailRow({ label, children }:{ label:string; children:React.ReactNode }) {
-  return (
-    <div className="bg-lma-slate-50 rounded-xl px-3 py-2">
-      <div className="text-[10px] font-bold text-lma-slate-500 uppercase tracking-wide">{label}</div>
-      <div className="text-sm text-lma-slate-800 font-medium mt-0.5">{children}</div>
-    </div>
   );
 }
 

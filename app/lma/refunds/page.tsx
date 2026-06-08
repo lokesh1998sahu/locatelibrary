@@ -4,6 +4,8 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
 import { useLMA, useScopeChips, type LMAInitData as InitData } from "../_components/LMAProvider";
 import { fmtDMY, toIsoInput } from "../_lib/dates";
+import ReceiptModal from "../_components/ReceiptModal";
+import StudentModal from "../_components/StudentModal";
 
 const API = "/api/lma";
 
@@ -21,6 +23,8 @@ type LinkFilter = "ANY"|"TRUE"|"FALSE";
 
 export default function RefundsPage(){
   const { init, showToast, post } = useLMA();
+  const [openRno, setOpenRno] = useState<string|null>(null);
+  const [openStu, setOpenStu] = useState<{ id:string; library:string }|null>(null);
 
   const [scope,setScope]=useState("");
   const [linkFilter,setLinkFilter]=useState<LinkFilter>("ANY");
@@ -75,6 +79,8 @@ export default function RefundsPage(){
 
   return (
     <div className="lma-page-body max-w-md mx-auto px-4 pt-4">
+      {openRno && <ReceiptModal receiptNo={openRno} onClose={()=>setOpenRno(null)} onSaved={load}/>}
+      {openStu && <StudentModal studentId={openStu.id} library={openStu.library} onClose={()=>setOpenStu(null)} onSaved={load}/>}
       <header className="flex items-center gap-3 mb-3">
         <Link href="/lma" className="text-xl text-lma-slate-600 hover:text-lma-slate-900">←</Link>
         <div className="flex-1"><h1 className="text-xl font-extrabold tracking-tight text-lma-slate-900">Refunds</h1><p className="text-[11px] text-lma-slate-500 font-medium">{refunds.length} refunds · ₹{sum} total</p></div>
@@ -112,8 +118,8 @@ export default function RefundsPage(){
                   : <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-lma-slate-100 text-lma-slate-500">STANDALONE</span>}
                 <span className="text-sm font-extrabold text-lma-danger ml-auto">−₹{r.amount}</span>
               </div>
-              <div className="text-sm font-semibold text-lma-slate-800 truncate">{r.name} <span className="text-[10px] font-bold text-lma-slate-400">{r.student_id}</span></div>
-              <div className="text-[11px] text-lma-slate-500 mt-0.5">{r.library}{r.branch?`/${r.branch}`:""} · vs {r.original_receipt_no} · {r.refund_mode} · {fmtDMY(r.refund_date)}</div>
+           <button onClick={()=>setOpenStu({id:r.student_id,library:r.library})} className="block w-full text-left text-sm font-semibold text-lma-slate-800 truncate hover:underline">{r.name} <span className="text-[10px] font-bold text-lma-slate-400">{r.student_id}</span></button>
+              <div className="text-[11px] text-lma-slate-500 mt-0.5">{r.library}{r.branch?`/${r.branch}`:""} · vs <button onClick={()=>setOpenRno(r.original_receipt_no)} className="text-lma-primary underline decoration-dotted font-bold">{r.original_receipt_no}</button> · {r.refund_mode} · {fmtDMY(r.refund_date)}</div>
               {r.refund_reason&&<div className="text-[11px] text-lma-slate-400 mt-0.5">{r.refund_reason}</div>}
               <div className="grid grid-cols-3 gap-2 mt-2.5">
                 <button onClick={()=>setViewFor(r)} className="py-2 rounded-lg bg-lma-slate-100 text-lma-slate-600 font-bold text-xs">View</button>

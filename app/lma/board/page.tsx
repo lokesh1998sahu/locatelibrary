@@ -4,6 +4,8 @@ import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useLMA, useScopeChips } from "../_components/LMAProvider";
+import ReceiptModal from "../_components/ReceiptModal";
+import StudentModal from "../_components/StudentModal";
 
 const API = "/api/lma";
 
@@ -100,6 +102,8 @@ export default function BoardPage(){
   const [loading,setLoading]=useState(false);
   const [shiftView,setShiftView]=useState<ShiftView>("ALL");
   const [detail,setDetail]=useState<{cell:BoardCell;panel?:boolean}|null>(null);
+  const [openRno,setOpenRno]=useState<string|null>(null);
+  const [openStu,setOpenStu]=useState<{id:string;library:string}|null>(null);
   const [zoomPx,setZoomPx]=useState(0); // 0 = fit-to-width; >0 = fixed px per seat (on-screen zoom)
   // Block form + block-detail sheets
   const [blockFormSeat,setBlockFormSeat]=useState<{label:string;suggestedShift:string;blockId?:string;reason?:string;from?:string;to?:string}|null>(null);
@@ -178,7 +182,9 @@ export default function BoardPage(){
   const chips = useScopeChips({ includeAll: false });
 
   return (
-    <div className="lma-page-body max-w-md mx-auto px-4 pt-4">
+   <div className="lma-page-body max-w-md mx-auto px-4 pt-4">
+      {openRno && <ReceiptModal receiptNo={openRno} onClose={()=>setOpenRno(null)} onSaved={loadBoard}/>}
+      {openStu && <StudentModal studentId={openStu.id} library={openStu.library} onClose={()=>setOpenStu(null)} onSaved={loadBoard}/>}
       <header className="flex items-center gap-3 mb-3">
         <Link href="/lma" className="text-xl text-lma-slate-600 hover:text-lma-slate-900">←</Link>
         <div className="flex-1"><h1 className="text-xl font-extrabold tracking-tight text-lma-slate-900">Seat Chart</h1><p className="text-[11px] text-lma-slate-500 font-medium">{resolved.label}</p></div>
@@ -203,14 +209,14 @@ export default function BoardPage(){
       <div className="h-px bg-lma-slate-200 my-1"/>
       <div className="flex gap-1 items-center">
         <button onClick={()=>setCustomScale(v=>String(Math.max(1.2,parseFloat(v)-0.1).toFixed(1)))}
-          className="text-xs font-extrabold px-2 py-1.5 rounded-lg bg-lma-slate-100 text-lma-slate-700">−</button>
+          className="text-xs font-extrabold px-2 py-1.5 rounded-lg bg-lma-slate-100 text-lma-slate-700 flex items-center justify-center">−</button>
         <input type="number" min={1.2} max={2.5} step={0.1} value={customScale}
           onChange={e=>setCustomScale(e.target.value)}
-          className="w-12 text-xs px-1 py-1.5 rounded-lg border border-lma-slate-200 bg-lma-slate-50 text-center font-bold"/>
+          className="w-12 text-xs px-1 py-1.5 rounded-lg border border-lma-slate-200 bg-lma-slate-50 text-center font-bold leading-none"/>
         <button onClick={()=>setCustomScale(v=>String(Math.min(2.5,parseFloat(v)+0.1).toFixed(1)))}
-          className="text-xs font-extrabold px-2 py-1.5 rounded-lg bg-lma-slate-100 text-lma-slate-700">＋</button>
+          className="text-xs font-extrabold px-2 py-1.5 rounded-lg bg-lma-slate-100 text-lma-slate-700 flex items-center justify-center">＋</button>
         <button onClick={()=>{ const v=parseFloat(customScale); if(v>=1.2&&v<=2.5){ setShowPngMenu(false); downloadPng(v); } else alert("Enter 1.2 – 2.5"); }}
-          className="text-xs font-bold px-2 py-1.5 rounded-lg bg-lma-slate-700 text-white">⬇</button>
+          className="text-xs font-bold px-2 py-1.5 rounded-lg bg-lma-primary text-white flex items-center justify-center">⬇</button>
       </div>
       <div className="text-[9px] text-lma-slate-400 text-center">custom (1.2 – 2.5)</div>
     </div>
@@ -281,7 +287,9 @@ export default function BoardPage(){
         onBlock={(label,shift)=>{ setBlockFormSeat({label,suggestedShift:shift}); setDetail(null); }}
         onEdit={(label,blk)=>{ setBlockFormSeat({label,suggestedShift:blk.shift,blockId:blk.block_id,reason:blk.reason,from:blk.block_from||"",to:blk.block_to||""}); setDetail(null); }}
         onClose={()=>setDetail(null)}
-        router={router}
+       router={router}
+        onViewReceipt={(rno:string)=>{ setDetail(null); setOpenRno(rno); }}
+        onViewStudent={(sid:string)=>{ setDetail(null); setOpenStu({id:sid,library:resolved.branch||resolved.lib}); }}
         scope={scope}
         lib={resolved.lib}
         branch={resolved.branch}
@@ -536,7 +544,7 @@ function Lane({ emoji, label, tone, children }:{ emoji:string; label:string; ton
 // Every seat tap opens this. A seat has up to 3 lanes (FULL DAY, or
 // MORNING + EVENING). Each lane is independently BOOKED / BLOCKED / VACANT,
 // rendered with the SAME architecture so blocks read like bookings.
-function DetailSheet({ cell, panel, onClose, router, scope, lib, branch, post, showToast, onChanged, onReAllot, onShare, onBlock, onEdit }:{ cell:BoardCell; panel?:boolean; onClose:()=>void; router:any; scope:string; lib:string; branch:string; post:(a:string,p:any)=>Promise<any>; showToast:(m:string,t?:"success"|"error")=>void; onChanged:()=>void; onReAllot:(o:Occupant)=>void; onShare:(text:string,label:string)=>void; onBlock:(seatLabel:string,shift:string)=>void; onEdit:(seatLabel:string,blk:BlockInfo)=>void }){
+function DetailSheet({ cell, panel, onClose, router, scope, lib, branch, post, showToast, onChanged, onReAllot, onShare, onBlock, onEdit, onViewReceipt, onViewStudent }:{ cell:BoardCell; panel?:boolean; onClose:()=>void; router:any; scope:string; lib:string; branch:string; post:(a:string,p:any)=>Promise<any>; showToast:(m:string,t?:"success"|"error")=>void; onChanged:()=>void; onReAllot:(o:Occupant)=>void; onShare:(text:string,label:string)=>void; onBlock:(seatLabel:string,shift:string)=>void; onEdit:(seatLabel:string,blk:BlockInfo)=>void; onViewReceipt:(rno:string)=>void; onViewStudent:(sid:string)=>void }){
   const [busy,setBusy]=useState(false);
   const [confirmVacate,setConfirmVacate]=useState<Occupant|null>(null);
   const [chooseMode,setChooseMode]=useState<""|"ADD"|"BLOCK">(""); // fully-vacant: ask shift before booking/blocking
@@ -578,8 +586,8 @@ function DetailSheet({ cell, panel, onClose, router, scope, lib, branch, post, s
           {o.has_dues&&<span className="text-[10px] font-bold px-2 py-0.5 rounded" style={{background:COLOR.DUES.bg,color:COLOR.DUES.text}}>DUES</span>}
           {o.is_cross_library&&o.is_cross_library!=="NO"&&<span className="text-[9px] font-bold text-lma-warn bg-lma-warn/10 px-1.5 py-0.5 rounded ml-auto">CROSS · {o.is_cross_library}</span>}
         </div>
-        <div className="text-sm font-extrabold text-lma-slate-900">{o.student_id} · {o.name}</div>
-        <div className="text-[11px] text-lma-slate-500 mt-0.5">Receipt {o.receipt_no} · until {o.booking_to}</div>
+       <button onClick={()=>onViewStudent(o.student_id)} className="block text-left text-sm font-extrabold text-lma-primary hover:underline">{o.student_id} · {o.name}</button>
+       <div className="text-[11px] text-lma-slate-500 mt-0.5">Receipt <button onClick={()=>onViewReceipt(o.receipt_no)} className="text-lma-primary underline decoration-dotted font-bold">{o.receipt_no}</button> · until {o.booking_to}</div>
         {o.fees_due_balance>0&&<div className="text-[11px] font-bold text-lma-danger mt-0.5">Dues: ₹{o.fees_due_balance} ({o.dues_status})</div>}
         <DetailCopyRow occupant={o} lib={lib} branch={branch} showToast={showToast}/>
         <div className="grid grid-cols-2 gap-2 mt-2">

@@ -4,6 +4,8 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
 import { useLMA, useScopeChips, type LMAInitData as InitData } from "../_components/LMAProvider";
 import { fmtDMY } from "../_lib/dates";
+import ReceiptModal from "../_components/ReceiptModal";
+import StudentModal from "../_components/StudentModal";
 
 const API = "/api/lma";
 
@@ -33,6 +35,8 @@ type Tab = "PENDING"|"PAYMENTS"|"IRRECOVERABLE";
 
 export default function DuesPage(){
   const { init, showToast, post } = useLMA();
+  const [openRno, setOpenRno] = useState<string|null>(null);
+  const [openStu, setOpenStu] = useState<{ id:string; library:string }|null>(null);
   const [confirmAction,setConfirmAction]=useState<{title:string;message:string;confirmLabel:string;danger?:boolean;onYes:()=>void}|null>(null);
 
   const [tab,setTab]=useState<Tab>("PENDING");
@@ -100,7 +104,9 @@ export default function DuesPage(){
   const chips = useScopeChips();
 
   return (
-    <div className="lma-page-body max-w-md mx-auto px-4 pt-4">
+   <div className="lma-page-body max-w-md mx-auto px-4 pt-4">
+      {openRno && <ReceiptModal receiptNo={openRno} onClose={()=>setOpenRno(null)} onSaved={load}/>}
+      {openStu && <StudentModal studentId={openStu.id} library={openStu.library} onClose={()=>setOpenStu(null)} onSaved={load}/>}
       <header className="flex items-center gap-3 mb-3">
         <Link href="/lma" className="text-xl text-lma-slate-600 hover:text-lma-slate-900">←</Link>
         <div className="flex-1"><h1 className="text-xl font-extrabold tracking-tight text-lma-slate-900">Dues</h1><p className="text-[11px] text-lma-slate-500 font-medium">{pending.length} pending · ₹{pendingSum} outstanding</p></div>
@@ -130,10 +136,10 @@ export default function DuesPage(){
               <div key={d.receipt_no} className="bg-white rounded-xl p-3 shadow-sm">
                 <div className="flex items-center gap-2 mb-1">
                   <span className="text-sm font-extrabold text-lma-slate-900">{d.receipt_no}</span>
-                  <span className="text-[10px] font-bold text-lma-slate-400">{d.student_id}</span>
+                  <button onClick={()=>setOpenStu({id:d.student_id,library:d.library})} className="text-[10px] font-bold text-lma-slate-400 underline decoration-dotted">{d.student_id}</button>  
                   <span className="text-sm font-extrabold text-lma-danger ml-auto">₹{d.fees_due_balance}</span>
                 </div>
-                <div className="text-sm font-semibold text-lma-slate-800 truncate">{d.name}</div>
+                <button onClick={()=>setOpenStu({id:d.student_id,library:d.library})} className="block w-full text-left text-sm font-semibold text-lma-slate-800 truncate hover:underline">{d.name}</button>
                 <div className="text-[11px] text-lma-slate-500 mt-0.5">{d.library}{d.branch?`/${d.branch}`:""} · Seat {d.seat_no||"—"} · {d.shift_name||d.shift} · till {fmtDMY(d.booking_to)}</div>
                 <div className="grid grid-cols-2 gap-2 mt-2.5">
                   <button onClick={()=>setPayFor(d)} className="py-2 rounded-lg bg-lma-accent/10 text-lma-accent font-bold text-xs">Log Payment</button>
@@ -151,7 +157,7 @@ export default function DuesPage(){
             {payments.map(p=>(
               <div key={p.payment_id} className="bg-white rounded-xl p-3 shadow-sm">
                 <div className="flex items-center gap-2 mb-1">
-                  <span className="text-sm font-extrabold text-lma-slate-900">{p.receipt_no}</span>
+                  <button onClick={()=>setOpenRno(p.receipt_no)} className="text-sm font-extrabold text-lma-primary underline decoration-dotted">{p.receipt_no}</button>
                   {p.name&&<span className="text-[11px] text-lma-slate-500 truncate">{p.name}</span>}
                   <span className="text-sm font-extrabold text-lma-accent ml-auto">+₹{p.amount_received}</span>
                 </div>

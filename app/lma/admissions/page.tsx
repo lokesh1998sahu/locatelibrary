@@ -247,6 +247,8 @@ function StepStudent({ init, resolvedLib, resolvedBranch, admitType, post, showT
   const [receiptResults,setReceiptResults]=useState<Receipt[]>([]);
   const [searching,setSearching]=useState(false);
   const [hasSearched,setHasSearched]=useState(false);
+  const [rcptPage,setRcptPage]=useState(0);
+  const [stuPage,setStuPage]=useState(0);
   const [isCross,setIsCross]=useState(false);
   const [crossOrigin,setCrossOrigin]=useState("");
  
@@ -255,7 +257,7 @@ function StepStudent({ init, resolvedLib, resolvedBranch, admitType, post, showT
   const doSearch=async()=>{
     const q=search.trim();
     if(q.length<2){ showToast("Type at least 2 characters","error"); return; }
-    setSearching(true); setHasSearched(true);
+    setSearching(true); setHasSearched(true); setRcptPage(0); setStuPage(0);
     const type=autoDetectSearchType(q);
     try{
       // Run student + receipt searches in parallel (#6)
@@ -387,9 +389,12 @@ function StepStudent({ init, resolvedLib, resolvedBranch, admitType, post, showT
           {/* #6: dual results — receipts on top (more specific), students below */}
           {hasSearched&&!searching&&receiptResults.length>0&&(
             <div className="mb-3">
-              <p className="text-[10px] font-bold text-lma-slate-500 uppercase tracking-wider mb-1.5">🧾 Receipts ({receiptResults.length})</p>
+              <div className="flex items-center justify-between mb-1.5">
+                <p className="text-[10px] font-bold text-lma-slate-500 uppercase tracking-wider">🧾 Receipts ({receiptResults.length})</p>
+                {receiptResults.length>5&&(<div className="flex items-center gap-2 text-[11px] font-bold text-lma-slate-600"><button type="button" onClick={()=>setRcptPage(p=>Math.max(0,p-1))} disabled={rcptPage===0} className="px-2 py-0.5 rounded bg-lma-slate-100 disabled:opacity-40">‹</button><span>{rcptPage+1}/{Math.ceil(receiptResults.length/5)}</span><button type="button" onClick={()=>setRcptPage(p=>Math.min(Math.ceil(receiptResults.length/5)-1,p+1))} disabled={rcptPage>=Math.ceil(receiptResults.length/5)-1} className="px-2 py-0.5 rounded bg-lma-slate-100 disabled:opacity-40">›</button></div>)}
+              </div>
               <div className="space-y-2">
-                {receiptResults.map(r=>(
+                {receiptResults.slice(rcptPage*5,rcptPage*5+5).map(r=>(
                   <button key={r.receipt_no} onClick={()=>pickRenewalReceipt(r)} className="w-full text-left bg-white rounded-xl p-3 shadow-sm hover:shadow-md active:scale-[0.99] flex items-center gap-3 border-l-4 border-lma-primary">
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-1.5 flex-wrap">
@@ -409,9 +414,12 @@ function StepStudent({ init, resolvedLib, resolvedBranch, admitType, post, showT
 
           {hasSearched&&!searching&&studentResults.length>0&&(
             <div className="mb-3">
-              <p className="text-[10px] font-bold text-lma-slate-500 uppercase tracking-wider mb-1.5">👤 Students ({studentResults.length})</p>
+              <div className="flex items-center justify-between mb-1.5">
+                <p className="text-[10px] font-bold text-lma-slate-500 uppercase tracking-wider">👤 Students ({studentResults.length})</p>
+                {studentResults.length>5&&(<div className="flex items-center gap-2 text-[11px] font-bold text-lma-slate-600"><button type="button" onClick={()=>setStuPage(p=>Math.max(0,p-1))} disabled={stuPage===0} className="px-2 py-0.5 rounded bg-lma-slate-100 disabled:opacity-40">‹</button><span>{stuPage+1}/{Math.ceil(studentResults.length/5)}</span><button type="button" onClick={()=>setStuPage(p=>Math.min(Math.ceil(studentResults.length/5)-1,p+1))} disabled={stuPage>=Math.ceil(studentResults.length/5)-1} className="px-2 py-0.5 rounded bg-lma-slate-100 disabled:opacity-40">›</button></div>)}
+              </div>
               <div className="space-y-2">
-                {studentResults.map(st=>(
+                {studentResults.slice(stuPage*5,stuPage*5+5).map(st=>(
                   <button key={`${st.library}-${st.student_id}`} onClick={()=>pickRenewalStudent(st)} className="w-full text-left bg-white rounded-xl p-3 shadow-sm hover:shadow-md active:scale-[0.99] flex items-center gap-3">
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-1.5"><span className="text-sm font-extrabold text-lma-slate-900">{st.student_id}</span>{st.is_past&&<span className="text-[9px] font-bold text-lma-warn bg-lma-warn/10 px-1.5 py-0.5 rounded">PAST</span>}<span className="text-[10px] text-lma-slate-400 ml-auto">{st.library}{st.branch?`/${st.branch}`:""}</span></div>
