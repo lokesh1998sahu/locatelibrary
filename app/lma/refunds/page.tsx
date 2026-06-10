@@ -21,6 +21,8 @@ interface Refund {
 
 type LinkFilter = "ANY"|"TRUE"|"FALSE";
 
+function homeLib(it:any){ return (it.is_cross_library && it.is_cross_library!=="NO") ? it.is_cross_library : (it.branch||it.library); }
+
 export default function RefundsPage(){
   const { init, showToast, post } = useLMA();
   const [openRno, setOpenRno] = useState<string|null>(null);
@@ -118,7 +120,7 @@ export default function RefundsPage(){
                   : <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-lma-slate-100 text-lma-slate-500">STANDALONE</span>}
                 <span className="text-sm font-extrabold text-lma-danger ml-auto">−₹{r.amount}</span>
               </div>
-           <button onClick={()=>setOpenStu({id:r.student_id,library:r.library})} className="block w-full text-left text-sm font-semibold text-lma-slate-800 truncate hover:underline">{r.name} <span className="text-[10px] font-bold text-lma-slate-400">{r.student_id}</span></button>
+           <button onClick={()=>setOpenStu({id:r.student_id,library:homeLib(r)})} className="block w-full text-left text-sm font-semibold text-lma-slate-800 truncate hover:underline">{r.name} <span className="text-[10px] font-bold text-lma-slate-400">{r.student_id}</span></button>
               <div className="text-[11px] text-lma-slate-500 mt-0.5">{r.library}{r.branch?`/${r.branch}`:""} · vs <button onClick={()=>setOpenRno(r.original_receipt_no)} className="text-lma-primary underline decoration-dotted font-bold">{r.original_receipt_no}</button> · {r.refund_mode} · {fmtDMY(r.refund_date)}</div>
               {r.refund_reason&&<div className="text-[11px] text-lma-slate-400 mt-0.5">{r.refund_reason}</div>}
               <div className="grid grid-cols-3 gap-2 mt-2.5">

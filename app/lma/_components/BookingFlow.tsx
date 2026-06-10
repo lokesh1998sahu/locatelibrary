@@ -34,7 +34,7 @@ function autoDetectSearchType(q:string):"NAME"|"PHONE"|"STUDENT_ID"|"RECEIPT_NO"
 function normalizePhone(input:string):string{ if(!input)return""; let c=input.replace(/[\s\-\.\(\)]/g,""); if(c.startsWith("+91"))c=c.slice(3); else if(c.startsWith("91")&&c.length>10)c=c.slice(2); c=c.replace(/\D/g,""); if(c.length>10)c=c.slice(-10); return c; }
 
 interface PhoneEntry { number:string; tag:string; }
-interface Student  { student_id:string; library:string; branch:string; name:string; phones:PhoneEntry[]; address:string; preparing_for:string; aadhaar_last4:string; date_of_birth:string; is_past:boolean; }
+interface Student  { student_id:string; library:string; branch:string; name:string; phones:PhoneEntry[]; address:string; preparing_for:string; aadhaar_last4:string; date_of_birth:string; gender?:string; is_past:boolean; }
 interface Receipt  { receipt_no:string; student_id:string; library:string; branch:string; name:string; phones:PhoneEntry[]; seat_no:string; shift:string; shift_name:string; shift_time:string; booking_from:string; booking_to:string; status:string; is_cross_library?:string; fee?:number; }
 interface SeatCell { row_in_section:number; col_in_section:number; seat_no:number; display_label:string; notes:string; cell_type:string; state?:string; occupant?:{receipt_no:string;student_id:string;name:string;shift:string}|null; share_note?:string|null; }
 interface VacantResp { ok:boolean; needs_seat:boolean; sections:{section_name:string;section_order:number;rows:number;cols:number;seats:SeatCell[]}[]; }
@@ -74,8 +74,9 @@ export default function BookingFlow({ renewReceiptNo, addMode, libCode, presetSe
   const renewCtx = useMemo<BookingCtx|null>(()=>{
     if(!renewFrom) return null;
     const student:Student={ student_id:renewFrom.student_id, library:renewFrom.library, branch:renewFrom.branch, name:renewFrom.name, phones:renewFrom.phones||[], address:"", preparing_for:"", aadhaar_last4:"", date_of_birth:"", is_past:false };
-    const isCross=(String(renewFrom.library).toUpperCase()!==String(libCode).toUpperCase() && String(renewFrom.branch||"").toUpperCase()!==String(libCode).toUpperCase());
-    return { admitType:"RENEWAL", student, isCross, crossOrigin: isCross?(renewFrom.branch||renewFrom.library):"", renewFrom, preload:{ seat:presetSeat||"", shift:presetShift||"", fee:"", from:"", to:"" } };
+    const cl=String(renewFrom.is_cross_library||"").trim().toUpperCase();
+    const isCross=(!!cl && cl!=="NO");
+    return { admitType:"RENEWAL", student, isCross, crossOrigin: isCross?cl:"", renewFrom, preload:{ seat:presetSeat||"", shift:presetShift||"", fee:"", from:"", to:"" } };
   },[renewFrom,libCode,presetSeat,presetShift]);
 
   const formCtx = renewReceiptNo ? renewCtx : bookingCtx;
@@ -191,6 +192,7 @@ function StepStudent({ init, resolvedLib, resolvedBranch, admitType, post, showT
   const [preparingFor,setPreparingFor]=useState("");
   const [aadhaar,setAadhaar]=useState("");
   const [dob,setDob]=useState("");
+  const [gender,setGender]=useState<"M"|"F"|"">("");
 
   const [search,setSearch]=useState("");
   const [studentResults,setStudentResults]=useState<Student[]>([]);
@@ -235,9 +237,10 @@ function StepStudent({ init, resolvedLib, resolvedBranch, admitType, post, showT
 
   const handleNewNext=()=>{
     if(!name.trim()){ showToast("Name is required","error"); return; }
+    if(!gender){ showToast("Select Male or Female","error"); return; }
     const cleanPhones=phones.filter(p=>p.number.trim()).map(p=>({number:normalizePhone(p.number),tag:p.tag}));
     const student:Student={ student_id:"", library:resolvedLib, branch:resolvedBranch, name:name.trim(),
-      phones:cleanPhones, address, preparing_for:preparingFor, aadhaar_last4:aadhaar, date_of_birth:dob, is_past:false };
+      phones:cleanPhones, address, preparing_for:preparingFor, aadhaar_last4:aadhaar, date_of_birth:dob, gender, is_past:false };
     onReady({ admitType:"NEW", student, isCross:false, crossOrigin:"" });
   };
 
@@ -269,6 +272,11 @@ function StepStudent({ init, resolvedLib, resolvedBranch, admitType, post, showT
           <h3 className="text-base font-extrabold text-lma-slate-900 mb-3">New Student Details</h3>
           <FieldLabel>Name *</FieldLabel>
           <Inp value={name} onChange={e=>setName(e.target.value.toUpperCase())} placeholder="FULL NAME"/>
+          <FieldLabel>Gender *</FieldLabel>
+          <div className="grid grid-cols-2 gap-2 mb-3">
+            <button type="button" onClick={()=>setGender("M")} className={`py-2.5 rounded-xl font-bold text-sm border-[1.5px] transition ${gender==="M"?"bg-[#dbe6fb] border-[#93b4f0] text-[#1e3a8a]":"bg-lma-slate-50 border-lma-slate-200 text-lma-slate-500"}`}>♂ Male</button>
+            <button type="button" onClick={()=>setGender("F")} className={`py-2.5 rounded-xl font-bold text-sm border-[1.5px] transition ${gender==="F"?"bg-[#fbdbe8] border-[#f0a6c4] text-[#9d174d]":"bg-lma-slate-50 border-lma-slate-200 text-lma-slate-500"}`}>♀ Female</button>
+          </div>
           <FieldLabel>Phones</FieldLabel>
           {phones.map((ph,i)=>(
             <div key={i} className="flex gap-2 mb-2">
@@ -564,7 +572,7 @@ function StepBooking({ init, resolvedLib, resolvedBranch, ctx, post, showToast, 
 
       {showSeatPicker&&(
         <SeatPickerSheet
-          library={resolvedLib} branch={resolvedBranch} shift={shiftKey}
+          library={resolvedLib} branch={resolvedBranch} shift={shiftKey} ignoreReceiptNo={ctx.renewFrom?.receipt_no||""}
           current={seat} onClose={()=>setShowSeatPicker(false)}
           onPick={(label)=>{ setSeat(label); setShowSeatPicker(false); }}
         />
@@ -574,8 +582,8 @@ function StepBooking({ init, resolvedLib, resolvedBranch, ctx, post, showToast, 
 }
 
 // ── SEAT PICKER (copied) ──
-function SeatPickerSheet({ library, branch, shift, current, onClose, onPick }:{
-  library:string; branch:string; shift:string; current:string;
+function SeatPickerSheet({ library, branch, shift, current, ignoreReceiptNo, onClose, onPick }:{
+  library:string; branch:string; shift:string; current:string; ignoreReceiptNo?:string;
   onClose:()=>void; onPick:(label:string)=>void;
 }){
   const [data,setData]=useState<VacantResp|null>(null);
@@ -583,8 +591,9 @@ function SeatPickerSheet({ library, branch, shift, current, onClose, onPick }:{
   useEffect(()=>{
     const params=new URLSearchParams({action:"getVacantSeats",library_code:library,shift});
     if(branch) params.set("branch_code",branch);
+    if(ignoreReceiptNo) params.set("ignore_receipt_no",ignoreReceiptNo);
     fetch(`${API}?${params}`).then(r=>r.json()).then((r:VacantResp)=>{ setData(r); setLoading(false); });
-  },[library,branch,shift]);
+  },[library,branch,shift,ignoreReceiptNo]);
   return (
     <div className="fixed inset-0 z-[10001] flex items-end justify-center" onClick={onClose}>
       <div className="absolute inset-0 bg-black/50 backdrop-blur-sm"/>

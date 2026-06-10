@@ -7,6 +7,7 @@ import { useLMA, useScopeChips } from "../_components/LMAProvider";
 import ReceiptModal from "../_components/ReceiptModal";
 import StudentModal from "../_components/StudentModal";
 import BookingFlow from "../_components/BookingFlow";
+import { toIsoInput } from "../_lib/dates";
 
 const API = "/api/lma";
 
@@ -104,7 +105,7 @@ export default function BoardPage(){
   const [shiftView,setShiftView]=useState<ShiftView>("ALL");
   const [detail,setDetail]=useState<{cell:BoardCell;panel?:boolean}|null>(null);
   const [openRno,setOpenRno]=useState<string|null>(null);
-  const [openStu,setOpenStu]=useState<{id:string;library:string}|null>(null);
+  const [openStu,setOpenStu]=useState<{id:string;library:string;crossOrigin?:string}|null>(null);
   const [renew,setRenew]=useState<{rno:string;libCode:string;seat?:string;shift?:string}|null>(null);
   const [addBk,setAddBk]=useState<{libCode:string;seat:string;shift?:string}|null>(null);
   const [zoomPx,setZoomPx]=useState(0); // 0 = fit-to-width; >0 = fixed px per seat (on-screen zoom)
@@ -119,16 +120,7 @@ export default function BoardPage(){
   const [customScale,setCustomScale]=useState("2.5");
   const boardRef = useRef<HTMLDivElement>(null);
 
-  // Pick a default scope (first active library or branch) once init lands.
-  useEffect(()=>{
-    if(!init||scope) return;
-    const first=init.libraries.find(l=>l.active);
-    if(!first) return;
-    if(first.has_branches){
-      const b=init.branches.find(x=>x.library_code===first.library_code&&x.active);
-      setScope(b?b.branch_code:first.library_code);
-    } else setScope(first.library_code);
-  },[init,scope]);
+  
 
   const resolved = useMemo(()=>{
     if(!init||!scope) return {lib:"",branch:"",label:""};
@@ -187,7 +179,7 @@ export default function BoardPage(){
   return (
    <div className="lma-page-body max-w-md mx-auto px-4 pt-4">
       {openRno && <ReceiptModal receiptNo={openRno} onClose={()=>setOpenRno(null)} onSaved={loadBoard}/>}
-     {openStu && <StudentModal studentId={openStu.id} library={openStu.library} onClose={()=>setOpenStu(null)} onSaved={loadBoard}/>}
+     {openStu && <StudentModal studentId={openStu.id} library={openStu.library} crossOrigin={openStu.crossOrigin} onClose={()=>setOpenStu(null)} onSaved={loadBoard}/>}
       {renew && <BookingFlow renewReceiptNo={renew.rno} libCode={renew.libCode} presetSeat={renew.seat} presetShift={renew.shift} onClose={()=>setRenew(null)} onComplete={loadBoard}/>}
       {addBk && <BookingFlow addMode libCode={addBk.libCode} presetSeat={addBk.seat} presetShift={addBk.shift} onClose={()=>setAddBk(null)} onComplete={loadBoard}/>}
       <header className="flex items-center gap-3 mb-3">
@@ -253,7 +245,15 @@ export default function BoardPage(){
       {loading&&!board?(
         <div className="text-center text-sm text-lma-slate-500 py-8">Loading chart…</div>
       ):!board?(
-        <div className="text-center text-sm text-lma-slate-500 py-8">No data.</div>
+        !scope ? (
+          <div className="flex flex-col items-center justify-center text-center py-20 px-6 rounded-2xl bg-lma-slate-900 mt-4">
+            <div className="text-4xl mb-3">🪑</div>
+            <div className="text-lg font-extrabold text-white">Select a Library to View Seat Chart</div>
+            <div className="text-[12px] text-lma-slate-400 mt-1.5 font-medium">Tap a library pill above to load its seat board.</div>
+          </div>
+        ) : (
+          <div className="text-center text-sm text-lma-slate-500 py-8">No data.</div>
+        )
       ):(
         <div id="board-export-area" style={{background:"#fff",padding:"12px",borderRadius:"12px"}}>
           {/* export header */}
@@ -294,7 +294,7 @@ export default function BoardPage(){
         onClose={()=>setDetail(null)}
        router={router}
         onViewReceipt={(rno:string)=>{ setDetail(null); setOpenRno(rno); }}
-        onViewStudent={(sid:string)=>{ setDetail(null); setOpenStu({id:sid,library:resolved.branch||resolved.lib}); }}
+        onViewStudent={(sid:string,cross?:string)=>{ setDetail(null); setOpenStu({id:sid,library:resolved.branch||resolved.lib,crossOrigin:cross}); }}
         onRenew={(rno:string,seat:string,shift:string)=>{ setDetail(null); setRenew({rno,libCode:resolved.branch||resolved.lib,seat,shift}); }}
         onAddBooking={(seat:string,shift:string)=>{ setDetail(null); setAddBk({libCode:resolved.branch||resolved.lib,seat,shift}); }}
         scope={scope}
@@ -551,7 +551,7 @@ function Lane({ emoji, label, tone, children }:{ emoji:string; label:string; ton
 // Every seat tap opens this. A seat has up to 3 lanes (FULL DAY, or
 // MORNING + EVENING). Each lane is independently BOOKED / BLOCKED / VACANT,
 // rendered with the SAME architecture so blocks read like bookings.
-function DetailSheet({ cell, panel, onClose, router, scope, lib, branch, post, showToast, onChanged, onReAllot, onShare,  onBlock, onEdit, onViewReceipt, onViewStudent, onRenew, onAddBooking }:{ cell:BoardCell; panel?:boolean; onClose:()=>void; router:any; scope:string; lib:string; branch:string; post:(a:string,p:any)=>Promise<any>; showToast:(m:string,t?:"success"|"error")=>void; onChanged:()=>void; onReAllot:(o:Occupant)=>void; onShare:(text:string,label:string)=>void; onBlock:(seatLabel:string,shift:string)=>void; onEdit:(seatLabel:string,blk:BlockInfo)=>void; onViewReceipt:(rno:string)=>void; onViewStudent:(sid:string)=>void; onRenew:(rno:string,seat:string,shift:string)=>void; onAddBooking:(seat:string,shift:string)=>void }){
+function DetailSheet({ cell, panel, onClose, router, scope, lib, branch, post, showToast, onChanged, onReAllot, onShare,  onBlock, onEdit, onViewReceipt, onViewStudent, onRenew, onAddBooking }:{ cell:BoardCell; panel?:boolean; onClose:()=>void; router:any; scope:string; lib:string; branch:string; post:(a:string,p:any)=>Promise<any>; showToast:(m:string,t?:"success"|"error")=>void; onChanged:()=>void; onReAllot:(o:Occupant)=>void; onShare:(text:string,label:string)=>void; onBlock:(seatLabel:string,shift:string)=>void; onEdit:(seatLabel:string,blk:BlockInfo)=>void; onViewReceipt:(rno:string)=>void; onViewStudent:(sid:string,cross?:string)=>void; onRenew:(rno:string,seat:string,shift:string)=>void; onAddBooking:(seat:string,shift:string)=>void }){
   const [busy,setBusy]=useState(false);
   const [confirmVacate,setConfirmVacate]=useState<Occupant|null>(null);
   const [chooseMode,setChooseMode]=useState<""|"ADD"|"BLOCK">(""); // fully-vacant: ask shift before booking/blocking
@@ -593,7 +593,7 @@ function DetailSheet({ cell, panel, onClose, router, scope, lib, branch, post, s
           {o.has_dues&&<span className="text-[10px] font-bold px-2 py-0.5 rounded" style={{background:COLOR.DUES.bg,color:COLOR.DUES.text}}>DUES</span>}
           {o.is_cross_library&&o.is_cross_library!=="NO"&&<span className="text-[9px] font-bold text-lma-warn bg-lma-warn/10 px-1.5 py-0.5 rounded ml-auto">CROSS · {o.is_cross_library}</span>}
         </div>
-       <button onClick={()=>onViewStudent(o.student_id)} className="block text-left text-sm font-extrabold text-lma-primary hover:underline">{o.student_id} · {o.name}</button>
+       <button onClick={()=>onViewStudent(o.student_id, o.is_cross_library)} className="block text-left text-sm font-extrabold text-lma-primary hover:underline">{o.student_id} · {o.name}</button>
        <div className="text-[11px] text-lma-slate-500 mt-0.5">Receipt <button onClick={()=>onViewReceipt(o.receipt_no)} className="text-lma-primary underline decoration-dotted font-bold">{o.receipt_no}</button> · until {o.booking_to}</div>
         {o.fees_due_balance>0&&<div className="text-[11px] font-bold text-lma-danger mt-0.5">Dues: ₹{o.fees_due_balance} ({o.dues_status})</div>}
         <DetailCopyRow occupant={o} lib={lib} branch={branch} showToast={showToast}/>
@@ -697,6 +697,7 @@ function DetailSheet({ cell, panel, onClose, router, scope, lib, branch, post, s
         <div className="flex items-baseline gap-2 mb-3">
           <h3 className="text-base font-extrabold text-lma-slate-900">Seat {cell.display_label}</h3>
           <span className="text-[11px] font-semibold text-lma-slate-500">{summary}</span>
+          <button onClick={onClose} aria-label="Close" className="absolute top-3 right-3 w-8 h-8 rounded-full bg-lma-slate-100 text-lma-slate-500 font-bold text-lg leading-none flex items-center justify-center hover:bg-lma-slate-200 z-10">×</button>
         </div>
         {body}
         <button onClick={onClose} className="w-full mt-4 py-3 rounded-xl bg-lma-slate-100 text-lma-slate-600 font-bold">Close</button>
@@ -758,7 +759,11 @@ function DetailedExport({ board, label, shiftView }:{ board:BoardResp; label:str
     const bi=cell.block_info||{morning:null,evening:null,fullday:null};
     const vacantTile = !fd && !m && !e && !b.morning && !b.evening && !b.fullday;
     const th = cell.temp_held;
-    const heldHolder = th ? (th.fullday||th.morning||th.evening) : null;
+    const heldFD = th ? th.fullday : null;
+    const heldM  = th ? (th.morning || th.fullday) : null;
+    const heldE  = th ? (th.evening || th.fullday) : null;
+    const heldHolder = heldFD || heldM || heldE;
+    const wholeHeld = (!!heldFD || (!!heldM && !!heldE)) && vacantTile;
     const heldOnVacant = vacantTile && !!heldHolder;
     const heldLabel = heldHolder ? heldHolder.student_id : "";
     const VACANT_FILL = "rgba(0,0,0,0.08)";
@@ -805,7 +810,7 @@ const halfNameSize=(name:string)=>{
     };
 
     // a half-zone: occupant data, blocked/hold stripe, or empty
-    const halfZone=(o:Occupant|null, blk:BlockInfo|null)=>{
+    const halfZone=(o:Occupant|null, blk:BlockInfo|null, held?:any)=>{
       if(o){
         const col=exLook(o);
         return <div style={{height:"100%",width:"100%",background:col.bg,color:col.text,borderRadius:"4px",padding:"1px 7px 9px 7px",display:"flex",flexDirection:"column",boxSizing:"border-box",overflow:"hidden",boxShadow:col.ring?`inset 0 0 0 3px ${EXPORT_GOLD}`:undefined}}>{dataRows(o)}</div>;
@@ -816,6 +821,9 @@ const halfNameSize=(name:string)=>{
             {blockRows(blk)}
           </div>
         );
+      }
+      if(held){
+        return <div style={{height:"100%",width:"100%",background:"#fffbeb",color:"#b45309",border:"2px dashed #f59e0b",borderRadius:"4px",display:"flex",alignItems:"center",justifyContent:"center",fontSize:"12px",fontWeight:900,boxSizing:"border-box",padding:"2px 4px",overflow:"hidden",textAlign:"center"}}>{held.student_id}</div>;
       }
       // empty half — dark fill when the OTHER half is occupied
       return <div style={{height:"100%",width:"100%",background: vacantTile?"transparent":VACANT_FILL,borderRadius:"4px"}}/>;
@@ -846,8 +854,8 @@ const halfNameSize=(name:string)=>{
             <span style={{fontWeight:900,fontSize:"24px",color:"#0f172a",lineHeight:1}}>{cell.display_label}</span>
             {notesText && <span style={{fontSize:"8px",fontWeight:700,color:"#475569",lineHeight:1,marginTop:"1px"}}>{notesText}</span>}
           </div>
-          {dueAmt(fd)}
           <div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",fontSize:"12px",fontWeight:800,textAlign:"center",lineHeight:1.2}}>{fd.booking_to}</div>
+          {dueAmt(fd)}
         </div>
       );
     }
@@ -873,15 +881,15 @@ const halfNameSize=(name:string)=>{
     }
 
     // MORNING (upper) + EVENING (lower), number band in middle — grid for deterministic html2canvas rendering
-    const wrapperBorder = heldOnVacant ? HELD_BORDER : (vacantTile ? VACANT_BORDER : "1.5px solid #cbd5e1");
-    const wrapperBg = vacantTile ? VACANT_FILL : "#fff";
+    const wrapperBorder = wholeHeld ? HELD_BORDER : (vacantTile ? VACANT_BORDER : "1.5px solid #cbd5e1");
+    const wrapperBg = wholeHeld ? "#fffbeb" : (vacantTile ? VACANT_FILL : "#fff");
     return (
       <div style={{border:wrapperBorder,borderRadius:"8px",overflow:"hidden",height:"100%",display:"grid",gridTemplateRows:"1fr 34px 1fr",rowGap:"6px",background:wrapperBg,boxSizing:"border-box",padding:"4px"}}>
         <div style={{overflow:"hidden",minWidth:0,minHeight:0,display:"flex",alignItems:"center",justifyContent:"center"}}>
-          {heldOnVacant ? <span style={{fontSize:"11px",fontWeight:900,color:"rgba(0,0,0,0.75)",letterSpacing:"0.3px"}}>{heldLabel}</span> : halfZone(m, bi.morning)}
+          {halfZone(m, bi.morning, heldM)}
         </div>
         {numberBand}
-        <div style={{overflow:"hidden",minWidth:0,minHeight:0}}>{halfZone(e, bi.evening)}</div>
+        <div style={{overflow:"hidden",minWidth:0,minHeight:0}}>{halfZone(e, bi.evening, heldE)}</div>
       </div>
     );
   }
@@ -1057,8 +1065,8 @@ function BlockForm({ seat, suggestedShift, blockId, initReason, initFrom, initTo
   const isEdit=!!blockId;
   const [shift,setShift]=useState(suggestedShift||"FULL DAY");
   const [reason,setReason]=useState(initReason||"");
-  const [from,setFrom]=useState(initFrom||"");
-  const [to,setTo]=useState(initTo||"");
+  const [from,setFrom]=useState(toIsoInput(initFrom||""));
+  const [to,setTo]=useState(toIsoInput(initTo||""));
   const [busy,setBusy]=useState(false);
   const submit=async()=>{
     if(busy) return;
@@ -1082,8 +1090,8 @@ function BlockForm({ seat, suggestedShift, blockId, initReason, initFrom, initTo
         <Lbl>Reason (optional)</Lbl>
         <Txt value={reason} onChange={e=>setReason(e.target.value)} placeholder="Repair, reserved, etc."/>
         <div className="grid grid-cols-2 gap-2">
-          <div><Lbl>From (info)</Lbl><Txt value={from} onChange={e=>setFrom(e.target.value)} placeholder="DD-M-YYYY"/></div>
-          <div><Lbl>To (info)</Lbl><Txt value={to} onChange={e=>setTo(e.target.value)} placeholder="DD-M-YYYY"/></div>
+          <div><Lbl>From (info)</Lbl><Txt type="date" value={from} onChange={e=>setFrom(e.target.value)}/></div>
+          <div><Lbl>To (info)</Lbl><Txt type="date" value={to} onChange={e=>setTo(e.target.value)}/></div>
         </div>
         <p className="text-[10px] text-lma-slate-400 mt-1">Dates are informational — block stays active until removed.</p>
         <div className="flex gap-2 mt-4">

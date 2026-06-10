@@ -33,6 +33,8 @@ interface Irrecoverable {
 
 type Tab = "PENDING"|"PAYMENTS"|"IRRECOVERABLE";
 
+function homeLib(it:any){ return (it.is_cross_library && it.is_cross_library!=="NO") ? it.is_cross_library : (it.branch||it.library); }
+
 export default function DuesPage(){
   const { init, showToast, post } = useLMA();
   const [openRno, setOpenRno] = useState<string|null>(null);
@@ -136,10 +138,10 @@ export default function DuesPage(){
               <div key={d.receipt_no} className="bg-white rounded-xl p-3 shadow-sm">
                 <div className="flex items-center gap-2 mb-1">
                   <span className="text-sm font-extrabold text-lma-slate-900">{d.receipt_no}</span>
-                  <button onClick={()=>setOpenStu({id:d.student_id,library:d.library})} className="text-[10px] font-bold text-lma-slate-400 underline decoration-dotted">{d.student_id}</button>  
+                  <button onClick={()=>setOpenStu({id:d.student_id,library:homeLib(d)})} className="text-[10px] font-bold text-lma-slate-400 underline decoration-dotted">{d.student_id}</button>  
                   <span className="text-sm font-extrabold text-lma-danger ml-auto">₹{d.fees_due_balance}</span>
                 </div>
-                <button onClick={()=>setOpenStu({id:d.student_id,library:d.library})} className="block w-full text-left text-sm font-semibold text-lma-slate-800 truncate hover:underline">{d.name}</button>
+                <button onClick={()=>setOpenStu({id:d.student_id,library:homeLib(d)})} className="block w-full text-left text-sm font-semibold text-lma-slate-800 truncate hover:underline">{d.name}</button>
                 <div className="text-[11px] text-lma-slate-500 mt-0.5">{d.library}{d.branch?`/${d.branch}`:""} · Seat {d.seat_no||"—"} · {d.shift_name||d.shift} · till {fmtDMY(d.booking_to)}</div>
                 <div className="grid grid-cols-2 gap-2 mt-2.5">
                   <button onClick={()=>setPayFor(d)} className="py-2 rounded-lg bg-lma-accent/10 text-lma-accent font-bold text-xs">Log Payment</button>

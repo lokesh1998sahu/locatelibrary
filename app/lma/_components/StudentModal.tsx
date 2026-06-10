@@ -15,6 +15,7 @@
 import { useState, useEffect } from "react";
 import { useLMA } from "./LMAProvider";
 import { fmtDMY, toIsoInput } from "../_lib/dates";
+import { genderLabel } from "../_lib/genderTheme";
 
 const API = "/api/lma";
 
@@ -22,11 +23,11 @@ interface PhoneEntry { number:string; tag:string; }
 interface Student {
   s_no?:number; student_id:string; library:string; branch:string; name:string;
   phones:PhoneEntry[]; added_on:string; address:string; preparing_for:string;
-  aadhaar_last4:string; date_of_birth:string; is_past:boolean;
+  aadhaar_last4:string; date_of_birth:string; gender?:string; is_past:boolean;
 }
 
-export default function StudentModal({ studentId, library, onClose, onSaved, onDelete }:{
-  studentId:string; library?:string; onClose:()=>void; onSaved?:(s:Student)=>void; onDelete?:()=>void;
+export default function StudentModal({ studentId, library, crossOrigin, onClose, onSaved, onDelete }:{
+  studentId:string; library?:string; crossOrigin?:string; onClose:()=>void; onSaved?:(s:Student)=>void; onDelete?:()=>void;
 }) {
   const { init, post, showToast } = useLMA();
   const [student,setStudent] = useState<Student|null>(null);
@@ -40,13 +41,14 @@ export default function StudentModal({ studentId, library, onClose, onSaved, onD
     setLoading(true); setMode("view");
     try{
       const qs = new URLSearchParams({ action:"getStudentById", student_id:studentId });
-      if(library) qs.set("library", library);
+      const homeLib = (crossOrigin && crossOrigin.trim().toUpperCase()!=="NO") ? crossOrigin : library;
+      if(homeLib) qs.set("library", homeLib);
       const r = await fetch(`${API}?${qs}`).then(x=>x.json());
       if(alive) setStudent(r?.student || null);
     }catch{ if(alive) showToast("Couldn't load student","error"); }
     if(alive) setLoading(false);
   })(); return ()=>{ alive=false; }; // eslint-disable-next-line react-hooks/exhaustive-deps
-  },[studentId,library]);
+  },[studentId,library,crossOrigin]);
 
   const selLib      = init?.libraries.find(l=>l.library_code===(f?.library));
   const hasBranches = selLib?.has_branches || false;
@@ -66,6 +68,7 @@ export default function StudentModal({ studentId, library, onClose, onSaved, onD
       preparing_for: student.preparing_for || "",
       aadhaar_last4: student.aadhaar_last4 || "",
       date_of_birth: student.date_of_birth || "",
+      gender: student.gender || "",
     });
     setMode("edit");
   };
@@ -85,6 +88,7 @@ export default function StudentModal({ studentId, library, onClose, onSaved, onD
       preparing_for: f.preparing_for,
       aadhaar_last4: f.aadhaar_last4,
       date_of_birth: f.date_of_birth,
+      gender: f.gender,
     };
     setSaving(true);
     const r = await post("updateStudent", payload);
@@ -138,6 +142,7 @@ export default function StudentModal({ studentId, library, onClose, onSaved, onD
                 </div>
               ) : <p className="text-xs text-lma-slate-400">No phone on record</p>}
 
+              {genderLabel(student.gender)!=="—" && <Row label="Gender">{genderLabel(student.gender)}</Row>}
               {student.preparing_for && <Row label="Preparing For">{student.preparing_for}</Row>}
               {student.address && <Row label="Address">{student.address}</Row>}
               {student.aadhaar_last4 && <Row label="Aadhaar">•••• {student.aadhaar_last4}</Row>}
@@ -174,6 +179,12 @@ export default function StudentModal({ studentId, library, onClose, onSaved, onD
 
             <FieldLabel>Name *</FieldLabel>
             <input value={f.name} onChange={e=>setF({...f, name:e.target.value.toUpperCase()})} className="w-full px-3.5 py-2.5 rounded-xl border-[1.5px] border-lma-slate-200 bg-lma-slate-50 text-sm font-medium mb-3"/>
+
+            <FieldLabel>Gender</FieldLabel>
+            <div className="grid grid-cols-2 gap-2 mb-3">
+              <button type="button" onClick={()=>setF({...f, gender:"M"})} className={`py-2.5 rounded-xl font-bold text-sm border-[1.5px] transition ${f.gender==="M"?"bg-[#dbe6fb] border-[#93b4f0] text-[#1e3a8a]":"bg-lma-slate-50 border-lma-slate-200 text-lma-slate-500"}`}>♂ Male</button>
+              <button type="button" onClick={()=>setF({...f, gender:"F"})} className={`py-2.5 rounded-xl font-bold text-sm border-[1.5px] transition ${f.gender==="F"?"bg-[#fbdbe8] border-[#f0a6c4] text-[#9d174d]":"bg-lma-slate-50 border-lma-slate-200 text-lma-slate-500"}`}>♀ Female</button>
+            </div>
 
             <FieldLabel>Phones</FieldLabel>
             <div className="space-y-2 mb-2">
