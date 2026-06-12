@@ -16,8 +16,10 @@ import { useState, useEffect } from "react";
 import { useLMA } from "./LMAProvider";
 import { fmtDMY, toIsoInput } from "../_lib/dates";
 import { genderLabel } from "../_lib/genderTheme";
+import dynamic from "next/dynamic";
 
 const API = "/api/lma";
+const BookingHistory = dynamic(()=>import("./BookingHistory"), { ssr:false });
 
 interface PhoneEntry { number:string; tag:string; }
 interface Student {
@@ -35,6 +37,7 @@ export default function StudentModal({ studentId, library, crossOrigin, onClose,
   const [mode,setMode]       = useState<"view"|"edit">("view");
   const [saving,setSaving]   = useState(false);
   const [f,setF]             = useState<any>(null);
+  const [showHistory,setShowHistory] = useState(false);
 
   // fetch on open / id change
   useEffect(()=>{ let alive=true; (async()=>{
@@ -104,6 +107,7 @@ export default function StudentModal({ studentId, library, crossOrigin, onClose,
   };
 
   return (
+    <>
     <div className="fixed inset-0 z-[9998] flex items-end justify-center" onClick={onClose}>
       <div className="absolute inset-0 bg-black/50 backdrop-blur-sm"/>
       <div className="relative w-full max-w-md bg-white rounded-t-3xl p-5 max-h-[88vh] overflow-y-auto lma-slide-up" onClick={e=>e.stopPropagation()}>
@@ -155,6 +159,7 @@ export default function StudentModal({ studentId, library, crossOrigin, onClose,
               {onDelete && <button onClick={onDelete} className="py-2.5 rounded-xl bg-lma-danger/10 text-lma-danger font-bold text-xs">🗑 Delete</button>}
               <button onClick={startEdit} className="py-2.5 rounded-xl bg-lma-primary text-white font-bold text-sm">✏️ Edit</button>
             </div>
+            <button onClick={()=>setShowHistory(true)} className="w-full mt-2 py-2.5 rounded-xl bg-lma-accent/10 text-lma-accent font-bold text-sm">📋 Booking History</button>
           </>
         ) : (
           <>
@@ -233,6 +238,8 @@ export default function StudentModal({ studentId, library, crossOrigin, onClose,
         )}
       </div>
     </div>
+    {showHistory && student && <BookingHistory studentId={student.student_id} homeLib={(student.branch||student.library)} studentName={student.name} onClose={()=>setShowHistory(false)}/>}
+    </>
   );
 }
 

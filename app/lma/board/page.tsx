@@ -355,7 +355,7 @@ export default function BoardPage(){
       )}
 
        {/* off-screen detailed export layout */}
-      {showExport&&board&&<DetailedExport board={board} label={resolved.label} shiftView={shiftView}/>}
+      {showExport&&board&&<DetailedExport board={board} label={resolved.label} shiftView={shiftView} genderM={genderM} genderF={genderF}/>}
     </div>
   );
 }
@@ -861,7 +861,7 @@ function DetailSheet({ cell, panel, onClose, router, scope, lib, branch, post, s
 }
 
 // ── DETAILED EXPORT LAYOUT (off-screen, captured by html2canvas) ──
-function DetailedExport({ board, label, shiftView }:{ board:BoardResp; label:string; shiftView:ShiftView }){
+function DetailedExport({ board, label, shiftView, genderM, genderF }:{ board:BoardResp; label:string; shiftView:ShiftView; genderM:boolean; genderF:boolean }){
   const EXPORT_COLOR: Record<string,{bg:string;text:string;border:string}> = {
     OK:       { bg:"#dcfce7", text:"#15803d", border:"#86efac" },
     EXPIRING:         { bg:"#fee2e2", text:"#b91c1c", border:"#fca5a5" },
@@ -895,6 +895,7 @@ function DetailedExport({ board, label, shiftView }:{ board:BoardResp; label:str
   function richCell(cell:BoardCell){
     if(cell.cell_type==="DEAD") return <div style={{background:"#f8fafc",border:"1px solid #e2e8f0",borderRadius:"8px",width:"100%",height:"100%"}}/>;
     const fd=cell.fullday, m=cell.morning, e=cell.evening;
+    const ovl=(g?:string)=>{ const n=normGender(g||""); if(genderM&&n==="M") return "rgba(59,130,246,0.32)"; if(genderF&&n==="F") return "rgba(236,72,153,0.34)"; return null; };
     const b=cell.blocked||{morning:false,evening:false,fullday:false};
     const bi=cell.block_info||{morning:null,evening:null,fullday:null};
     const vacantTile = !fd && !m && !e && !b.morning && !b.evening && !b.fullday;
@@ -953,7 +954,7 @@ const halfNameSize=(name:string)=>{
     const halfZone=(o:Occupant|null, blk:BlockInfo|null, held?:any)=>{
       if(o){
         const col=exLook(o);
-        return <div style={{height:"100%",width:"100%",background:col.bg,color:col.text,borderRadius:"4px",padding:"1px 7px 9px 7px",display:"flex",flexDirection:"column",boxSizing:"border-box",overflow:"hidden",boxShadow:col.ring?`inset 0 0 0 3px ${EXPORT_GOLD}`:undefined}}>{dataRows(o)}</div>;
+        return <div style={{position:"relative",height:"100%",width:"100%",background:col.bg,color:col.text,borderRadius:"4px",padding:"1px 7px 9px 7px",display:"flex",flexDirection:"column",boxSizing:"border-box",overflow:"hidden",boxShadow:col.ring?`inset 0 0 0 3px ${EXPORT_GOLD}`:undefined}}>{ovl(o.gender)&&<span style={{position:"absolute",inset:0,background:ovl(o.gender)!,pointerEvents:"none",borderRadius:"4px"}}/>}{dataRows(o)}</div>;
       }
       if(blk){
         return (
@@ -984,7 +985,7 @@ const halfNameSize=(name:string)=>{
     if(fd){
       const col=exLook(fd);
       return (
-        <div style={{border:col.ring?`3px solid ${EXPORT_GOLD}`:"1.5px solid #cbd5e1",borderRadius:"8px",overflow:"hidden",height:"100%",display:"flex",flexDirection:"column",background:col.bg,color:col.text,boxSizing:"border-box",padding:"5px 7px"}}>
+        <div style={{position:"relative",border:col.ring?`3px solid ${EXPORT_GOLD}`:"1.5px solid #cbd5e1",borderRadius:"8px",overflow:"hidden",height:"100%",display:"flex",flexDirection:"column",background:col.bg,color:col.text,boxSizing:"border-box",padding:"5px 7px"}}>{ovl(fd.gender)&&<span style={{position:"absolute",inset:0,background:ovl(fd.gender)!,pointerEvents:"none",borderRadius:"8px"}}/>}
           <div style={{display:"flex",justifyContent:"space-between",fontSize:"12px",fontWeight:900,lineHeight:1.2,gap:"4px",flexShrink:0}}>
             <span style={{whiteSpace:"nowrap"}}>{fd.student_id}</span>
             <span style={{whiteSpace:"nowrap"}}>{fd.receipt_no}</span>
