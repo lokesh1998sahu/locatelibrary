@@ -107,7 +107,7 @@ export default function DuesPage(){
 
   return (
    <div className="lma-page-body max-w-md mx-auto px-4 pt-4">
-      {openRno && <ReceiptModal receiptNo={openRno} onClose={()=>setOpenRno(null)} onSaved={load}/>}
+      {openRno && <ReceiptModal receiptNo={openRno} context="dues" onClose={()=>setOpenRno(null)} onSaved={load}/>}
       {openStu && <StudentModal studentId={openStu.id} library={openStu.library} onClose={()=>setOpenStu(null)} onSaved={load}/>}
       <header className="flex items-center gap-3 mb-3">
         <Link href="/lma" className="text-xl text-lma-slate-600 hover:text-lma-slate-900">←</Link>

@@ -8,6 +8,7 @@ import ReceiptModal from "../_components/ReceiptModal";
 import StudentModal from "../_components/StudentModal";
 import BookingFlow from "../_components/BookingFlow";
 import { toIsoInput } from "../_lib/dates";
+import { genderCardStyle, normGender } from "../_lib/genderTheme";
 
 const API = "/api/lma";
 
@@ -19,6 +20,8 @@ interface Occupant {
   color:"OK"|"EXPIRING"|"EXPIRED";
   urgent?:boolean;   // B1: within PRIMARY window → darkest-red text
   has_dues?:boolean;
+  gender?:string;
+  receipt_type?:string;
   temporary_seat?:string;
 }
 interface TempHeldInfo { receipt_no:string; student_id:string; name:string; }
@@ -143,6 +146,8 @@ export default function BoardPage(){
   useEffect(()=>{ if(resolved.lib) loadBoard(); },[resolved.lib,resolved.branch,loadBoard]);
 
   const [showExport,setShowExport]=useState(false);
+  const [genderM,setGenderM]=useState(false);
+  const [genderF,setGenderF]=useState(false);
 
   const downloadPng=async(scale:number=2.5)=>{
     if(!board) return;
@@ -236,6 +241,13 @@ export default function BoardPage(){
         ))}
       </div>
 
+      {/* gender overlay toggle */}
+      <div className="flex items-center gap-2 mb-3">
+        <span className="text-[10px] font-bold text-lma-slate-400 uppercase tracking-wide">Highlight</span>
+        <button onClick={()=>setGenderM(v=>!v)} style={genderM?{background:"#3b82f6",color:"#fff"}:undefined} className={`px-3 py-1.5 rounded-full text-[11px] font-bold shadow-sm transition ${genderM?"":"bg-white text-lma-slate-500"}`}>♂ Male</button>
+        <button onClick={()=>setGenderF(v=>!v)} style={genderF?{background:"#ec4899",color:"#fff"}:undefined} className={`px-3 py-1.5 rounded-full text-[11px] font-bold shadow-sm transition ${genderF?"":"bg-white text-lma-slate-500"}`}>♀ Female</button>
+      </div>
+
       {/* legend */}
       <div className="flex gap-3 mb-3 text-[10px] text-lma-slate-500 overflow-x-auto whitespace-nowrap pb-1">
         {(["OK","EXPIRING_PRIMARY","EXPIRING","EXPIRED","DUES"] as const).map((k)=>{const v=COLOR[k];return (<span key={k} className="flex items-center gap-1"><span className="w-3 h-3 rounded inline-block" style={{background:v.bg,border:`1px solid ${v.border}`}}></span>{v.label}</span>);})}
@@ -271,7 +283,7 @@ export default function BoardPage(){
                     const r=Math.floor(idx/sec.cols)+1,c=(idx%sec.cols)+1;
                     const cell=sec.seats.find(s=>s.row_in_section===r&&s.col_in_section===c);
                     if(!cell) return <div key={idx} className="aspect-square"/>;
-                    return <SeatTile key={idx} cell={cell} shiftView={shiftView} onOpen={()=>setDetail({cell})}/>;
+                    return <SeatTile key={idx} cell={cell} shiftView={shiftView} genderM={genderM} genderF={genderF} onOpen={()=>setDetail({cell})}/>;
                   })}
                 </div>
               </div>
@@ -370,11 +382,12 @@ function FitText({ text, color="currentColor", maxPx=11 }:{ text:string; color?:
 }
 
 // ── SEAT TILE ────────────────────────────────────────────────────
-function SeatTile({ cell, shiftView, onOpen }:{ cell:BoardCell; shiftView:ShiftView; onOpen:()=>void }){
+function SeatTile({ cell, shiftView, onOpen, genderM, genderF }:{ cell:BoardCell; shiftView:ShiftView; onOpen:()=>void; genderM:boolean; genderF:boolean }){
   if(cell.cell_type==="DEAD") return <div className="aspect-square rounded" style={{background:"#f8fafc",border:"1px solid #e2e8f0"}}/>;
 
   // TRUE occupancy — NEVER hidden by the shift view (the toggle bug: occupants
   // were nulled per-view, so taken seats looked vacant/bookable).
+  const ovl=(g?:string)=>{ const n=normGender(g||""); if(genderM&&n==="M") return "rgba(59,130,246,0.32)"; if(genderF&&n==="F") return "rgba(236,72,153,0.34)"; return null; };
   const bi = cell.block_info || { morning:null, evening:null, fullday:null };
   const fd = cell.fullday;          // full-day booking → occupies whole seat
   const bF = bi.fullday;            // full-day block
@@ -404,7 +417,8 @@ function SeatTile({ cell, shiftView, onOpen }:{ cell:BoardCell; shiftView:ShiftV
   if(fd){
     const col=occLook(fd);
     return (
-      <button onClick={onOpen} className="aspect-square rounded flex flex-col items-center justify-center overflow-hidden px-0.5" style={{background:col.bg,color:col.text,border:col.ring?`2px solid ${col.border}`:`1px solid ${col.border}`,boxShadow:col.ring?`inset 0 0 0 1px ${col.border}`:undefined,...dimStyle}}>
+      <button onClick={onOpen} className="aspect-square rounded flex flex-col items-center justify-center overflow-hidden px-0.5 relative" style={{background:col.bg,color:col.text,border:col.ring?`2px solid ${col.border}`:`1px solid ${col.border}`,boxShadow:col.ring?`inset 0 0 0 1px ${col.border}`:undefined,...dimStyle}}>
+        {ovl(fd.gender)&&<span style={{position:"absolute",inset:0,background:ovl(fd.gender)!,pointerEvents:"none"}}/>}
         <span className="text-[10px] font-extrabold leading-none">{cell.display_label}</span>
         <div className="w-full px-0.5 mt-0.5"><FitText text={shortDate(fd.booking_to)} color={col.text} maxPx={11}/></div>
       </button>
@@ -457,11 +471,13 @@ function SeatTile({ cell, shiftView, onOpen }:{ cell:BoardCell; shiftView:ShiftV
       background: bothHeld?"#fffbeb":(vacant?"rgba(0,0,0,0.06)":"#fff"),
       ...dimStyle
     }}>
-      <button onClick={onOpen} className="flex-1 flex items-center justify-center text-[7px] font-bold leading-none" style={halfStyle(mCol,bM,heldM)}>
+      <button onClick={onOpen} className="flex-1 flex items-center justify-center text-[7px] font-bold leading-none relative" style={halfStyle(mCol,bM,heldM)}>
+        {ovl(m?.gender)&&<span style={{position:"absolute",inset:0,background:ovl(m?.gender)!,pointerEvents:"none"}}/>}
         {halfText(m,bM,heldM,(shiftView==="ALL"||shiftView==="MORNING")?"·":"") }
       </button>
       <button onClick={onOpen} className="text-[9px] font-extrabold text-lma-slate-700 leading-none py-0.5">{cell.display_label}</button>
-      <button onClick={onOpen} className="flex-1 flex items-center justify-center text-[7px] font-bold leading-none" style={halfStyle(eCol,bE,heldE)}>
+      <button onClick={onOpen} className="flex-1 flex items-center justify-center text-[7px] font-bold leading-none relative" style={halfStyle(eCol,bE,heldE)}>
+        {ovl(e?.gender)&&<span style={{position:"absolute",inset:0,background:ovl(e?.gender)!,pointerEvents:"none"}}/>}
         {halfText(e,bE,heldE,(shiftView==="ALL"||shiftView==="EVENING")?"·":"") }
       </button>
     </div>
@@ -510,6 +526,116 @@ function SidePanel({ title, items, emoji, onReAllot, onTap }:{ title:string; ite
 // #26: on-demand copy row for a board occupant. Board occupancy doesn't carry
 // receipt_text/registration_text, so fetch the receipt by receipt_no when a copy
 // button is tapped. Group copy only for NEW receipts that have registration_text.
+function CollectDueInline({ receiptNo, balance, post, showToast, onChanged }:{ receiptNo:string; balance:number; post:(a:string,p:any)=>Promise<any>; showToast:(m:string,t?:"success"|"error")=>void; onChanged:()=>void }){
+  const { init }=useLMA();
+  const modes=(init?.paymentTags||[]).filter(t=>t.active).map(t=>t.tag_name);
+  const [open,setOpen]=useState(false);
+  const [amt,setAmt]=useState(String(balance||""));
+  const [mode,setMode]=useState("");
+  const [busy,setBusy]=useState(false);
+  const [err,setErr]=useState("");
+  const submit=async()=>{
+    const n=Number(amt);
+    if(!n||n<=0){ setErr("Enter a valid amount"); return; }
+    if(!mode){ setErr("Select a payment mode"); return; }
+    setBusy(true); setErr("");
+    const r=await post("logFeePayment",{ receipt_no:receiptNo, payment_mode:mode, amount_received:n, notes:"" });
+    setBusy(false);
+    if(r&&r.ok!==false){ showToast("Due collected"); setOpen(false); onChanged(); } else setErr((r&&r.error)||"Could not collect due");
+  };
+  if(!open) return <button onClick={()=>setOpen(true)} className="mt-1.5 w-full py-2 rounded-lg bg-lma-danger/10 text-lma-danger font-bold text-xs">💰 Collect Due (₹{balance})</button>;
+  return (
+    <div className="mt-1.5 rounded-lg border border-lma-danger/30 bg-lma-danger/5 p-2.5 space-y-2">
+      <div className="flex gap-2">
+        <input type="number" inputMode="decimal" value={amt} onChange={e=>setAmt(e.target.value)} placeholder="Amount" className="flex-1 min-w-0 px-2 py-1.5 rounded-md border border-lma-slate-300 text-sm"/>
+        <select value={mode} onChange={e=>setMode(e.target.value)} className="px-2 py-1.5 rounded-md border border-lma-slate-300 text-sm bg-white"><option value="">Mode…</option>{modes.map(m=><option key={m} value={m}>{m}</option>)}</select>
+      </div>
+      {err&&<div className="text-[11px] font-bold text-lma-danger">{err}</div>}
+      <div className="flex gap-2">
+        <button disabled={busy} onClick={()=>{setOpen(false);setErr("");}} className="flex-1 py-1.5 rounded-md bg-lma-slate-100 text-lma-slate-600 font-bold text-xs disabled:opacity-50">Cancel</button>
+        <button disabled={busy} onClick={submit} className="flex-1 py-1.5 rounded-md bg-lma-danger text-white font-bold text-xs disabled:opacity-50">{busy?"…":"Collect"}</button>
+      </div>
+    </div>
+  );
+}
+
+function RefundInline({ receiptNo, post, showToast, onChanged }:{ receiptNo:string; post:(a:string,p:any)=>Promise<any>; showToast:(m:string,t?:"success"|"error")=>void; onChanged:()=>void }){
+  const { init }=useLMA();
+  const modes=(init?.paymentTags||[]).filter(t=>t.active).map(t=>t.tag_name);
+  const [open,setOpen]=useState(false);
+  const [amt,setAmt]=useState("");
+  const [mode,setMode]=useState("");
+  const [reason,setReason]=useState("");
+  const [busy,setBusy]=useState(false);
+  const [err,setErr]=useState("");
+  const submit=async()=>{
+    const n=Number(amt);
+    if(!n||n<=0){ setErr("Enter a valid amount"); return; }
+    if(!mode){ setErr("Select a refund mode"); return; }
+    setBusy(true); setErr("");
+    const r=await post("issueRefund",{ original_receipt_no:receiptNo, amount:n, refund_mode:mode, refund_reason:reason, linked_to_cancellation:false });
+    setBusy(false);
+    if(r&&r.ok!==false){ showToast("Refund issued"); setOpen(false); onChanged(); } else setErr((r&&r.error)||"Could not issue refund");
+  };
+  if(!open) return <button onClick={()=>setOpen(true)} className="mt-2 w-full py-1.5 rounded-lg bg-lma-slate-100 text-lma-slate-600 font-bold text-[11px]">↩ Issue Refund</button>;
+  return (
+    <div className="mt-2 rounded-lg border border-lma-slate-300 bg-lma-slate-50 p-2.5 space-y-2">
+      <div className="flex gap-2">
+        <input type="number" inputMode="decimal" value={amt} onChange={e=>setAmt(e.target.value)} placeholder="Refund amount" className="flex-1 min-w-0 px-2 py-1.5 rounded-md border border-lma-slate-300 text-sm"/>
+        <select value={mode} onChange={e=>setMode(e.target.value)} className="px-2 py-1.5 rounded-md border border-lma-slate-300 text-sm bg-white"><option value="">Mode…</option>{modes.map(m=><option key={m} value={m}>{m}</option>)}</select>
+      </div>
+      <input value={reason} onChange={e=>setReason(e.target.value)} placeholder="Reason (optional)" className="w-full px-2 py-1.5 rounded-md border border-lma-slate-300 text-sm"/>
+      {err&&<div className="text-[11px] font-bold text-lma-danger">{err}</div>}
+      <div className="flex gap-2">
+        <button disabled={busy} onClick={()=>{setOpen(false);setErr("");}} className="flex-1 py-1.5 rounded-md bg-lma-slate-100 text-lma-slate-600 font-bold text-xs disabled:opacity-50">Cancel</button>
+        <button disabled={busy} onClick={submit} className="flex-1 py-1.5 rounded-md bg-lma-warn text-white font-bold text-xs disabled:opacity-50">{busy?"…":"Refund"}</button>
+      </div>
+    </div>
+  );
+}
+
+function MoneyTrailInline({ receiptNo }:{ receiptNo:string }){
+  const [open,setOpen]=useState(false);
+  const [t,setT]=useState<any>(null);
+  const [busy,setBusy]=useState(false);
+  const [err,setErr]=useState("");
+  const load=async()=>{
+    if(open){ setOpen(false); return; }
+    setOpen(true);
+    if(t) return;
+    setBusy(true); setErr("");
+    try{
+      const r=await fetch(`${API}?action=getReceiptMoneyTrail&receipt_no=${encodeURIComponent(receiptNo)}`).then(x=>x.json());
+      if(r&&r.ok) setT(r); else setErr((r&&r.error)||"Could not load money trail");
+    }catch{ setErr("Could not load money trail"); }
+    setBusy(false);
+  };
+  return (
+    <div className="mt-2">
+      <button onClick={load} className="w-full py-1.5 rounded-lg bg-lma-slate-100 text-lma-slate-600 font-bold text-[11px]">📈 Money Trail {open?"▴":"▾"}</button>
+      {open&&(
+        <div className="mt-1.5 rounded-lg border border-lma-slate-200 bg-white p-2 text-[11px]">
+          {busy&&<div className="text-lma-slate-400">Loading…</div>}
+          {err&&<div className="font-bold text-lma-danger">{err}</div>}
+          {t&&!busy&&!err&&(
+            <div className="space-y-1.5">
+              <div>
+                <div className="font-bold text-lma-slate-500 mb-0.5">Due payments</div>
+                {(t.dues_payments&&t.dues_payments.length)?t.dues_payments.map((d:any,i:number)=>(<div key={i} className="flex justify-between"><span className="text-lma-slate-500">{d.received_on||"—"} · {d.mode||""}</span><span className="font-bold">₹{d.amount||0}</span></div>)):<div className="text-lma-slate-400">None</div>}
+              </div>
+              <div className="h-px bg-lma-slate-200"/>
+              <div>
+                <div className="font-bold text-lma-slate-500 mb-0.5">Refunds</div>
+                {(t.refunds&&t.refunds.length)?t.refunds.map((r:any,i:number)=>(<div key={i} className="flex justify-between"><span className="text-lma-slate-500">{r.refund_date||"—"} · {r.mode||""}</span><span className="font-bold text-lma-danger">₹{r.amount||0}</span></div>)):<div className="text-lma-slate-400">None</div>}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function DetailCopyRow({ occupant, lib, branch, showToast }:{ occupant:Occupant; lib:string; branch:string; showToast:(m:string,t?:"success"|"error")=>void }){
   const [loading,setLoading]=useState<""|"student"|"group"|"contact">("");
   const fetchReceipt=async()=>{
@@ -527,9 +653,9 @@ function DetailCopyRow({ occupant, lib, branch, showToast }:{ occupant:Occupant;
   const copyGroup=async()=>{ setLoading("group"); const rec=await fetchReceipt(); setLoading(""); if(rec&&rec.registration_text){ navigator.clipboard.writeText(rec.registration_text); showToast("Group copy"); } else showToast("No group text (renewal?)","error"); };
   const copyContact=async()=>{ setLoading("contact"); const rec=await fetchReceipt(); setLoading(""); const L=rec?(rec.branch||rec.library):(branch||lib); navigator.clipboard.writeText(`${occupant.name} ${L} ${occupant.student_id}`); showToast("Contact copy"); };
   return (
-    <div className="grid grid-cols-3 gap-2 mt-3">
+    <div className={`grid ${occupant.receipt_type==="RENEWAL"?"grid-cols-2":"grid-cols-3"} gap-2 mt-3`}>
       <button disabled={!!loading} onClick={copyStudent} className="py-2 rounded-lg bg-lma-accent/10 text-lma-accent font-bold text-xs disabled:opacity-50">{loading==="student"?"…":"📋 Student"}</button>
-      <button disabled={!!loading} onClick={copyGroup} className="py-2 rounded-lg bg-lma-primary/10 text-lma-primary font-bold text-xs disabled:opacity-50">{loading==="group"?"…":"📢 Group"}</button>
+      {occupant.receipt_type!=="RENEWAL"&&<button disabled={!!loading} onClick={copyGroup} className="py-2 rounded-lg bg-lma-primary/10 text-lma-primary font-bold text-xs disabled:opacity-50">{loading==="group"?"…":"📢 Group"}</button>}
       <button disabled={!!loading} onClick={copyContact} className="py-2 rounded-lg bg-lma-warn/10 text-lma-warn font-bold text-xs disabled:opacity-50">{loading==="contact"?"…":"📇 Contact"}</button>
     </div>
   );
@@ -575,6 +701,15 @@ function DetailSheet({ cell, panel, onClose, router, scope, lib, branch, post, s
     if(r&&r.ok!==false){ showToast("Removed"); onChanged(); } else showToast((r&&r.error)||"Failed","error");
   };
 
+  const doNotRenew=async(o:Occupant)=>{
+    if(busy) return;
+    if(!confirm(`Flag receipt ${o.receipt_no} as Do-Not-Renew? It will stop appearing in renewal lists.`)) return;
+    setBusy(true);
+    const r=await post("markReceiptDoNotRenew",{receipt_no:o.receipt_no});
+    setBusy(false);
+    if(r&&r.ok!==false){ showToast("Marked: do not renew"); onChanged(); } else showToast((r&&r.error)||"Failed","error");
+  };
+
   // ── lane data ──
   const bi=cell.block_info||{morning:null,evening:null,fullday:null};
   const th=cell.temp_held||{morning:null,evening:null,fullday:null};
@@ -584,27 +719,32 @@ function DetailSheet({ cell, panel, onClose, router, scope, lib, branch, post, s
 
   // ── BOOKED lane: details + actions ──
   const BookingPanel=(o:Occupant)=>{
-    const col=COLOR[o.color]||COLOR.OK;
+    const col=(o.color==="EXPIRING"&&o.urgent)?COLOR.EXPIRING_PRIMARY:(COLOR[o.color]||COLOR.OK);
     return (
-      <div className="border border-lma-slate-200 rounded-xl p-3">
+      <div className="rounded-xl p-3 border" style={genderCardStyle(o.gender||"")}>
         <div className="flex items-center gap-2 mb-2 flex-wrap">
           <span className="text-[10px] font-bold px-2 py-0.5 rounded" style={{background:col.bg,color:col.text}}>{o.shift_name||o.shift}</span>
           <span className="text-[10px] font-bold px-2 py-0.5 rounded" style={{background:col.bg,color:col.text}}>{col.label}</span>
           {o.has_dues&&<span className="text-[10px] font-bold px-2 py-0.5 rounded" style={{background:COLOR.DUES.bg,color:COLOR.DUES.text}}>DUES</span>}
           {o.is_cross_library&&o.is_cross_library!=="NO"&&<span className="text-[9px] font-bold text-lma-warn bg-lma-warn/10 px-1.5 py-0.5 rounded ml-auto">CROSS · {o.is_cross_library}</span>}
         </div>
-       <button onClick={()=>onViewStudent(o.student_id, o.is_cross_library)} className="block text-left text-sm font-extrabold text-lma-primary hover:underline">{o.student_id} · {o.name}</button>
-       <div className="text-[11px] text-lma-slate-500 mt-0.5">Receipt <button onClick={()=>onViewReceipt(o.receipt_no)} className="text-lma-primary underline decoration-dotted font-bold">{o.receipt_no}</button> · until {o.booking_to}</div>
+        <button onClick={()=>onViewStudent(o.student_id, o.is_cross_library)} className="block text-left text-sm font-extrabold text-lma-primary hover:underline">{o.student_id} · {o.name}</button>
+        <div className="text-[11px] text-lma-slate-600 mt-0.5">Receipt <button onClick={()=>onViewReceipt(o.receipt_no)} className="text-lma-primary underline decoration-dotted font-bold">{o.receipt_no}</button> · until {o.booking_to}</div>
         {o.fees_due_balance>0&&<div className="text-[11px] font-bold text-lma-danger mt-0.5">Dues: ₹{o.fees_due_balance} ({o.dues_status})</div>}
-        <DetailCopyRow occupant={o} lib={lib} branch={branch} showToast={showToast}/>
+        {o.fees_due_balance>0&&<CollectDueInline receiptNo={o.receipt_no} balance={o.fees_due_balance} post={post} showToast={showToast} onChanged={onChanged}/>}
         <div className="grid grid-cols-2 gap-2 mt-2">
           <button onClick={()=>onRenew(o.receipt_no, cell.display_label, o.shift)} className="py-2 rounded-lg bg-lma-primary/10 text-lma-primary font-bold text-xs">Renew</button>
-          <button onClick={()=>router.push("/lma/renewals")} className="py-2 rounded-lg bg-lma-slate-100 text-lma-slate-600 font-bold text-xs">Cancel</button>
+          {o.color==="EXPIRED"
+            ? <button disabled={busy} onClick={()=>doNotRenew(o)} className="py-2 rounded-lg bg-lma-slate-100 text-lma-slate-600 font-bold text-xs disabled:opacity-50">Do Not Renew</button>
+            : <button onClick={()=>router.push("/lma/renewals")} className="py-2 rounded-lg bg-lma-slate-100 text-lma-slate-600 font-bold text-xs">Cancel</button>}
           {o.temporary_seat
             ? <div className="py-2 rounded-lg bg-lma-warn/10 text-lma-warn font-bold text-xs text-center">Floating · was {o.temporary_seat}</div>
             : <button disabled={busy} onClick={()=>setConfirmVacate(o)} className="py-2 rounded-lg bg-lma-warn/10 text-lma-warn font-bold text-xs disabled:opacity-50">Temp-Vacate</button>}
           <button disabled={busy} onClick={()=>onReAllot(o)} className="py-2 rounded-lg bg-lma-slate-100 text-lma-slate-600 font-bold text-xs disabled:opacity-50">{o.temporary_seat?"Re-Allot (restore)":"Re-Allot"}</button>
         </div>
+        <MoneyTrailInline receiptNo={o.receipt_no}/>
+        <RefundInline receiptNo={o.receipt_no} post={post} showToast={showToast} onChanged={onChanged}/>
+        <DetailCopyRow occupant={o} lib={lib} branch={branch} showToast={showToast}/>
       </div>
     );
   };
