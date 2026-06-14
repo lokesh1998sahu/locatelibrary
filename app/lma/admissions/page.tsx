@@ -87,9 +87,12 @@ function StepLibrary({ init, onPick }:{ init:InitData; onPick:(code:string)=>voi
             {lib.has_branches&&(
               <div className="grid grid-cols-2 gap-2 mt-2 pl-4">
                 {init.branches.filter(b=>b.library_code===lib.library_code&&b.active).map(br=>(
-                  <button key={br.branch_code} onClick={()=>onPick(br.branch_code)} className="bg-white rounded-xl p-3 shadow-sm hover:shadow-md active:scale-[0.98] text-left">
-                    <div className="text-sm font-bold text-lma-slate-900">{br.branch_code}</div>
-                    <div className="text-[10px] text-lma-slate-500">{br.branch_display}</div>
+                  <button key={br.branch_code} onClick={()=>onPick(br.branch_code)} className="bg-white rounded-xl p-3 shadow-sm hover:shadow-md active:scale-[0.98] text-left flex items-center gap-2">
+                    <div className="w-7 h-7 rounded-lg flex items-center justify-center text-sm shrink-0" style={(br.color||lib.color)?{background:(br.color||lib.color)+"22",color:(br.color||lib.color)}:{background:"#e2e8f0"}}>{br.emoji||lib.emoji}</div>
+                    <div className="min-w-0">
+                      <div className="text-sm font-bold text-lma-slate-900">{br.branch_code}</div>
+                      <div className="text-[10px] text-lma-slate-500 truncate">{br.branch_display}</div>
+                    </div>
                   </button>
                 ))}
               </div>

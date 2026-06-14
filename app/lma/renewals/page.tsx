@@ -4,8 +4,11 @@ import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { useLMA, useScopeChips, type LMAInitData as InitData } from "../_components/LMAProvider";
 import { fmtDMY } from "../_lib/dates";
+import CodePill from "../_components/CodePill";
 import ReceiptModal from "../_components/ReceiptModal";
 import StudentModal from "../_components/StudentModal";
+import SearchBar, { matchesSearch } from "../_components/SearchBar";
+import Pager, { PAGE_SIZE } from "../_components/Pager";
 import BookingFlow from "../_components/BookingFlow";
 
 const API = "/api/lma";
@@ -45,6 +48,9 @@ export default function RenewalsPage(){
   const [openStu,setOpenStu]=useState<{id:string;library:string}|null>(null); // StudentModal
   const [renew,setRenew]=useState<QueueItem|null>(null);           // in-place renewal
   const [expSub,setExpSub]=useState<"ALL"|"SOON"|"LATER">("ALL");   // sub-filter inside Expiring
+  const [draft,setDraft]=useState("");
+  const [search,setSearch]=useState("");
+  const [page,setPage]=useState(1);
 
   const load=useCallback(async()=>{
     setLoading(true);
@@ -81,9 +87,13 @@ export default function RenewalsPage(){
   // split EXPIRING into Soon (within primary window) vs Expiring (secondary) — mirrors seat-chart two-tier code
   const primaryDays=(it:QueueItem)=>{ const s=(init?.settings as any)?.[it.branch||it.library]||(init?.settings as any)?.[it.library]; const n=Number(s?.renewal_alert_days_primary); return n>0?n:3; };
   const tierOf=(it:QueueItem):"soon"|"expiring"=> it.days_until_expiry<=primaryDays(it) ? "soon" : "expiring";
-  const soonList=expiring.filter(it=>tierOf(it)==="soon");
-  const laterList=expiring.filter(it=>tierOf(it)==="expiring");
-  const expShown = expSub==="SOON"?soonList : expSub==="LATER"?laterList : expiring;
+  const expiringF=expiring.filter(it=>matchesSearch(it,search));
+  const expiredF=expired.filter(it=>matchesSearch(it,search));
+  const cancellationsF=cancellations.filter(it=>matchesSearch(it,search));
+  const soonList=expiringF.filter(it=>tierOf(it)==="soon");
+  const laterList=expiringF.filter(it=>tierOf(it)==="expiring");
+  const expShown = expSub==="SOON"?soonList : expSub==="LATER"?laterList : expiringF;
+  useEffect(()=>{ setPage(1); },[tab,search,expSub]);
 
   const secondaryFor=(it:QueueItem,kind:"expiring"|"expired")=>kind==="expiring"
     ? ()=>setActionFor(it)
@@ -110,10 +120,11 @@ export default function RenewalsPage(){
       {/* scope chips */}
       <div className="flex gap-1.5 mb-3 overflow-x-auto -mx-4 px-4 pb-1">
         {chips.map(c=>(
-          <button key={c.code||"all"} onClick={()=>setScope(c.code)} style={scope===c.code&&c.color?{background:c.color,color:"#fff"}:undefined} className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-bold whitespace-nowrap ${scope===c.code&&!c.color?"bg-lma-slate-900 text-white":scope===c.code?"":"bg-white text-lma-slate-600"} shadow-sm`}>{c.label}</button>
+          <button key={c.code||"all"} onClick={()=>setScope(c.code)} style={scope===c.code&&c.color?{background:c.color,color:"#fff"}:undefined} className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-bold whitespace-nowrap ${scope===c.code&&!c.color?"bg-lma-slate-900 text-white":scope===c.code?"":"bg-white text-lma-slate-600"} shadow-sm`}>{c.emoji} {c.label}</button>
         ))}
       </div>
 
+      <SearchBar value={draft} onChange={setDraft} onSearch={()=>setSearch(draft)} searching={loading}/>
       {loading&&expiring.length===0&&expired.length===0&&cancellations.length===0?(
         <div className="text-center text-sm text-lma-slate-500 py-8">Loading…</div>
       ):tab==="EXPIRING"?(
@@ -122,7 +133,7 @@ export default function RenewalsPage(){
         ):(
           <>
             <div className="flex gap-1.5 mb-2.5">
-              <SubPill active={expSub==="ALL"} onClick={()=>setExpSub("ALL")}>All {expiring.length}</SubPill>
+              <SubPill active={expSub==="ALL"} onClick={()=>setExpSub("ALL")}>All {expiringF.length}</SubPill>
               <SubPill active={expSub==="SOON"} onClick={()=>setExpSub("SOON")} dot="#dc2626">Soon {soonList.length}</SubPill>
               <SubPill active={expSub==="LATER"} onClick={()=>setExpSub("LATER")} dot="#fca5a5">Expiring {laterList.length}</SubPill>
             </div>
@@ -130,38 +141,41 @@ export default function RenewalsPage(){
               <div className="text-center text-sm text-lma-slate-500 py-8">None in this group.</div>
             ):(
               <div className="space-y-2">
-                {expShown.map(it=>(
+                {expShown.slice((page-1)*PAGE_SIZE, page*PAGE_SIZE).map(it=>(
                   <ReviewCard key={it.receipt_no} it={it} kind={tierOf(it)}
                     onRenew={()=>setRenew(it)} onSecondary={secondaryFor(it,"expiring")}
                     onRno={()=>setOpenRno(it.receipt_no)} onStu={()=>setOpenStu({id:it.student_id,library:homeLib(it)})}/>
                 ))}
+                <Pager page={page} totalPages={Math.max(1,Math.ceil(expShown.length/PAGE_SIZE))} onPage={setPage}/>
               </div>
             )}
           </>
         )
       ):tab==="EXPIRED"?(
-        expired.length===0?(
+        expiredF.length===0?(
           <div className="text-center text-sm text-lma-slate-500 py-10">No expired receipts ✨</div>
         ):(
           <div className="space-y-2">
-            {expired.map(it=>(
+            {expiredF.slice((page-1)*PAGE_SIZE, page*PAGE_SIZE).map(it=>(
               <ReviewCard key={it.receipt_no} it={it} kind="expired"
                 onRenew={()=>setRenew(it)} onSecondary={secondaryFor(it,"expired")}
                 onRno={()=>setOpenRno(it.receipt_no)} onStu={()=>setOpenStu({id:it.student_id,library:homeLib(it)})}/>
             ))}
+            <Pager page={page} totalPages={Math.max(1,Math.ceil(expiredF.length/PAGE_SIZE))} onPage={setPage}/>
           </div>
         )
       ):(
-        cancellations.length===0?(
+        cancellationsF.length===0?(
           <div className="text-center text-sm text-lma-slate-500 py-10">No cancelled receipts.</div>
         ):(
           <div className="space-y-2">
-            {cancellations.map(it=>(
+            {cancellationsF.slice((page-1)*PAGE_SIZE, page*PAGE_SIZE).map(it=>(
               <CancelledCard key={it.receipt_no} it={it} showToast={showToast}
                 onRenew={()=>setRenew(it)}
                 onReset={()=>setConfirmAction({ title:"Reset status?", message:`${it.name} · ${it.receipt_no} will be set back to active (clears Cancelled/Do-Not-Renew).`, confirmLabel:"Reset", onYes:()=>doReset(it) })}
                 onRno={()=>setOpenRno(it.receipt_no)} onStu={()=>setOpenStu({id:it.student_id,library:homeLib(it)})}/>
             ))}
+            <Pager page={page} totalPages={Math.max(1,Math.ceil(cancellationsF.length/PAGE_SIZE))} onPage={setPage}/>
           </div>
         )
       )}
@@ -216,7 +230,7 @@ function ReviewCard({ it, kind, onRenew, onSecondary, onRno, onStu }:{
       </div>
       <button onClick={onStu} className="block text-left text-sm font-semibold text-lma-slate-800 truncate hover:text-lma-primary w-full">{it.name}</button>
       <div className="text-[11px] text-lma-slate-500 flex items-center gap-1.5 flex-wrap mt-0.5">
-        <span>{it.library}{it.branch?`/${it.branch}`:""}</span>
+        <CodePill code={it.branch||it.library}/>
         <span>· Seat {it.seat_no||"—"}</span>
         <span>· {it.shift_name||it.shift}</span>
         <span>· till {fmtDMY(it.booking_to)}</span>
@@ -254,7 +268,7 @@ function CancelledCard({ it, onRenew, onReset, onRno, onStu, showToast }:{
         <span className="text-[9px] font-extrabold px-2 py-0.5 rounded-full ml-auto bg-lma-danger/15 text-lma-danger tracking-wide">CANCELLED</span>
       </div>
       <button onClick={onStu} className="block text-left text-sm font-semibold text-lma-slate-800 truncate hover:text-lma-primary w-full">{it.name}</button>
-      <div className="text-[11px] text-lma-slate-500 mt-0.5">{it.library}{it.branch?`/${it.branch}`:""} · Seat {it.seat_no||"—"} · {it.shift_name||it.shift} · was till {fmtDMY(it.booking_to)}</div>
+      <div className="text-[11px] text-lma-slate-500 mt-0.5"><CodePill code={it.branch||it.library}/> · Seat {it.seat_no||"—"} · {it.shift_name||it.shift} · was till {fmtDMY(it.booking_to)}</div>
       <div className={`grid ${it.cancel_whatsapp_text?"grid-cols-3":"grid-cols-2"} gap-2 mt-2.5`}>
         <button onClick={onRenew} className="py-2 rounded-lg bg-gradient-to-br from-lma-primary to-lma-primary-2 text-white font-bold text-xs shadow-sm">Renew</button>
         {it.cancel_whatsapp_text&&<button onClick={()=>{navigator.clipboard.writeText(it.cancel_whatsapp_text!);showToast("Copied cancel message");}} className="py-2 rounded-lg bg-lma-accent/10 text-lma-accent font-bold text-xs">Copy WA</button>}

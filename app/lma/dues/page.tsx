@@ -4,8 +4,11 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
 import { useLMA, useScopeChips, type LMAInitData as InitData } from "../_components/LMAProvider";
 import { fmtDMY } from "../_lib/dates";
+import CodePill from "../_components/CodePill";
 import ReceiptModal from "../_components/ReceiptModal";
 import StudentModal from "../_components/StudentModal";
+import SearchBar, { matchesSearch } from "../_components/SearchBar";
+import Pager, { PAGE_SIZE } from "../_components/Pager";
 
 const API = "/api/lma";
 
@@ -47,6 +50,9 @@ export default function DuesPage(){
   const [payments,setPayments]=useState<DuePayment[]>([]);
   const [irrec,setIrrec]=useState<Irrecoverable[]>([]);
   const [pendingSum,setPendingSum]=useState(0);
+  const [draft,setDraft]=useState("");
+  const [search,setSearch]=useState("");
+  const [page,setPage]=useState(1);
   const [loading,setLoading]=useState(false);
 
   const [payFor,setPayFor]=useState<PendingDue|null>(null);
@@ -104,6 +110,10 @@ export default function DuesPage(){
 
 
   const chips = useScopeChips();
+  const pendingF=pending.filter(d=>matchesSearch(d,search));
+  const paymentsF=payments.filter(p=>matchesSearch(p,search));
+  const irrecF=irrec.filter(d=>matchesSearch(d,search));
+  useEffect(()=>{ setPage(1); },[tab,search]);
 
   return (
    <div className="lma-page-body max-w-md mx-auto px-4 pt-4">
@@ -123,18 +133,19 @@ export default function DuesPage(){
 
       <div className="flex gap-1.5 mb-3 overflow-x-auto -mx-4 px-4 pb-1">
         {chips.map(c=>(
-          <button key={c.code||"all"} onClick={()=>setScope(c.code)} style={scope===c.code&&c.color?{background:c.color,color:"#fff"}:undefined} className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-bold whitespace-nowrap ${scope===c.code&&!c.color?"bg-lma-slate-900 text-white":scope===c.code?"":"bg-white text-lma-slate-600"} shadow-sm`}>{c.label}</button>
+          <button key={c.code||"all"} onClick={()=>setScope(c.code)} style={scope===c.code&&c.color?{background:c.color,color:"#fff"}:undefined} className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-bold whitespace-nowrap ${scope===c.code&&!c.color?"bg-lma-slate-900 text-white":scope===c.code?"":"bg-white text-lma-slate-600"} shadow-sm`}>{c.emoji} {c.label}</button>
         ))}
       </div>
 
+      <SearchBar value={draft} onChange={setDraft} onSearch={()=>setSearch(draft)} searching={loading}/>
       {loading&&pending.length===0&&payments.length===0&&irrec.length===0?(
         <div className="text-center text-sm text-lma-slate-500 py-8">Loading…</div>
       ):tab==="PENDING"?(
-        pending.length===0?(
+        pendingF.length===0?(
           <div className="text-center text-sm text-lma-slate-500 py-8">No pending dues. 🎉</div>
         ):(
           <div className="space-y-2">
-            {pending.map(d=>(
+            {pendingF.slice((page-1)*PAGE_SIZE, page*PAGE_SIZE).map(d=>(
               <div key={d.receipt_no} className="bg-white rounded-xl p-3 shadow-sm">
                 <div className="flex items-center gap-2 mb-1">
                   <span className="text-sm font-extrabold text-lma-slate-900">{d.receipt_no}</span>
@@ -142,21 +153,22 @@ export default function DuesPage(){
                   <span className="text-sm font-extrabold text-lma-danger ml-auto">₹{d.fees_due_balance}</span>
                 </div>
                 <button onClick={()=>setOpenStu({id:d.student_id,library:homeLib(d)})} className="block w-full text-left text-sm font-semibold text-lma-slate-800 truncate hover:underline">{d.name}</button>
-                <div className="text-[11px] text-lma-slate-500 mt-0.5">{d.library}{d.branch?`/${d.branch}`:""} · Seat {d.seat_no||"—"} · {d.shift_name||d.shift} · till {fmtDMY(d.booking_to)}</div>
+                <div className="text-[11px] text-lma-slate-500 mt-0.5"><CodePill code={d.branch||d.library}/> · Seat {d.seat_no||"—"} · {d.shift_name||d.shift} · till {fmtDMY(d.booking_to)}</div>
                 <div className="grid grid-cols-2 gap-2 mt-2.5">
                   <button onClick={()=>setPayFor(d)} className="py-2 rounded-lg bg-lma-accent/10 text-lma-accent font-bold text-xs">Log Payment</button>
                   <button onClick={()=>setIrrecFor(d)} className="py-2 rounded-lg bg-lma-slate-100 text-lma-slate-600 font-bold text-xs">Write Off</button>
                 </div>
               </div>
             ))}
+            <Pager page={page} totalPages={Math.max(1,Math.ceil(pendingF.length/PAGE_SIZE))} onPage={setPage}/>
           </div>
         )
       ):tab==="PAYMENTS"?(
-        payments.length===0?(
+        paymentsF.length===0?(
           <div className="text-center text-sm text-lma-slate-500 py-8">No payments logged yet.</div>
         ):(
           <div className="space-y-2">
-            {payments.map(p=>(
+            {paymentsF.slice((page-1)*PAGE_SIZE, page*PAGE_SIZE).map(p=>(
               <div key={p.payment_id} className="bg-white rounded-xl p-3 shadow-sm">
                 <div className="flex items-center gap-2 mb-1">
                   <button onClick={()=>setOpenRno(p.receipt_no)} className="text-sm font-extrabold text-lma-primary underline decoration-dotted">{p.receipt_no}</button>
@@ -168,14 +180,15 @@ export default function DuesPage(){
                 {p.whatsapp_text&&<button onClick={()=>{navigator.clipboard.writeText(p.whatsapp_text);showToast("Copied receipt message");}} className="mt-2 py-1.5 px-3 rounded-lg bg-lma-accent/10 text-lma-accent font-bold text-xs">Copy WhatsApp</button>}
               </div>
             ))}
+            <Pager page={page} totalPages={Math.max(1,Math.ceil(paymentsF.length/PAGE_SIZE))} onPage={setPage}/>
           </div>
         )
       ):(
-        irrec.length===0?(
+        irrecF.length===0?(
           <div className="text-center text-sm text-lma-slate-500 py-8">No written-off dues.</div>
         ):(
           <div className="space-y-2">
-            {irrec.map(d=>(
+            {irrecF.slice((page-1)*PAGE_SIZE, page*PAGE_SIZE).map(d=>(
               <div key={d.receipt_no} className="bg-white rounded-xl p-3 shadow-sm">
                 <div className="flex items-center gap-2 mb-1">
                   <span className="text-sm font-extrabold text-lma-slate-900">{d.receipt_no}</span>
@@ -183,11 +196,12 @@ export default function DuesPage(){
                   <span className="text-sm font-extrabold text-lma-slate-500 ml-auto line-through">₹{d.fees_due_balance}</span>
                 </div>
                 <div className="text-sm font-semibold text-lma-slate-800 truncate">{d.name}</div>
-                <div className="text-[11px] text-lma-slate-500 mt-0.5">{d.library}{d.branch?`/${d.branch}`:""}</div>
+                <div className="text-[11px] text-lma-slate-500 mt-0.5"><CodePill code={d.branch||d.library}/></div>
                 {d.irrecoverable_remark&&<div className="text-[11px] text-lma-slate-400 mt-0.5">Note: {d.irrecoverable_remark}</div>}
                 <button onClick={()=>setConfirmAction({ title:"Restore to Pending?", message:`${d.name} · ${d.receipt_no} — ₹${d.fees_due_balance} will be moved back to PENDING dues.`, confirmLabel:"Restore", onYes:async()=>{ const r=await post("unmarkDuesIrrecoverable",{receipt_no:d.receipt_no}); if(r){showToast("Restored to pending");load();} } })} className="mt-2 py-1.5 px-3 rounded-lg bg-lma-slate-100 text-lma-slate-600 font-bold text-xs">Restore to Pending</button>
               </div>
             ))}
+            <Pager page={page} totalPages={Math.max(1,Math.ceil(irrecF.length/PAGE_SIZE))} onPage={setPage}/>
           </div>
         )
       )}

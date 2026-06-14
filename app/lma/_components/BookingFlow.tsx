@@ -19,6 +19,7 @@
 import { useState, useEffect, useMemo, useRef } from "react";
 import { useLMA } from "./LMAProvider";
 import { toDmy } from "../_lib/dates";
+import CodePill from "./CodePill";
 
 const API = "/api/lma";
 
@@ -344,7 +345,7 @@ function StepStudent({ init, resolvedLib, resolvedBranch, admitType, post, showT
                       <div className="flex items-center gap-1.5 flex-wrap">
                         <span className="text-sm font-extrabold text-lma-slate-900">{r.receipt_no}</span>
                         <span className="text-[10px] font-bold text-lma-primary bg-lma-primary/10 px-1.5 py-0.5 rounded">{r.student_id}</span>
-                        <span className="text-[10px] text-lma-slate-400 ml-auto">{r.library}{r.branch?`/${r.branch}`:""}</span>
+                        <span className="text-[10px] text-lma-slate-400 ml-auto"><CodePill code={r.branch||r.library}/></span>
                       </div>
                       <div className="text-sm font-semibold text-lma-slate-800 truncate">{r.name}</div>
                       <div className="text-[11px] text-lma-slate-500">{normDate(r.booking_from)} → {normDate(r.booking_to)} · {r.shift_name||r.shift}{r.seat_no?` · Seat ${r.seat_no}`:""}</div>
@@ -366,7 +367,7 @@ function StepStudent({ init, resolvedLib, resolvedBranch, admitType, post, showT
                 {studentResults.slice(stuPage*5,stuPage*5+5).map(st=>(
                   <button key={`${st.library}-${st.student_id}`} onClick={()=>pickRenewalStudent(st)} className="w-full text-left bg-white rounded-xl p-3 shadow-sm hover:shadow-md active:scale-[0.99] flex items-center gap-3">
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-1.5"><span className="text-sm font-extrabold text-lma-slate-900">{st.student_id}</span>{st.is_past&&<span className="text-[9px] font-bold text-lma-warn bg-lma-warn/10 px-1.5 py-0.5 rounded">PAST</span>}<span className="text-[10px] text-lma-slate-400 ml-auto">{st.library}{st.branch?`/${st.branch}`:""}</span></div>
+                      <div className="flex items-center gap-1.5"><span className="text-sm font-extrabold text-lma-slate-900">{st.student_id}</span>{st.is_past&&<span className="text-[9px] font-bold text-lma-warn bg-lma-warn/10 px-1.5 py-0.5 rounded">PAST</span>}<span className="text-[10px] text-lma-slate-400 ml-auto"><CodePill code={st.branch||st.library}/></span></div>
                       <div className="text-sm font-semibold text-lma-slate-800 truncate">{st.name}</div>
                       {st.phones[0]&&<div className="text-[11px] text-lma-slate-500 font-mono">📱 {st.phones[0].number}</div>}
                     </div>

@@ -16,6 +16,7 @@ import { useState, useEffect } from "react";
 import { useLMA } from "./LMAProvider";
 import { fmtDMY, toIsoInput } from "../_lib/dates";
 import { genderLabel } from "../_lib/genderTheme";
+import CodePill from "./CodePill";
 import dynamic from "next/dynamic";
 
 const API = "/api/lma";
@@ -128,7 +129,7 @@ export default function StudentModal({ studentId, library, crossOrigin, onClose,
                   <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${student.is_past?"bg-lma-warn/10 text-lma-warn":"bg-lma-accent/10 text-lma-accent"}`}>{student.is_past?"PAST":"ON APP"}</span>
                 </div>
                 <p className="text-base font-bold text-lma-slate-800 truncate">{student.name}</p>
-                <p className="text-xs text-lma-slate-500">{student.library}{student.branch?` / ${student.branch}`:""}</p>
+                <p className="text-xs text-lma-slate-500"><CodePill code={student.branch||student.library}/></p>
               </div>
               <button onClick={onClose} className="text-lma-slate-400 text-2xl leading-none -mt-1">×</button>
             </div>
@@ -170,7 +171,7 @@ export default function StudentModal({ studentId, library, crossOrigin, onClose,
 
             {/* Library is locked (cannot move a student between libraries here) */}
             <FieldLabel>Library</FieldLabel>
-            <div className="w-full px-3.5 py-2.5 rounded-xl border-[1.5px] border-lma-slate-200 bg-lma-slate-100 text-sm font-semibold text-lma-slate-500 mb-3">{f.library}{!hasBranches?"":""}</div>
+            <div className="w-full px-3.5 py-2.5 rounded-xl border-[1.5px] border-lma-slate-200 bg-lma-slate-100 text-sm font-semibold text-lma-slate-500 mb-3"><CodePill code={f.library}/></div>
 
             {hasBranches && (
               <>

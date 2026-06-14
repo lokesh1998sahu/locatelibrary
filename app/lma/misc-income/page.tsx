@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
 import { useLMA, useScopeChips, type LMAInitData as InitData } from "../_components/LMAProvider";
 import { fmtDMY, toIsoInput } from "../_lib/dates";
+import CodePill from "../_components/CodePill";
 
 const API = "/api/lma";
 
@@ -22,6 +23,8 @@ export default function MiscIncomePage(){
   const [scope,setScope]=useState("");
   const [rows,setRows]=useState<MiscRow[]>([]);
   const [sum,setSum]=useState(0);
+  const [fromDate,setFromDate]=useState("");
+  const [toDate,setToDate]=useState("");
   const [loading,setLoading]=useState(false);
   const [modal,setModal]=useState<{mode:"add"|"edit";row?:MiscRow}|null>(null);
 
@@ -56,37 +59,44 @@ export default function MiscIncomePage(){
 
 
   const chips = useScopeChips();
+  const rowsF=rows.filter(r=>{ const iso=toIsoInput(r.date); if(fromDate&&iso<fromDate) return false; if(toDate&&iso>toDate) return false; return true; });
+  const sumF=rowsF.reduce((s,r)=>s+(Number(r.amount)||0),0);
 
   return (
     <div className="lma-page-body max-w-md mx-auto px-4 pt-4">
       <header className="flex items-center gap-3 mb-3">
         <Link href="/lma" className="text-xl text-lma-slate-600 hover:text-lma-slate-900">←</Link>
-        <div className="flex-1"><h1 className="text-xl font-extrabold tracking-tight text-lma-slate-900">Misc Income</h1><p className="text-[11px] text-lma-slate-500 font-medium">{rows.length} entries · ₹{sum} total</p></div>
+        <div className="flex-1"><h1 className="text-xl font-extrabold tracking-tight text-lma-slate-900">Misc Income</h1><p className="text-[11px] text-lma-slate-500 font-medium">{rowsF.length} entries· ₹{sumF} total</p></div>
         <button onClick={load} disabled={loading} className="text-xs font-bold px-3 py-2 rounded-lg bg-lma-slate-100 text-lma-slate-600 disabled:opacity-50">{loading?"...":"↻"}</button>
       </header>
 
       <div className="flex gap-1.5 mb-3 overflow-x-auto -mx-4 px-4 pb-1">
         {chips.map(c=>(
-          <button key={c.code||"all"} onClick={()=>setScope(c.code)} style={scope===c.code&&c.color?{background:c.color,color:"#fff"}:undefined} className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-bold whitespace-nowrap ${scope===c.code&&!c.color?"bg-lma-slate-900 text-white":scope===c.code?"":"bg-white text-lma-slate-600"} shadow-sm`}>{c.label}</button>
+          <button key={c.code||"all"} onClick={()=>setScope(c.code)} style={scope===c.code&&c.color?{background:c.color,color:"#fff"}:undefined} className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-bold whitespace-nowrap ${scope===c.code&&!c.color?"bg-lma-slate-900 text-white":scope===c.code?"":"bg-white text-lma-slate-600"} shadow-sm`}>{c.emoji} {c.label}</button>
         ))}
       </div>
 
       <button onClick={()=>setModal({mode:"add"})} className="w-full mb-3 py-2.5 rounded-xl border-[1.5px] border-dashed border-lma-primary/40 text-lma-primary font-bold text-sm hover:bg-lma-primary/5 active:scale-[0.99]">+ Add Income Entry</button>
 
+      <div className="flex gap-2 mb-3 items-end">
+        <div className="flex-1"><label className="block text-[10px] font-bold text-lma-slate-400 mb-0.5">From</label><input type="date" value={fromDate} onChange={e=>setFromDate(e.target.value)} className="w-full px-3 py-2 rounded-xl border-[1.5px] border-lma-slate-200 bg-white focus:border-lma-primary outline-none text-sm"/></div>
+        <div className="flex-1"><label className="block text-[10px] font-bold text-lma-slate-400 mb-0.5">To</label><input type="date" value={toDate} onChange={e=>setToDate(e.target.value)} className="w-full px-3 py-2 rounded-xl border-[1.5px] border-lma-slate-200 bg-white focus:border-lma-primary outline-none text-sm"/></div>
+        {(fromDate||toDate)&&<button onClick={()=>{setFromDate("");setToDate("");}} className="py-2 px-3 rounded-xl bg-lma-slate-100 text-lma-slate-600 font-bold text-xs">Clear</button>}
+      </div>
       {loading&&rows.length===0?(
         <div className="text-center text-sm text-lma-slate-500 py-8">Loading…</div>
-      ):rows.length===0?(
+      ):rowsF.length===0?(
         <div className="text-center text-sm text-lma-slate-500 py-8">No income entries yet.</div>
       ):(
         <div className="space-y-2">
-          {rows.map(r=>(
+          {rowsF.map(r=>(
             <button key={r.s_no} onClick={()=>setModal({mode:"edit",row:r})} className="w-full text-left bg-white rounded-xl p-3 shadow-sm hover:shadow-md active:scale-[0.99]">
               <div className="flex items-center gap-2 mb-1">
                 <span className="text-sm font-bold text-lma-slate-800 truncate flex-1">{r.category||"Income"}</span>
                 <span className="text-sm font-extrabold text-lma-accent">+₹{r.amount}</span>
               </div>
               <div className="text-[11px] text-lma-slate-500 flex items-center gap-2 flex-wrap">
-                <span>{r.library}{r.branch?`/${r.branch}`:""}</span>
+                <CodePill code={r.branch||r.library}/>
                 <span>· {r.payment_tag}</span>
                 <span>· {fmtDMY(r.date)}</span>
               </div>

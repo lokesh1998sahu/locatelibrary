@@ -1,10 +1,13 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import Link from "next/link";
 import { useLMA, useScopeChips } from "../_components/LMAProvider";
 import { fmtDMY, daysFromToday } from "../_lib/dates";
+import CodePill from "../_components/CodePill";
 import ReceiptModal from "../_components/ReceiptModal";
+import SearchBar from "../_components/SearchBar";
+import Pager from "../_components/Pager";
 
 const API = "/api/lma";
 
@@ -55,7 +58,7 @@ export default function ReceiptsPage(){
   const [total,setTotal]=useState(0);
   const [loading,setLoading]=useState(false);
   const [openRno,setOpenRno]=useState<string|null>(null);   // receipt_no of the open modal
-  const debounceRef=useRef<ReturnType<typeof setTimeout>|null>(null);
+  
 
   const load=useCallback(async(pg:number,replace:boolean)=>{
     setLoading(true);
@@ -71,11 +74,11 @@ export default function ReceiptsPage(){
     }
   },[scope,search]);
 
-  // reload on scope change / search (debounced)
+  // reload on scope change only (search is button/Enter-triggered)
   useEffect(()=>{
-    if(debounceRef.current) clearTimeout(debounceRef.current);
-    debounceRef.current=setTimeout(()=>load(1,true),300);
-  },[scope,search,load]);
+    load(1,true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[scope]);
 
   // chips (libraries + branches + an "All")
   const chips = useScopeChips();
@@ -110,12 +113,12 @@ export default function ReceiptsPage(){
       {/* scope chips */}
       <div className="flex gap-1.5 mb-3 overflow-x-auto -mx-4 px-4 pb-1">
         {chips.map(c=>(
-          <button key={c.code||"all"} onClick={()=>setScope(c.code)} style={scope===c.code&&c.color?{background:c.color,color:"#fff"}:undefined} className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-bold whitespace-nowrap ${scope===c.code&&!c.color?"bg-lma-slate-900 text-white":scope===c.code?"":"bg-white text-lma-slate-600"} shadow-sm`}>{c.label}</button>
+          <button key={c.code||"all"} onClick={()=>setScope(c.code)} style={scope===c.code&&c.color?{background:c.color,color:"#fff"}:undefined} className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-bold whitespace-nowrap ${scope===c.code&&!c.color?"bg-lma-slate-900 text-white":scope===c.code?"":"bg-white text-lma-slate-600"} shadow-sm`}>{c.emoji} {c.label}</button>
         ))}
       </div>
 
       {/* search */}
-      <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search name, phone, F-ID, R-no…" className="w-full px-4 py-3 rounded-xl border-[1.5px] border-lma-slate-200 bg-white focus:border-lma-primary outline-none text-sm font-medium mb-3 shadow-sm"/>
+      <SearchBar value={search} onChange={setSearch} onSearch={()=>load(1,true)} searching={loading}/>
 
       {/* list */}
       {loading&&receipts.length===0?(
@@ -135,7 +138,7 @@ export default function ReceiptsPage(){
                 </div>
                 <div className="text-sm font-semibold text-lma-slate-800 truncate">{r.name}</div>
                 <div className="text-[11px] text-lma-slate-500 flex items-center gap-2 flex-wrap mt-0.5">
-                  <span>{r.library}{r.branch?`/${r.branch}`:""}</span>
+                  <CodePill code={r.branch||r.library}/>
                   <span>· Seat {r.seat_no||"—"}</span>
                   <span>· {r.shift_name||r.shift}</span>
                   <span>· till {fmtDMY(r.booking_to)}</span>
@@ -144,9 +147,7 @@ export default function ReceiptsPage(){
               </button>
             );
           })}
-          {page<totalPages&&(
-            <button onClick={()=>load(page+1,false)} disabled={loading} className="w-full py-2.5 rounded-xl border-[1.5px] border-dashed border-lma-primary/40 text-lma-primary font-bold text-sm disabled:opacity-50">{loading?"Loading…":"Load more"}</button>
-          )}
+          <Pager page={page} totalPages={totalPages} onPage={(p)=>load(p,true)}/>
         </div>
       )}
 

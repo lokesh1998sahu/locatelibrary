@@ -5,9 +5,11 @@ import Link from "next/link";
 import { useLMA } from "../_components/LMAProvider";
 import { fmtDMY, toIsoInput } from "../_lib/dates";
 import StudentModal from "../_components/StudentModal";
+import CodePill from "../_components/CodePill";
+import Pager from "../_components/Pager";
 
 const API = "/api/lma";
-const PAGE_SIZE = 50;
+const PAGE_SIZE = 20;
 
 
 // ── TYPES ─────────────────────────────────────────────────────────
@@ -47,7 +49,7 @@ export default function LmaStudentsPage() {
   const [counts, setCounts] = useState<CountsResp|null>(null);
   const [students, setStudents] = useState<Student[]>([]);
   const [page, setPage] = useState(1);
-  const [hasMore, setHasMore] = useState(false);
+  const [totalPages, setTotalPages] = useState(1);
   const [loading, setLoading] = useState(false);
 
   // Filters
@@ -102,9 +104,7 @@ export default function LmaStudentsPage() {
       if (append) setStudents(prev => [...prev, ...list]);
       else setStudents(list);
 
-      // hasMore only meaningful for paginated browse
-      if (res.totalPages) setHasMore(pageNum < res.totalPages);
-      else setHasMore(false);
+      setTotalPages(res.totalPages || 1);
     } catch (e) {
       showToast(e instanceof Error ? e.message : String(e), "error");
     } finally { setLoading(false); }
@@ -119,11 +119,7 @@ export default function LmaStudentsPage() {
     return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
   }, [search, pastFilter, libFilter, fetchPage]);
 
-  const loadMore = () => {
-    const next = page + 1;
-    setPage(next);
-    fetchPage(next, true);
-  };
+  
 
   // After save/delete: refetch + refresh counts
   const refreshAll = useCallback(async () => {
@@ -133,8 +129,10 @@ export default function LmaStudentsPage() {
     if (c.ok) setCounts(c);
   }, [fetchPage]);
 
-  const totalShown = students.length;
+  
   const isSearching = search.trim().length >= 2;
+  const shown = isSearching ? students.slice((page-1)*PAGE_SIZE, page*PAGE_SIZE) : students;
+  const totalPagesEff = isSearching ? Math.max(1, Math.ceil(students.length/PAGE_SIZE)) : totalPages;
   const detectedType = isSearching ? autoDetectSearchType(search) : null;
 
   return (
@@ -215,7 +213,7 @@ export default function LmaStudentsPage() {
       ) : (
         <>
           <div className="space-y-2">
-            {students.map(s => (
+            {shown.map(s => (
               <StudentCard
                 key={`${s.library}-${s.student_id}`}
                 student={s}
@@ -225,20 +223,7 @@ export default function LmaStudentsPage() {
             ))}
           </div>
 
-          {/* Load more (only when not searching) */}
-          {!isSearching && hasMore && (
-            <button
-              onClick={loadMore}
-              disabled={loading}
-              className="w-full mt-3 py-3 rounded-xl bg-white border-[1.5px] border-lma-slate-200 text-lma-slate-700 font-bold text-sm shadow-sm hover:bg-lma-slate-50 disabled:opacity-50 active:scale-[0.99]"
-            >
-              {loading ? "Loading…" : `Load more (${totalShown} shown)`}
-            </button>
-          )}
-
-          {!isSearching && !hasMore && totalShown > 0 && (
-            <p className="text-center text-[11px] text-lma-slate-400 mt-3">All {totalShown} loaded</p>
-          )}
+          <Pager page={page} totalPages={totalPagesEff} onPage={(p)=>{ setPage(p); if(!isSearching) fetchPage(p,false); }}/>
         </>
       )}
 
@@ -326,7 +311,7 @@ function StudentCard({ student, librariesMap, onTap }:{ student:Student; librari
           <div className="flex items-center gap-1.5">
             <span className="text-sm font-extrabold text-lma-slate-900">{student.student_id}</span>
             {student.is_past && <span className="text-[9px] font-bold text-lma-warn bg-lma-warn/10 px-1.5 py-0.5 rounded">PAST</span>}
-            <span className="text-[10px] font-bold text-lma-slate-400 ml-auto">{student.library}{student.branch?`/${student.branch}`:""}</span>
+            <span className="text-[10px] font-bold text-lma-slate-400 ml-auto"><CodePill code={student.branch||student.library}/></span>
           </div>
           <div className="text-sm font-semibold text-lma-slate-800 truncate">{student.name}</div>
           {primaryPhone && (

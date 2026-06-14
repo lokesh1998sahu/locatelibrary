@@ -3,6 +3,9 @@ import { useLMA } from "./LMAProvider";
 import { fmtDMY, daysFromToday } from "../_lib/dates";
 import { genderCardStyle } from "../_lib/genderTheme";
 import ReceiptModal from "./ReceiptModal";
+import CodePill from "./CodePill";
+import SearchBar from "./SearchBar";
+import Pager, { PAGE_SIZE } from "./Pager";
 
 const API = "/api/lma";
 
@@ -36,7 +39,8 @@ export default function BookingHistory({ studentId, homeLib, studentName, onClos
   const [pill,setPill]=useState<string>("__HOME__");
   const [openRno,setOpenRno]=useState<string|null>(null);
   const [search,setSearch]=useState("");
-  const [visible,setVisible]=useState(20);
+  const [draft,setDraft]=useState("");
+  const [page,setPage]=useState(1);
 
   const load=useCallback(async(silent?:boolean)=>{
     if(!silent) setLoading(true);
@@ -49,6 +53,7 @@ export default function BookingHistory({ studentId, homeLib, studentName, onClos
   },[studentId,homeLib]);
 
   useEffect(()=>{ load(); },[load]);
+  useEffect(()=>{ setPage(1); },[pill,search]);
 
   const isCrossRow=(r:Receipt)=>{ const c=(r.is_cross_library||"").toUpperCase(); return !!c && c!=="NO"; };
   const crossKey=(r:Receipt)=> (r.branch||r.library||"").toUpperCase();
@@ -100,22 +105,22 @@ export default function BookingHistory({ studentId, homeLib, studentName, onClos
           </div>
 
           <div className="flex flex-wrap gap-1.5 mb-3 items-center">
-            <button onClick={()=>setPill("__HOME__")} className={`text-[11px] font-bold px-2.5 py-1 rounded-full ${pill==="__HOME__"?"bg-lma-primary text-white":"bg-white text-lma-slate-600 border border-lma-slate-200"}`}>🏠 {homeLib} ({homeCount})</button>
+            <button onClick={()=>setPill("__HOME__")} className="inline-flex items-center gap-1 active:scale-95"><span className="text-xs" title="Home library">🏠</span><CodePill code={homeLib} active={pill==="__HOME__"}/><span className="text-[10px] font-bold text-lma-slate-400">({homeCount})</span></button>
             {crossLocs.length>0 && <span className="text-[10px] font-bold text-lma-slate-400 ml-1">Cross Library:</span>}
             {crossLocs.map(loc=>{
               const n=receipts.filter(r=>isCrossRow(r)&&crossKey(r)===loc).length;
-              return <button key={loc} onClick={()=>setPill(loc)} className={`text-[11px] font-bold px-2.5 py-1 rounded-full ${pill===loc?"bg-lma-primary text-white":"bg-white text-lma-slate-600 border border-lma-slate-200"}`}>{loc} ({n})</button>;
+              return <button key={loc} onClick={()=>setPill(loc)} className="inline-flex items-center gap-1 active:scale-95"><CodePill code={loc} active={pill===loc}/><span className="text-[10px] font-bold text-lma-slate-400">({n})</span></button>;
             })}
           </div>
 
-          <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search receipt #, seat, shift…" className="w-full mb-3 px-3 py-2 rounded-xl border border-lma-slate-200 text-sm bg-white focus:outline-none focus:border-lma-primary"/>
+          <SearchBar value={draft} onChange={setDraft} onSearch={()=>setSearch(draft)} placeholder="Search receipt #, seat, shift…" hint="Search by receipt #, seat, shift, or library."/>
           {loading?(
             <div className="text-center text-sm text-lma-slate-500 py-8">Loading…</div>
-         ):filtered.length===0?(
+          ):filtered.length===0?(
             <div className="text-center text-sm text-lma-slate-500 py-8">No bookings in this group.</div>
           ):(
             <div className="space-y-2">
-              {filtered.slice(0,visible).map(r=>{
+              {filtered.slice((page-1)*PAGE_SIZE, page*PAGE_SIZE).map(r=>{
                 const badge=lifecycleBadge(r, alertDaysFor(r), successorOf.has(String(r.receipt_no).toUpperCase()));
                 return (
                   <button key={r.receipt_no} onClick={()=>setOpenRno(r.receipt_no)} className="w-full text-left rounded-xl p-3 shadow-sm hover:shadow-md active:scale-[0.99]" style={genderCardStyle(r.gender)}>
@@ -134,7 +139,7 @@ export default function BookingHistory({ studentId, homeLib, studentName, onClos
                   </button>
                 );
               })}
-              {filtered.length>visible && <button onClick={()=>setVisible(v=>v+20)} className="w-full py-2.5 rounded-xl border-[1.5px] border-dashed border-lma-primary/40 text-lma-primary font-bold text-sm">Load more ({filtered.length-visible})</button>}
+              <Pager page={page} totalPages={Math.max(1,Math.ceil(filtered.length/PAGE_SIZE))} onPage={setPage}/>
             </div>
           )}
         </div>

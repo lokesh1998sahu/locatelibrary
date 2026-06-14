@@ -4,8 +4,11 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
 import { useLMA, useScopeChips, type LMAInitData as InitData } from "../_components/LMAProvider";
 import { fmtDMY, toIsoInput } from "../_lib/dates";
+import CodePill from "../_components/CodePill";
 import ReceiptModal from "../_components/ReceiptModal";
 import StudentModal from "../_components/StudentModal";
+import SearchBar, { matchesSearch } from "../_components/SearchBar";
+import Pager, { PAGE_SIZE } from "../_components/Pager";
 
 const API = "/api/lma";
 
@@ -32,6 +35,9 @@ export default function RefundsPage(){
   const [linkFilter,setLinkFilter]=useState<LinkFilter>("ANY");
   const [refunds,setRefunds]=useState<Refund[]>([]);
   const [sum,setSum]=useState(0);
+  const [page,setPage]=useState(1);
+  const [draft,setDraft]=useState("");
+  const [search,setSearch]=useState("");
   const [loading,setLoading]=useState(false);
 
   const [issuing,setIssuing]=useState(false);
@@ -74,7 +80,9 @@ export default function RefundsPage(){
     setSum(typeof r.sum==="number"?r.sum:list.reduce((s,d)=>s+d.amount,0));
   },[scope,linkFilter]);
 
-  useEffect(()=>{ load(); },[scope,linkFilter,load]);
+ useEffect(()=>{ load(); },[scope,linkFilter,load]);
+  const refundsF=refunds.filter(r=>matchesSearch({...r, receipt_no:r.original_receipt_no}, search));
+  useEffect(()=>{ setPage(1); },[scope,linkFilter,search]);
 
 
   const chips = useScopeChips();
@@ -91,7 +99,7 @@ export default function RefundsPage(){
 
       <div className="flex gap-1.5 mb-3 overflow-x-auto -mx-4 px-4 pb-1">
         {chips.map(c=>(
-          <button key={c.code||"all"} onClick={()=>setScope(c.code)} style={scope===c.code&&c.color?{background:c.color,color:"#fff"}:undefined} className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-bold whitespace-nowrap ${scope===c.code&&!c.color?"bg-lma-slate-900 text-white":scope===c.code?"":"bg-white text-lma-slate-600"} shadow-sm`}>{c.label}</button>
+          <button key={c.code||"all"} onClick={()=>setScope(c.code)} style={scope===c.code&&c.color?{background:c.color,color:"#fff"}:undefined} className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-bold whitespace-nowrap ${scope===c.code&&!c.color?"bg-lma-slate-900 text-white":scope===c.code?"":"bg-white text-lma-slate-600"} shadow-sm`}>{c.emoji} {c.label}</button>
         ))}
       </div>
 
@@ -105,13 +113,14 @@ export default function RefundsPage(){
 
       <button onClick={()=>setIssuing(true)} className="w-full mb-3 py-2.5 rounded-xl border-[1.5px] border-dashed border-lma-primary/40 text-lma-primary font-bold text-sm hover:bg-lma-primary/5 active:scale-[0.99]">+ Issue Refund</button>
 
+      <SearchBar value={draft} onChange={setDraft} onSearch={()=>setSearch(draft)} searching={loading}/>
       {loading&&refunds.length===0?(
         <div className="text-center text-sm text-lma-slate-500 py-8">Loading…</div>
-      ):refunds.length===0?(
+      ):refundsF.length===0?(
         <div className="text-center text-sm text-lma-slate-500 py-8">No refunds found.</div>
       ):(
         <div className="space-y-2">
-          {refunds.map(r=>(
+          {refundsF.slice((page-1)*PAGE_SIZE, page*PAGE_SIZE).map(r=>(
             <div key={r.refund_id} className="bg-white rounded-xl p-3 shadow-sm">
               <div className="flex items-center gap-2 mb-1">
                 <span className="text-sm font-extrabold text-lma-slate-900">{r.refund_id}</span>
@@ -121,7 +130,7 @@ export default function RefundsPage(){
                 <span className="text-sm font-extrabold text-lma-danger ml-auto">−₹{r.amount}</span>
               </div>
            <button onClick={()=>setOpenStu({id:r.student_id,library:homeLib(r)})} className="block w-full text-left text-sm font-semibold text-lma-slate-800 truncate hover:underline">{r.name} <span className="text-[10px] font-bold text-lma-slate-400">{r.student_id}</span></button>
-              <div className="text-[11px] text-lma-slate-500 mt-0.5">{r.library}{r.branch?`/${r.branch}`:""} · vs <button onClick={()=>setOpenRno(r.original_receipt_no)} className="text-lma-primary underline decoration-dotted font-bold">{r.original_receipt_no}</button> · {r.refund_mode} · {fmtDMY(r.refund_date)}</div>
+              <div className="text-[11px] text-lma-slate-500 mt-0.5"><CodePill code={r.branch||r.library}/> · vs <button onClick={()=>setOpenRno(r.original_receipt_no)} className="text-lma-primary underline decoration-dotted font-bold">{r.original_receipt_no}</button> · {r.refund_mode} · {fmtDMY(r.refund_date)}</div>
               {r.refund_reason&&<div className="text-[11px] text-lma-slate-400 mt-0.5">{r.refund_reason}</div>}
               <div className="grid grid-cols-3 gap-2 mt-2.5">
                 <button onClick={()=>setViewFor(r)} className="py-2 rounded-lg bg-lma-slate-100 text-lma-slate-600 font-bold text-xs">View</button>
@@ -130,6 +139,7 @@ export default function RefundsPage(){
               </div>
             </div>
           ))}
+          <Pager page={page} totalPages={Math.max(1,Math.ceil(refundsF.length/PAGE_SIZE))} onPage={setPage}/>
         </div>
       )}
 
@@ -157,7 +167,7 @@ export default function RefundsPage(){
           <Row k="Amount" v={`₹${viewFor.amount}`}/>
           <Row k="Mode" v={`${viewFor.refund_mode} (${viewFor.refund_fees_mode})`}/>
           <Row k="Against receipt" v={viewFor.original_receipt_no}/>
-          <Row k="Library" v={`${viewFor.library}${viewFor.branch?`/${viewFor.branch}`:""}`}/>
+          <Row k="Library" v={<CodePill code={viewFor.branch||viewFor.library}/>}/>
           <Row k="Date" v={fmtDMY(viewFor.refund_date)}/>
           <Row k="Type" v={viewFor.linked_to_cancellation?"From cancellation":"Standalone"}/>
           {viewFor.refund_reason&&<Row k="Reason" v={viewFor.refund_reason}/>}
@@ -277,7 +287,7 @@ function IssueForm({ init, onCancel, post, onDone }:{ init:InitData; onCancel:()
           {/* library pills */}
           <div className="flex gap-1.5 mb-3 overflow-x-auto -mx-1 px-1 pb-1">
             {chips.map(c=>(
-              <button key={c.code||"all"} onClick={()=>{setScope(c.code);setResults([]);}} style={scope===c.code&&c.color?{background:c.color,color:"#fff"}:undefined} className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-bold whitespace-nowrap ${scope===c.code&&!c.color?"bg-lma-slate-900 text-white":scope===c.code?"":"bg-lma-slate-100 text-lma-slate-600"}`}>{c.label}</button>
+              <button key={c.code||"all"} onClick={()=>{setScope(c.code);setResults([]);}} style={scope===c.code&&c.color?{background:c.color,color:"#fff"}:undefined} className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-bold whitespace-nowrap ${scope===c.code&&!c.color?"bg-lma-slate-900 text-white":scope===c.code?"":"bg-lma-slate-100 text-lma-slate-600"}`}>{c.emoji} {c.label}</button>
             ))}
           </div>
 
@@ -295,7 +305,7 @@ function IssueForm({ init, onCancel, post, onDone }:{ init:InitData; onCancel:()
                     <span className="text-sm font-extrabold text-lma-slate-900">{rc.receipt_no}</span>
                     <span className="text-[10px] font-bold text-lma-slate-400">{rc.student_id}</span>
                     {rc.status&&<span className="text-[9px] font-bold text-lma-warn bg-lma-warn/10 px-1.5 py-0.5 rounded">{rc.status}</span>}
-                    <span className="text-[10px] text-lma-slate-400 ml-auto">{rc.library}{rc.branch?`/${rc.branch}`:""}</span>
+                    <span className="text-[10px] text-lma-slate-400 ml-auto"><CodePill code={rc.branch||rc.library}/></span>
                   </div>
                   <div className="text-sm font-semibold text-lma-slate-800 truncate">{rc.name}</div>
                   <div className="text-[11px] text-lma-slate-500 mt-0.5">{rc.shift_name||rc.shift}{rc.seat_no?` · seat ${rc.seat_no}`:""}{rc.booking_to?` · till ${fmtDMY(rc.booking_to)}`:""}{rc.phone?` · 📱 ${rc.phone}`:""}</div>
@@ -316,7 +326,7 @@ function IssueForm({ init, onCancel, post, onDone }:{ init:InitData; onCancel:()
               <div className="flex items-center gap-1.5">
                 <span className="text-sm font-extrabold text-lma-slate-900">{picked.receipt_no}</span>
                 <span className="text-[10px] font-bold text-lma-slate-400">{picked.student_id}</span>
-                <span className="text-[10px] text-lma-slate-400 ml-auto">{picked.library}{picked.branch?`/${picked.branch}`:""}</span>
+                <span className="text-[10px] text-lma-slate-400 ml-auto"><CodePill code={picked.branch||picked.library}/></span>
               </div>
               <div className="text-sm font-semibold text-lma-slate-800 truncate">{picked.name}</div>
               <div className="text-[11px] text-lma-slate-500 mt-0.5">{picked.shift_name||picked.shift}{picked.seat_no?` · seat ${picked.seat_no}`:""}{picked.phone?` · 📱 ${picked.phone}`:""}</div>
@@ -380,7 +390,7 @@ function EditForm({ init, refund, onCancel, onSave }:{ init:InitData; refund:Ref
   );
 }
 
-function Row({ k, v }:{ k:string; v:string }){
+function Row({ k, v }:{ k:string; v:React.ReactNode }){
   return <div className="flex justify-between py-1.5 border-b border-lma-slate-100 text-[13px]"><span className="text-lma-slate-500 font-medium">{k}</span><span className="text-lma-slate-800 font-semibold text-right">{v}</span></div>;
 }
 function Sheet({ onClose, children }:{ onClose:()=>void; children:React.ReactNode }){
