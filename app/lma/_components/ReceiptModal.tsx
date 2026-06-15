@@ -115,7 +115,7 @@ export default function ReceiptModal({ receiptNo, onClose, onSaved, context }:{
               {receipt.seat_no&&<span className="font-bold px-2 py-0.5 rounded bg-lma-slate-100 text-lma-slate-600">Seat {receipt.seat_no}</span>}
               <span className="font-bold px-2 py-0.5 rounded bg-lma-slate-100 text-lma-slate-600">{receipt.shift_name||receipt.shift}</span>
               {(()=>{ const b=rcptStatus(receipt); return <span className={`font-bold px-2 py-0.5 rounded ${b.cls}`}>{b.label}</span>; })()}
-              <span className="font-bold px-2 py-0.5 rounded bg-lma-slate-100 text-lma-slate-600 ml-auto">until {receipt.booking_to}</span>
+              <span className="font-bold px-2 py-0.5 rounded bg-lma-slate-100 text-lma-slate-600 ml-auto">until {fmtDMY(receipt.booking_to)}</span>
             </div>
             <pre className="text-[11px] text-lma-slate-700 whitespace-pre-wrap font-mono bg-lma-slate-50 rounded-lg p-3 max-h-56 overflow-y-auto">{receipt.receipt_text}</pre>
             <MoneyTrail receiptNo={receipt.receipt_no}/>
@@ -291,10 +291,10 @@ function EditForm({ receipt, init, onCancel, onSave }:{ receipt:Receipt; init:an
         </div>
       </div>
       <div className="grid grid-cols-2 gap-3">
-        <div><L>From</L><I type="date" value={toIsoInput(bookingFrom)} onChange={e=>setBookingFrom(normDateR(e.target.value))}/></div>
-        <div><L>To</L><I type="date" value={toIsoInput(bookingTo)} onChange={e=>setBookingTo(normDateR(e.target.value))}/></div>
+        <div><L>From</L><I type="date" value={toIsoInput(bookingFrom)} onChange={e=>setBookingFrom(normDateR(e.target.value))}/>{bookingFrom && <span className="block text-[10px] font-bold text-lma-slate-500 mt-1">{fmtDMY(bookingFrom)}</span>}</div>
+        <div><L>To</L><I type="date" value={toIsoInput(bookingTo)} onChange={e=>setBookingTo(normDateR(e.target.value))}/>{bookingTo && <span className="block text-[10px] font-bold text-lma-slate-500 mt-1">{fmtDMY(bookingTo)}</span>}</div>
       </div>
-      <L>Receipt date</L><I type="date" value={toIsoInput(receiptDate)} onChange={e=>setReceiptDate(normDateR(e.target.value))}/>
+      <L>Receipt date</L><I type="date" value={toIsoInput(receiptDate)} onChange={e=>setReceiptDate(normDateR(e.target.value))}/>{receiptDate && <span className="block text-[10px] font-bold text-lma-slate-500 mt-1">{fmtDMY(receiptDate)}</span>}
       <L>Fee (₹)</L><I type="number" value={fee} onChange={e=>setFee(e.target.value)}/>
       {shiftChanged&&(
         <div className="mt-1 mb-1 text-[11px] font-semibold text-lma-warn bg-lma-warn/10 rounded-lg px-2.5 py-1.5">

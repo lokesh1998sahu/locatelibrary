@@ -414,7 +414,7 @@ function StudentForm({ libraries, branches, initial, onCancel, onSubmit }:{ libr
         </div>
         <div>
           <Label>Date of Birth</Label>
-          <Input type="date" value={toIsoInput(f.date_of_birth)} onChange={e=>setF({...f, date_of_birth:e.target.value})}/>
+          <Input type="date" value={toIsoInput(f.date_of_birth)} onChange={e=>setF({...f, date_of_birth:e.target.value})}/>{f.date_of_birth && <span className="block text-[10px] font-bold text-lma-slate-500 mt-1">{fmtDMY(f.date_of_birth)}</span>}
         </div>
       </div>
 

@@ -18,7 +18,7 @@
 
 import { useState, useEffect, useMemo, useRef } from "react";
 import { useLMA } from "./LMAProvider";
-import { toDmy } from "../_lib/dates";
+import { toDmy, fmtDMY } from "../_lib/dates";
 import CodePill from "./CodePill";
 
 const API = "/api/lma";
@@ -103,7 +103,7 @@ export default function BookingFlow({ renewReceiptNo, addMode, libCode, presetSe
             <div className="bg-lma-slate-50 rounded-xl p-3 space-y-1">
               <div className="flex items-center gap-2"><span className="text-sm font-extrabold text-lma-slate-900">{renewFrom.receipt_no}</span><span className="text-[10px] font-bold text-lma-slate-400">{renewFrom.student_id}</span>{renewCtx?.isCross&&<span className="text-[9px] font-bold text-lma-warn bg-lma-warn/10 px-1.5 py-0.5 rounded ml-auto">CROSS · {renewCtx.crossOrigin}</span>}</div>
               <div className="text-sm font-bold text-lma-slate-800">{renewFrom.name}</div>
-              <div className="text-[11px] text-lma-slate-500">{renewFrom.shift_name||renewFrom.shift}{renewFrom.seat_no?` · Seat ${renewFrom.seat_no}`:""} · until {normDate(renewFrom.booking_to)}</div>
+              <div className="text-[11px] text-lma-slate-500">{renewFrom.shift_name||renewFrom.shift}{renewFrom.seat_no?` · Seat ${renewFrom.seat_no}`:""} · until {fmtDMY(renewFrom.booking_to)}</div>
               {(presetSeat||presetShift)&&<div className="text-[11px] font-semibold text-lma-primary mt-1">New: {presetShift||renewFrom.shift}{presetSeat?` · Seat ${presetSeat}`:""}</div>}
             </div>
             <div className="grid grid-cols-2 gap-2 mt-4">
@@ -298,7 +298,7 @@ function StepStudent({ init, resolvedLib, resolvedBranch, admitType, post, showT
             <Inp value={preparingFor} onChange={e=>setPreparingFor(e.target.value.toUpperCase())} placeholder="NEET, UPSC…"/>
             <div className="grid grid-cols-2 gap-3">
               <div><FieldLabel>Aadhaar (last 4)</FieldLabel><Inp value={aadhaar} onChange={e=>setAadhaar(e.target.value.replace(/\D/g,"").slice(0,4))} maxLength={4}/></div>
-              <div><FieldLabel>DOB</FieldLabel><input type="date" value={dob} onChange={e=>setDob(e.target.value)} className="w-full px-3 py-2.5 rounded-xl border-[1.5px] border-lma-slate-200 bg-lma-slate-50 text-sm font-medium"/></div>
+              <div><FieldLabel>DOB</FieldLabel><input type="date" value={dob} onChange={e=>setDob(e.target.value)} className="w-full px-3 py-2.5 rounded-xl border-[1.5px] border-lma-slate-200 bg-lma-slate-50 text-sm font-medium"/>{dob && <span className="block text-[10px] font-bold text-lma-slate-500 mt-1">{fmtDMY(dob)}</span>}</div>
             </div>
           </div>
           <button onClick={handleNewNext} className="w-full mt-3 py-3 rounded-xl bg-gradient-to-br from-lma-primary to-lma-primary-2 text-white font-bold shadow-md">Next: Booking →</button>
@@ -348,7 +348,7 @@ function StepStudent({ init, resolvedLib, resolvedBranch, admitType, post, showT
                         <span className="text-[10px] text-lma-slate-400 ml-auto"><CodePill code={r.branch||r.library}/></span>
                       </div>
                       <div className="text-sm font-semibold text-lma-slate-800 truncate">{r.name}</div>
-                      <div className="text-[11px] text-lma-slate-500">{normDate(r.booking_from)} → {normDate(r.booking_to)} · {r.shift_name||r.shift}{r.seat_no?` · Seat ${r.seat_no}`:""}</div>
+                      <div className="text-[11px] text-lma-slate-500">{fmtDMY(r.booking_from)} → {fmtDMY(r.booking_to)} · {r.shift_name||r.shift}{r.seat_no?` · Seat ${r.seat_no}`:""}</div>
                     </div>
                     <span className="text-lma-slate-400">›</span>
                   </button>
@@ -489,6 +489,7 @@ function StepBooking({ init, resolvedLib, resolvedBranch, ctx, post, showToast, 
       payload.phones=ctx.student?.phones||[];
       payload.address=ctx.student?.address||""; payload.preparing_for=ctx.student?.preparing_for||"";
       payload.aadhaar_last4=ctx.student?.aadhaar_last4||""; payload.date_of_birth=ctx.student?.date_of_birth||"";
+      payload.gender=ctx.student?.gender||"";
     } else {
       payload.student_id=ctx.student?.student_id;
       payload.phones=ctx.student?.phones||[];
@@ -539,11 +540,11 @@ function StepBooking({ init, resolvedLib, resolvedBranch, ctx, post, showToast, 
         )}
 
         <div className="grid grid-cols-2 gap-3">
-          <div><FieldLabel>From</FieldLabel><input type="date" value={dmyToIso(bookingFrom)} onChange={e=>{setBookingFrom(isoToDmy(e.target.value));}} className="w-full px-3 py-2.5 rounded-xl border-[1.5px] border-lma-slate-200 bg-lma-slate-50 text-sm font-medium"/></div>
-          <div><FieldLabel>To</FieldLabel><input type="date" value={dmyToIso(bookingTo)} onChange={e=>{setBookingTo(isoToDmy(e.target.value));setToEdited(true);}} className="w-full px-3 py-2.5 rounded-xl border-[1.5px] border-lma-slate-200 bg-lma-slate-50 text-sm font-medium"/></div>
+          <div><FieldLabel>From</FieldLabel><input type="date" value={dmyToIso(bookingFrom)} onChange={e=>{setBookingFrom(isoToDmy(e.target.value));}} className="w-full px-3 py-2.5 rounded-xl border-[1.5px] border-lma-slate-200 bg-lma-slate-50 text-sm font-medium"/>{bookingFrom && <span className="block text-[10px] font-bold text-lma-slate-500 mt-1">{fmtDMY(bookingFrom)}</span>}</div>
+          <div><FieldLabel>To</FieldLabel><input type="date" value={dmyToIso(bookingTo)} onChange={e=>{setBookingTo(isoToDmy(e.target.value));setToEdited(true);}} className="w-full px-3 py-2.5 rounded-xl border-[1.5px] border-lma-slate-200 bg-lma-slate-50 text-sm font-medium"/>{bookingTo && <span className="block text-[10px] font-bold text-lma-slate-500 mt-1">{fmtDMY(bookingTo)}</span>}</div>
         </div>
 
-        <div><FieldLabel>Receipt Date</FieldLabel><input type="date" value={dmyToIso(receiptDate)} onChange={e=>setReceiptDate(isoToDmy(e.target.value))} className="w-full px-3 py-2.5 rounded-xl border-[1.5px] border-lma-slate-200 bg-lma-slate-50 text-sm font-medium"/></div>
+        <div><FieldLabel>Receipt Date</FieldLabel><input type="date" value={dmyToIso(receiptDate)} onChange={e=>setReceiptDate(isoToDmy(e.target.value))} className="w-full px-3 py-2.5 rounded-xl border-[1.5px] border-lma-slate-200 bg-lma-slate-50 text-sm font-medium"/>{receiptDate && <span className="block text-[10px] font-bold text-lma-slate-500 mt-1">{fmtDMY(receiptDate)}</span>}</div>
 
         <div><FieldLabel>Fee (₹)</FieldLabel><Inp type="number" inputMode="numeric" value={fee} onChange={e=>setFee(e.target.value)}/></div>
 

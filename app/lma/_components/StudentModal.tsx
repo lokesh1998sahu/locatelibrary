@@ -222,7 +222,7 @@ export default function StudentModal({ studentId, library, crossOrigin, onClose,
               </div>
               <div>
                 <FieldLabel>Date of Birth</FieldLabel>
-                <input type="date" value={toIsoInput(f.date_of_birth)} onChange={e=>setF({...f, date_of_birth:e.target.value})} className="w-full px-3.5 py-2.5 rounded-xl border-[1.5px] border-lma-slate-200 bg-lma-slate-50 text-sm font-medium"/>
+                <input type="date" value={toIsoInput(f.date_of_birth)} onChange={e=>setF({...f, date_of_birth:e.target.value})} className="w-full px-3.5 py-2.5 rounded-xl border-[1.5px] border-lma-slate-200 bg-lma-slate-50 text-sm font-medium"/>{f.date_of_birth && <span className="block text-[10px] font-bold text-lma-slate-500 mt-1">{fmtDMY(f.date_of_birth)}</span>}
               </div>
             </div>
 

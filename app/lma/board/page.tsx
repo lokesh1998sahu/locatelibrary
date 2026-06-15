@@ -7,7 +7,7 @@ import { useLMA, useScopeChips } from "../_components/LMAProvider";
 import ReceiptModal from "../_components/ReceiptModal";
 import StudentModal from "../_components/StudentModal";
 import BookingFlow from "../_components/BookingFlow";
-import { toIsoInput } from "../_lib/dates";
+import { toIsoInput, fmtDMY } from "../_lib/dates";
 import { genderCardStyle, normGender } from "../_lib/genderTheme";
 
 const API = "/api/lma";
@@ -271,7 +271,7 @@ export default function BoardPage(){
           {/* export header */}
           <div className="text-center mb-3">
             <div className="text-base font-extrabold text-lma-slate-900">{resolved.label}</div>
-            <div className="text-[10px] text-lma-slate-500">{new Date().toLocaleDateString()} · {shiftView==="ALL"?"All shifts":shiftView}</div>
+            <div className="text-[10px] text-lma-slate-500">{fmtDMY(new Date())} · {shiftView==="ALL"?"All shifts":shiftView}</div>
           </div>
 
           {board.sections.sort((a,b)=>a.section_order-b.section_order).map(sec=>(
@@ -511,7 +511,7 @@ function SidePanel({ title, items, emoji, onReAllot, onTap }:{ title:string; ite
               <span className="shrink-0" style={{color:L.sub}}>{it.shift_name||it.shift}</span>
               {it.temporary_seat&&<span className="text-[9px] font-bold px-1 rounded shrink-0" style={{color:L.fg,background:"rgba(255,255,255,0.35)"}}>was {it.temporary_seat}</span>}
               {it.fees_due_balance>0&&<span className="text-[10px] font-extrabold px-1.5 py-0.5 rounded shrink-0" style={{color:"#92400e",background:"#fde68a"}}>₹{it.fees_due_balance}</span>}
-              {it.booking_to&&<span className="shrink-0" style={{color:L.sub}}>{it.booking_to}</span>}
+              {it.booking_to&&<span className="shrink-0" style={{color:L.sub}}>{fmtDMY(it.booking_to)}</span>}
             </button>
             {onReAllot&&<button onClick={()=>onReAllot(it)} className="text-[9px] font-extrabold text-white bg-lma-primary px-2 py-1 rounded shrink-0">Re-Allot</button>}
           </div>
@@ -729,7 +729,7 @@ function DetailSheet({ cell, panel, onClose, router, scope, lib, branch, post, s
           {o.is_cross_library&&o.is_cross_library!=="NO"&&<span className="text-[9px] font-bold text-lma-warn bg-lma-warn/10 px-1.5 py-0.5 rounded ml-auto">CROSS · {o.is_cross_library}</span>}
         </div>
         <button onClick={()=>onViewStudent(o.student_id, o.is_cross_library)} className="block text-left text-sm font-extrabold text-lma-primary hover:underline">{o.student_id} · {o.name}</button>
-        <div className="text-[11px] text-lma-slate-600 mt-0.5">Receipt <button onClick={()=>onViewReceipt(o.receipt_no)} className="text-lma-primary underline decoration-dotted font-bold">{o.receipt_no}</button> · until {o.booking_to}</div>
+        <div className="text-[11px] text-lma-slate-600 mt-0.5">Receipt <button onClick={()=>onViewReceipt(o.receipt_no)} className="text-lma-primary underline decoration-dotted font-bold">{o.receipt_no}</button> · until {fmtDMY(o.booking_to)}</div>
         {o.fees_due_balance>0&&<div className="text-[11px] font-bold text-lma-danger mt-0.5">Dues: ₹{o.fees_due_balance} ({o.dues_status})</div>}
         {o.fees_due_balance>0&&<CollectDueInline receiptNo={o.receipt_no} balance={o.fees_due_balance} post={post} showToast={showToast} onChanged={onChanged}/>}
         <div className="grid grid-cols-2 gap-2 mt-2">
@@ -931,7 +931,7 @@ const halfNameSize=(name:string)=>{
     <div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",fontSize:halfNameSize(o.name),fontWeight:800,textAlign:"center",lineHeight:1.2,wordBreak:"break-word"}}>{o.name}</div>
 
     {dueAmt(o)}
-    <div style={{fontSize:"12px",fontWeight:800,textAlign:"center",lineHeight:1.2,flexShrink:0,marginBottom:"3px"}}>{o.booking_to}</div>
+    <div style={{fontSize:"12px",fontWeight:800,textAlign:"center",lineHeight:1.2,flexShrink:0,marginBottom:"3px"}}>{fmtDMY(o.booking_to)}</div>
   </>
 );
 
@@ -995,7 +995,7 @@ const halfNameSize=(name:string)=>{
             <span style={{fontWeight:900,fontSize:"24px",color:"#0f172a",lineHeight:1}}>{cell.display_label}</span>
             {notesText && <span style={{fontSize:"8px",fontWeight:700,color:"#475569",lineHeight:1,marginTop:"1px"}}>{notesText}</span>}
           </div>
-          <div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",fontSize:"12px",fontWeight:800,textAlign:"center",lineHeight:1.2}}>{fd.booking_to}</div>
+          <div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",fontSize:"12px",fontWeight:800,textAlign:"center",lineHeight:1.2}}>{fmtDMY(fd.booking_to)}</div>
           {dueAmt(fd)}
         </div>
       );
@@ -1041,7 +1041,7 @@ const halfNameSize=(name:string)=>{
     <div id="board-detailed-export" style={{position:"fixed",left:"-99999px",top:0,background:"#fff",padding:"24px",width:"fit-content"}}>
       <div style={{textAlign:"center",marginBottom:"28px"}}>
         <div style={{fontSize:"54px",fontWeight:900,color:"#0f172a",letterSpacing:"1px",lineHeight:1.1}}>{label}</div>
-        <div style={{fontSize:"22px",fontWeight:600,color:"#475569",marginTop:"8px",lineHeight:1.2}}>{new Date().toLocaleDateString()} · {shiftView==="ALL"?"All shifts":shiftView}</div>
+        <div style={{fontSize:"22px",fontWeight:600,color:"#475569",marginTop:"8px",lineHeight:1.2}}>{fmtDMY(new Date())} · {shiftView==="ALL"?"All shifts":shiftView}</div>
       </div>
       <div style={{display:"flex",gap:"16px",alignItems:"flex-start"}}>
         {/* LEFT column — non-seat bookings, color-coded, narrow stacked cards */}

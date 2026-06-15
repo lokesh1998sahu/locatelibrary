@@ -336,7 +336,7 @@ function IssueForm({ init, onCancel, post, onDone }:{ init:InitData; onCancel:()
 
           <div className="grid grid-cols-2 gap-3">
             <div><L>Amount (₹)</L><I type="number" value={amount} onChange={e=>setAmount(e.target.value)} autoFocus/></div>
-            <div><L>Date</L><I type="date" value={toIsoInput(date)} onChange={e=>setDate(e.target.value)}/></div>
+            <div><L>Date</L><I type="date" value={toIsoInput(date)} onChange={e=>setDate(e.target.value)}/>{date && <span className="block text-[10px] font-bold text-lma-slate-500 mt-1">{fmtDMY(date)}</span>}</div>
           </div>
           <L>Refund Mode</L>
           <select value={mode} onChange={e=>setMode(e.target.value)} className="w-full px-3 py-2.5 rounded-xl border-[1.5px] border-lma-slate-200 bg-lma-slate-50 text-sm font-medium">
