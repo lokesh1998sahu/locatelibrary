@@ -38,9 +38,9 @@ app/                      Next.js App Router
     subscribe/route.ts    Newsletter signup → Apps Script (URL hard-coded)
     ledger/route.ts       Finance proxy → Apps Script (APPS_SCRIPT_URL)
     admissions/route.ts   Admissions proxy → Apps Script
-    lma/route.ts          LMA proxy → Apps Script (with 30s timeout)
+    lma960805/route.ts    LMA proxy → Apps Script (with 30s timeout)
   whatsapp/page.tsx       WhatsApp redirect PWA (own scope /whatsapp)
-  lma/                    Library Management App — PWA scoped to /lma
+  lma960805/              Library Management App — PWA scoped to /lma960805
     layout.tsx            LMA shell + PwaRegister
     page.tsx              Password gate + home launcher
     sw.js, manifest.webmanifest, icons/
@@ -65,7 +65,7 @@ vecel.json                ⚠ typo of `vercel.json` — see "Known cruft" below
 |-------------|----------------------------------------------------|-------------------------------|-----|
 | `/`         | Marketing landing                                  | public                        | no  |
 | `/whatsapp` | Paste a number, jump to WhatsApp chat              | public                        | yes |
-| `/lma`      | Library Management App (most active area)          | `NEXT_PUBLIC_LMA_PASSWORD`    | yes |
+| `/lma960805`| Library Management App (most active area)          | `NEXT_PUBLIC_LMA_PASSWORD`    | yes |
 | `/mf-2`     | Personal finance dashboard                         | `NEXT_PUBLIC_FINANCE_PASSWORD`| no  |
 | `/owner`, `/admissions`, `/kl-0508`, `/libraries-9608`, `/cleaner/*`, `/tech-tool` | Various utilities | env-var passwords | no |
 
@@ -97,6 +97,6 @@ Mention these in passing the next time related work happens; don't change them w
 ## Conventions worth knowing
 
 - **Path alias:** `@/*` → repo root (e.g. `import Hero from "@/components/hero"`).
-- **Service workers** are scoped strictly to their sub-app (`/lma/sw.js` only handles `/lma/*`). Never broaden a scope.
+- **Service workers** are scoped strictly to their sub-app (`/lma960805/sw.js` only handles `/lma960805/*`). Never broaden a scope.
 - Each sub-app is roughly independent — don't refactor across them in the same change.
 - This repo runs on **Windows + PowerShell**. Prefer PowerShell-compatible commands when suggesting shell snippets.
