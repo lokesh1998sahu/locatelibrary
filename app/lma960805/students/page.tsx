@@ -1,16 +1,18 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import Link from "next/link";
 import { useLMA } from "../_components/LMAProvider";
-import { fmtDMY, toIsoInput } from "../_lib/dates";
+import { fmtDMY, toIsoInput, inDateRange } from "../_lib/dates";
+import { parsePhone10 } from "../_lib/phone";
 import StudentModal from "../_components/StudentModal";
 import CodePill from "../_components/CodePill";
+import SearchBar from "../_components/SearchBar";
+import DateRangeFilter from "../_components/DateRangeFilter";
 import Pager from "../_components/Pager";
 
 const API = "/api/lma960805";
 const PAGE_SIZE = 20;
-
 
 // ── TYPES ─────────────────────────────────────────────────────────
 interface PhoneEntry { number:string; tag:string; }
@@ -22,24 +24,17 @@ interface Student   {
 }
 interface Library   { library_code:string; library_name?:string; display_name:string; active:boolean; has_branches:boolean; emoji:string; color?:string; }
 interface Branch    { library_code:string; branch_code:string; branch_display:string; active:boolean; emoji?:string; color?:string; }
-interface AllResp   { ok:boolean; students:Student[]; total:number; page:number; totalPages:number; limit:number; }
-interface SearchResp{ ok:boolean; results:Student[]; }
 interface CountsResp{ ok:boolean; total:number; active:number; past:number; byLibrary:Record<string,{total:number; active:number; past:number}>; }
 
 type PastFilter  = "ANY"|"FALSE"|"TRUE";
-type SearchType  = "AUTO"|"NAME"|"PHONE"|"STUDENT_ID";
 
 // ── AUTO-DETECT SEARCH TYPE ───────────────────────────────────────
 function autoDetectSearchType(q:string): "NAME"|"PHONE"|"STUDENT_ID" {
   const trimmed = q.trim();
   if (!trimmed) return "NAME";
-  // Strip phone-formatting characters
   const phoneStripped = trimmed.replace(/[\s\-\.\(\)\+]/g, "");
-  // All-digits (after stripping) = phone
   if (/^\d{3,}$/.test(phoneStripped)) return "PHONE";
-  // Starts with F + digits = student_id (your scheme: F316, F458, etc.)
   if (/^F\d+/i.test(trimmed)) return "STUDENT_ID";
-  // Default: name
   return "NAME";
 }
 
@@ -47,93 +42,68 @@ function autoDetectSearchType(q:string): "NAME"|"PHONE"|"STUDENT_ID" {
 export default function LmaStudentsPage() {
   const { init, showToast, post } = useLMA();
   const [counts, setCounts] = useState<CountsResp|null>(null);
-  const [students, setStudents] = useState<Student[]>([]);
+  const [students, setStudents] = useState<Student[]>([]);   // ALL students for current library scope
   const [page, setPage] = useState(1);
-  const [totalPages, setTotalPages] = useState(1);
   const [loading, setLoading] = useState(false);
 
   // Filters
   const [pastFilter, setPastFilter] = useState<PastFilter>("ANY");
-  const [libFilter, setLibFilter]   = useState<string>("");      // "" = all
+  const [libFilter, setLibFilter]   = useState<string>("");      // "" = all (server scope)
+  const [draft, setDraft]           = useState("");
   const [search, setSearch]         = useState("");
+  const [dFrom, setDFrom] = useState(""); const [dTo, setDTo] = useState("");
 
   // Modal
-  const [modal, setModal] = useState<{ kind:"add"|"edit"|"view"; student?:Student } | null>(null);
+  const [modal, setModal] = useState<{ kind:"add" } | null>(null);
   const [openStu, setOpenStu] = useState<{ id:string; library:string } | null>(null);
   const [confirm, setConfirm] = useState<{ msg:string; onYes:()=>void } | null>(null);
 
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  // ── Load counts (init comes from context) ──
+  // ── Load counts (global, for header summary) ──
   useEffect(() => {
     fetch(`${API}?action=getStudentCounts`).then(r => r.json()).then((r:CountsResp) => { if (r.ok) setCounts(r); });
   }, []);
 
-  // ── Build & fetch student list ──
-  const fetchPage = useCallback(async (pageNum:number, append:boolean) => {
+  // ── Load ALL students for the scope (library = server; past/search/date = client) ──
+  const load = useCallback(async () => {
     setLoading(true);
     try {
-      const trimmed = search.trim();
-      let url:string;
-      if (trimmed.length >= 2) {
-        const detected = autoDetectSearchType(trimmed);
-        const params = new URLSearchParams({
-          action: "searchStudents",
-          q: trimmed,
-          search_type: detected,
-          is_past: pastFilter,
-        });
-        if (libFilter) params.set("library", libFilter);
-        url = `${API}?${params.toString()}`;
-      } else {
-        const params = new URLSearchParams({
-          action: "getAllStudents",
-          is_past: pastFilter,
-          page: String(pageNum),
-          limit: String(PAGE_SIZE),
-        });
-        if (libFilter) params.set("library", libFilter);
-        url = `${API}?${params.toString()}`;
-      }
-
-      const res = await fetch(url).then(r => r.json());
+      const params = new URLSearchParams({ action:"getAllStudents", all:"1", is_past:"ANY" });
+      if (libFilter) params.set("library", libFilter);
+      const res = await fetch(`${API}?${params}`).then(r => r.json());
       if (!res.ok) { showToast(res.error || "Load failed", "error"); return; }
-
-      // Normalize response shape: search uses .results, getAll uses .students
-      const list:Student[] = res.results || res.students || [];
-      if (append) setStudents(prev => [...prev, ...list]);
-      else setStudents(list);
-
-      setTotalPages(res.totalPages || 1);
+      setStudents(res.students || []); setPage(1);
     } catch (e) {
       showToast(e instanceof Error ? e.message : String(e), "error");
     } finally { setLoading(false); }
-  }, [search, pastFilter, libFilter, showToast]);
+  }, [libFilter, showToast]);
 
-  // ── Refetch when filters change (debounced for search) ──
-  useEffect(() => {
-    setPage(1);
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-    const delay = search.trim().length >= 2 ? 300 : 0;
-    debounceRef.current = setTimeout(() => { fetchPage(1, false); }, delay);
-    return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
-  }, [search, pastFilter, libFilter, fetchPage]);
-
-  
+  useEffect(() => { load(); }, [libFilter, load]);
+  useEffect(() => { setPage(1); }, [pastFilter, search, dFrom, dTo]);
 
   // After save/delete: refetch + refresh counts
   const refreshAll = useCallback(async () => {
-    setPage(1);
-    await fetchPage(1, false);
+    await load();
     const c:CountsResp = await fetch(`${API}?action=getStudentCounts`).then(r => r.json());
     if (c.ok) setCounts(c);
-  }, [fetchPage]);
+  }, [load]);
 
-  
-  const isSearching = search.trim().length >= 2;
-  const shown = isSearching ? students.slice((page-1)*PAGE_SIZE, page*PAGE_SIZE) : students;
-  const totalPagesEff = isSearching ? Math.max(1, Math.ceil(students.length/PAGE_SIZE)) : totalPages;
-  const detectedType = isSearching ? autoDetectSearchType(search) : null;
+  // client search (PHONE searches within phones[])
+  const matchesStudent = useCallback((s:Student, q:string):boolean => {
+    const t = q.trim(); if (!t) return true;
+    const typ = autoDetectSearchType(t); const Q = t.toUpperCase();
+    if (typ === "STUDENT_ID") return String(s.student_id||"").toUpperCase().includes(Q);
+    if (typ === "PHONE") { const d = parsePhone10(t); return (s.phones||[]).some(p => parsePhone10(String(p.number||"")).includes(d)); }
+    return String(s.name||"").toUpperCase().includes(Q);
+  }, []);
+
+  const filtered = useMemo(() => students.filter(s => {
+    if (pastFilter === "TRUE"  && !s.is_past) return false;
+    if (pastFilter === "FALSE" &&  s.is_past) return false;
+    return matchesStudent(s, search) && inDateRange(s.added_on, dFrom, dTo);
+  }), [students, pastFilter, search, dFrom, dTo, matchesStudent]);
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const shown = filtered.slice((page-1)*PAGE_SIZE, page*PAGE_SIZE);
 
   return (
     <div className="lma-page-body max-w-md mx-auto px-4 pt-4">
@@ -187,28 +157,16 @@ export default function LmaStudentsPage() {
         </div>
       )}
 
-      {/* Search */}
-      <div className="relative mb-3">
-        <input
-          type="text"
-          value={search}
-          onChange={e=>setSearch(e.target.value)}
-          placeholder="Search name, phone, F-ID..."
-          className="w-full px-4 py-3 pr-20 rounded-xl border-[1.5px] border-lma-slate-200 bg-white focus:border-lma-primary outline-none text-sm font-medium"
-        />
-        {detectedType && (
-          <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-bold text-lma-primary bg-lma-primary/10 px-1.5 py-0.5 rounded">
-            {detectedType}
-          </span>
-        )}
-      </div>
+      {/* Search + date range */}
+      <SearchBar value={draft} onChange={setDraft} onSearch={()=>setSearch(draft)} searching={loading}/>
+      <DateRangeFilter from={dFrom} to={dTo} onChange={(f,t)=>{setDFrom(f);setDTo(t);setPage(1);}} className="mt-2 mb-3"/>
 
       {/* List */}
       {loading && students.length === 0 ? (
         <div className="text-center text-sm text-lma-slate-500 py-8">Loading…</div>
-      ) : students.length === 0 ? (
+      ) : filtered.length === 0 ? (
         <div className="text-center text-sm text-lma-slate-500 py-8">
-          {isSearching ? "No matches found." : "No students yet."}
+          {students.length === 0 ? "No students yet." : "No matches found."}
         </div>
       ) : (
         <>
@@ -222,15 +180,13 @@ export default function LmaStudentsPage() {
               />
             ))}
           </div>
-
-          <Pager page={page} totalPages={totalPagesEff} onPage={(p)=>{ setPage(p); if(!isSearching) fetchPage(p,false); }}/>
+          <Pager page={page} totalPages={totalPages} onPage={setPage}/>
         </>
       )}
 
       {/* MODAL */}
       {modal && (
         <BottomSheet onClose={()=>setModal(null)}>
-          
           {modal.kind === "add" && init && (
             <StudentForm
               libraries={init.libraries}
@@ -242,7 +198,6 @@ export default function LmaStudentsPage() {
               }}
             />
           )}
-          
         </BottomSheet>
       )}
 
@@ -393,7 +348,7 @@ function StudentForm({ libraries, branches, initial, onCancel, onSubmit }:{ libr
         {f.phones.map((ph, i) => (
           <div key={i} className="flex gap-2">
             <input type="tel" inputMode="numeric" value={ph.number} onChange={e=>{
-              const next = [...f.phones]; next[i] = { ...next[i], number: e.target.value }; setF({...f, phones: next});
+              const next = [...f.phones]; next[i] = { ...next[i], number: parsePhone10(e.target.value) }; setF({...f, phones: next});
             }} placeholder={i===0?"Primary phone":`Phone ${i+1}`} className="flex-1 px-3 py-2.5 rounded-xl border-[1.5px] border-lma-slate-200 bg-lma-slate-50 text-sm font-medium"/>
             <input value={ph.tag} onChange={e=>{
               const next = [...f.phones]; next[i] = { ...next[i], tag: e.target.value.toUpperCase() }; setF({...f, phones: next});

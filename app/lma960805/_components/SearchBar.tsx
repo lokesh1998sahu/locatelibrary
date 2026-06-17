@@ -1,3 +1,4 @@
+import { parsePhone10 } from "../_lib/phone";
 export type SearchType = "NAME"|"PHONE"|"STUDENT_ID"|"RECEIPT_NO";
 
 export function autoDetectSearchType(q:string):SearchType{
@@ -17,7 +18,7 @@ export function matchesSearch(item:any, query:string):boolean{
   const typ=autoDetectSearchType(q); const Q=q.toUpperCase();
   if(typ==="RECEIPT_NO") return String(item.receipt_no||"").toUpperCase().includes(Q);
   if(typ==="STUDENT_ID") return String(item.student_id||"").toUpperCase().includes(Q);
-  if(typ==="PHONE"){ const d=Q.replace(/[\s\-\.\(\)\+]/g,""); return String(item.phone||item.mobile||"").replace(/[\s\-\.\(\)\+]/g,"").includes(d); }
+  if(typ==="PHONE"){ const d=parsePhone10(Q); if(!d) return false; const nums:string[]=[]; if(item.phone)nums.push(item.phone); if(item.mobile)nums.push(item.mobile); if(Array.isArray(item.phones))item.phones.forEach((p:any)=>{if(p&&p.number)nums.push(p.number);}); return nums.some((n)=>parsePhone10(String(n)).includes(d)); }
   return String(item.name||"").toUpperCase().includes(Q);
 }
 

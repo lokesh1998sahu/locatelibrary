@@ -15,6 +15,7 @@
 import { useState, useEffect } from "react";
 import { useLMA } from "./LMAProvider";
 import { fmtDMY, toIsoInput } from "../_lib/dates";
+import { parsePhone10 } from "../_lib/phone";
 import { genderLabel } from "../_lib/genderTheme";
 import CodePill from "./CodePill";
 import dynamic from "next/dynamic";
@@ -197,7 +198,7 @@ export default function StudentModal({ studentId, library, crossOrigin, onClose,
               {f.phones.map((ph:PhoneEntry,i:number)=>(
                 <div key={i} className="flex gap-2">
                   <input type="tel" inputMode="numeric" value={ph.number}
-                    onChange={e=>{ const n=[...f.phones]; n[i]={...n[i],number:e.target.value}; setF({...f,phones:n}); }}
+                    onChange={e=>{ const n=[...f.phones]; n[i]={...n[i],number:parsePhone10(e.target.value)}; setF({...f,phones:n}); }}
                     placeholder={i===0?"SELF (primary)":`Phone ${i+1}`}
                     className="flex-1 px-3 py-2.5 rounded-xl border-[1.5px] border-lma-slate-200 bg-lma-slate-50 text-sm font-medium"/>
                   <input value={ph.tag}

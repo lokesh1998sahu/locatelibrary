@@ -3,13 +3,15 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import Link from "next/link";
 import { useLMA, useScopeChips } from "../_components/LMAProvider";
-import { fmtDMY, daysFromToday } from "../_lib/dates";
+import { fmtDMY, daysFromToday, inDateRange } from "../_lib/dates";
+import { parsePhone10 } from "../_lib/phone";
 import CodePill from "../_components/CodePill";
 import ReceiptModal from "../_components/ReceiptModal";
-import SearchBar from "../_components/SearchBar";
-import Pager from "../_components/Pager";
+import SearchBar, { autoDetectSearchType } from "../_components/SearchBar";
+import DateRangeFilter from "../_components/DateRangeFilter";
+import Pager, { PAGE_SIZE } from "../_components/Pager";
 
-const API = "/api/lma960805";
+const API = "/api/lma";
 
 interface PhoneEntry { number:string; tag:string; }
 interface Receipt {
@@ -22,23 +24,11 @@ interface Receipt {
   receipt_text:string; registration_text:string;
 }
 
-type SearchType = "NAME"|"PHONE"|"STUDENT_ID"|"RECEIPT_NO";
-
-function autoDetect(q:string): SearchType {
-  const t=q.trim();
-  if(!t) return "NAME";
-  const s=t.replace(/[\s\-\.\(\)\+]/g,"");
-  if(/^R\d+/i.test(t)) return "RECEIPT_NO";
-  if(/^F\d+/i.test(t)) return "STUDENT_ID";
-  if(/^\d{3,}$/.test(s)) return "PHONE";
-  return "NAME";
-}
 function lifecycleBadge(r:Receipt, alertDays:number, hasSuccessor:boolean):{label:string;cls:string}{
   const st=(r.status||"").toUpperCase();
   if(st==="RENEWED")       return {label:"Renewed",      cls:"bg-lma-slate-200 text-lma-slate-600"};
   if(st==="CANCELLED")     return {label:"Cancelled",    cls:"bg-lma-danger/15 text-lma-danger"};
   if(st==="DO_NOT_RENEW")  return {label:"Do Not Renew", cls:"bg-lma-warn/15 text-lma-warn"};
-  // Rule-C orphan recovery — if a successor receipt exists (renewed_from=this), treat as RENEWED.
   if(hasSuccessor)         return {label:"Renewed",      cls:"bg-lma-slate-200 text-lma-slate-600"};
   const days=daysFromToday(r.booking_to);
   if(days===null) return {label:"Current", cls:"bg-lma-accent/15 text-lma-accent"};
@@ -51,39 +41,30 @@ export default function ReceiptsPage(){
   const { init } = useLMA();
 
   const [scope,setScope]=useState("");          // library/branch filter, "" = all
+  const [draft,setDraft]=useState("");
   const [search,setSearch]=useState("");
-  const [receipts,setReceipts]=useState<Receipt[]>([]);
+  const [dFrom,setDFrom]=useState(""); const [dTo,setDTo]=useState("");
+  const [receipts,setReceipts]=useState<Receipt[]>([]);   // ALL rows for the current scope
   const [page,setPage]=useState(1);
-  const [totalPages,setTotalPages]=useState(1);
-  const [total,setTotal]=useState(0);
   const [loading,setLoading]=useState(false);
-  const [openRno,setOpenRno]=useState<string|null>(null);   // receipt_no of the open modal
-  
+  const [openRno,setOpenRno]=useState<string|null>(null); // receipt_no of the open modal
 
-  const load=useCallback(async(pg:number,replace:boolean)=>{
+  // scope is server-side (one library at a time); search + date + pagination are client-side.
+  const load=useCallback(async()=>{
     setLoading(true);
-    const q=search.trim();
-    const params=new URLSearchParams({action:"getReceiptLog",page:String(pg),limit:"20"});
+    const params=new URLSearchParams({action:"getReceiptLog",all:"1"});
     if(scope) params.set("library",scope);
-    if(q){ params.set("q",q); params.set("search_type",autoDetect(q)); }
     const r=await fetch(`${API}?${params}`).then(r=>r.json());
     setLoading(false);
-    if(r.receipts){
-      setReceipts(prev=>replace?r.receipts:[...prev,...r.receipts]);
-      setTotalPages(r.totalPages||1); setTotal(r.total||0); setPage(pg);
-    }
-  },[scope,search]);
-
-  // reload on scope change only (search is button/Enter-triggered)
-  useEffect(()=>{
-    load(1,true);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    if(r.receipts){ setReceipts(r.receipts); setPage(1); }
   },[scope]);
 
-  // chips (libraries + branches + an "All")
+  useEffect(()=>{ load(); },[scope,load]);
+  useEffect(()=>{ setPage(1); },[search,dFrom,dTo]);
+
   const chips = useScopeChips();
 
-  // set of receipt_nos referenced as a predecessor (renewed_from) by another loaded receipt.
+  // receipt_nos referenced as a predecessor (renewed_from) by another loaded receipt.
   const successorOf = useMemo(()=>{
     const s=new Set<string>();
     receipts.forEach(r=>{ if(r.renewed_from) s.add(String(r.renewed_from).toUpperCase()); });
@@ -102,12 +83,29 @@ export default function ReceiptsPage(){
     return (v!==undefined&&v!==null&&v!==""&&!isNaN(n)&&n>0)?n:def;
   },[init]);
 
+  // client search (mirrors server auto-detect; PHONE searches within phones[])
+  const matchesReceipt=useCallback((r:Receipt,q:string):boolean=>{
+    const t=q.trim(); if(!t) return true;
+    const typ=autoDetectSearchType(t); const Q=t.toUpperCase();
+    if(typ==="RECEIPT_NO") return String(r.receipt_no||"").toUpperCase().includes(Q);
+    if(typ==="STUDENT_ID") return String(r.student_id||"").toUpperCase().includes(Q);
+    if(typ==="PHONE"){ const d=parsePhone10(t); return (r.phones||[]).some(p=>parsePhone10(String(p.number||"")).includes(d)); }
+    return String(r.name||"").toUpperCase().includes(Q);
+  },[]);
+
+  const filtered=useMemo(
+    ()=>receipts.filter(r=>matchesReceipt(r,search)&&inDateRange(r.receipt_date,dFrom,dTo)),
+    [receipts,search,dFrom,dTo,matchesReceipt]
+  );
+  const totalPages=Math.max(1,Math.ceil(filtered.length/PAGE_SIZE));
+  const paged=filtered.slice((page-1)*PAGE_SIZE,page*PAGE_SIZE);
+
   return (
     <div className="lma-page-body max-w-md mx-auto px-4 pt-4">
       <header className="flex items-center gap-3 mb-3">
-        <Link href="/lma960805" className="text-xl text-lma-slate-600 hover:text-lma-slate-900">←</Link>
-        <div className="flex-1"><h1 className="text-xl font-extrabold tracking-tight text-lma-slate-900">Receipts</h1><p className="text-[11px] text-lma-slate-500 font-medium">{total} total</p></div>
-        <button onClick={()=>load(1,true)} disabled={loading} className="text-xs font-bold px-3 py-2 rounded-lg bg-lma-slate-100 text-lma-slate-600 disabled:opacity-50">{loading?"...":"↻"}</button>
+        <Link href="/lma" className="text-xl text-lma-slate-600 hover:text-lma-slate-900">←</Link>
+        <div className="flex-1"><h1 className="text-xl font-extrabold tracking-tight text-lma-slate-900">Receipts</h1><p className="text-[11px] text-lma-slate-500 font-medium">{filtered.length} total</p></div>
+        <button onClick={()=>load()} disabled={loading} className="text-xs font-bold px-3 py-2 rounded-lg bg-lma-slate-100 text-lma-slate-600 disabled:opacity-50">{loading?"...":"↻"}</button>
       </header>
 
       {/* scope chips */}
@@ -117,17 +115,18 @@ export default function ReceiptsPage(){
         ))}
       </div>
 
-      {/* search */}
-      <SearchBar value={search} onChange={setSearch} onSearch={()=>load(1,true)} searching={loading}/>
+      {/* search + date range */}
+      <SearchBar value={draft} onChange={setDraft} onSearch={()=>setSearch(draft)} searching={loading}/>
+      <DateRangeFilter from={dFrom} to={dTo} onChange={(f,t)=>{setDFrom(f);setDTo(t);setPage(1);}} className="mb-3"/>
 
       {/* list */}
       {loading&&receipts.length===0?(
         <div className="text-center text-sm text-lma-slate-500 py-8">Loading…</div>
-      ):receipts.length===0?(
+      ):filtered.length===0?(
         <div className="text-center text-sm text-lma-slate-500 py-8">No receipts found.</div>
       ):(
         <div className="space-y-2">
-          {receipts.map(r=>{
+          {paged.map(r=>{
             const badge=lifecycleBadge(r, alertDaysFor(r), successorOf.has(String(r.receipt_no).toUpperCase()));
             return (
               <button key={r.receipt_no} onClick={()=>setOpenRno(r.receipt_no)} className="w-full text-left bg-white rounded-xl p-3 shadow-sm hover:shadow-md active:scale-[0.99]">
@@ -147,12 +146,12 @@ export default function ReceiptsPage(){
               </button>
             );
           })}
-          <Pager page={page} totalPages={totalPages} onPage={(p)=>load(p,true)}/>
+          <Pager page={page} totalPages={totalPages} onPage={setPage}/>
         </div>
       )}
 
       {/* Shared receipt view/edit/history modal — opens from any card */}
-      {openRno && <ReceiptModal receiptNo={openRno} onClose={()=>setOpenRno(null)} onSaved={()=>load(1,true)}/>}
+      {openRno && <ReceiptModal receiptNo={openRno} onClose={()=>setOpenRno(null)} onSaved={()=>load()}/>}
     </div>
   );
 }

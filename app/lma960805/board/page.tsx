@@ -485,9 +485,9 @@ function SeatTile({ cell, shiftView, onOpen, genderM, genderF }:{ cell:BoardCell
 }
 // ── SIDE PANEL ───────────────────────────────────────────────────
 function SidePanel({ title, items, emoji, onReAllot, onTap }:{ title:string; items:SidePanelItem[]; emoji:string; onReAllot?:(it:SidePanelItem)=>void; onTap?:(it:SidePanelItem)=>void }){
+  const [open,setOpen]=useState((items?.length||0)<=6);   // collapsed by default when long (>6)
   if(!items||items.length===0) return null;
   // Full-tile color scheme (matches seat tiles), with legible text per state.
-  // Dues = gold FILL when otherwise OK; gold RING when expiring/expired.
   const look=(it:SidePanelItem)=>{
     const dueGold = it.has_dues;
     if(it.color==="EXPIRED")  return { bg:"#6b0a0a", fg:"#ffffff", sub:"rgba(255,255,255,0.78)", ring:dueGold?"#f59e0b":"" };
@@ -498,7 +498,11 @@ function SidePanel({ title, items, emoji, onReAllot, onTap }:{ title:string; ite
   };
   return (
     <div className="mt-3 bg-lma-slate-50 rounded-xl p-3">
-      <div className="text-[11px] font-bold text-lma-slate-600 mb-2">{emoji} {title} · {items.length}</div>
+      <button onClick={()=>setOpen(o=>!o)} className="w-full flex items-center gap-1.5 text-[11px] font-bold text-lma-slate-600 mb-2">
+        <span className="inline-block w-3 text-lma-slate-400" style={{transform:open?"rotate(90deg)":"none"}}>▸</span>
+        <span>{emoji} {title} · {items.length}</span>
+      </button>
+      {open && (
       <div className="space-y-1.5">
         {items.map(it=>{
           const L=look(it);
@@ -518,10 +522,10 @@ function SidePanel({ title, items, emoji, onReAllot, onTap }:{ title:string; ite
           );
         })}
       </div>
+      )}
     </div>
   );
 }
-
 // ── DETAIL SHEET (occupied seat tap) ─────────────────────────────
 // #26: on-demand copy row for a board occupant. Board occupancy doesn't carry
 // receipt_text/registration_text, so fetch the receipt by receipt_no when a copy

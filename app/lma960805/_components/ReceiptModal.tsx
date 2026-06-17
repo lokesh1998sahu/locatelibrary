@@ -322,7 +322,7 @@ function EditForm({ receipt, init, onCancel, onSave }:{ receipt:Receipt; init:an
       {phones.map((ph,i)=>(
         <div key={i} className="flex gap-2 mb-2">
           <input type="tel" inputMode="numeric" value={ph.number}
-            onChange={e=>{const n=[...phones];n[i]={...n[i],number:e.target.value};setPhones(n);}}
+            onChange={e=>{const n=[...phones];n[i]={...n[i],number:normalizePhoneR(e.target.value)};setPhones(n);}}
             onBlur={()=>{const n=[...phones];n[i]={...n[i],number:normalizePhoneR(n[i].number)};setPhones(n);}}
             placeholder={i===0?"SELF (primary)":`Phone ${i+1}`}
             className="flex-1 px-3 py-2.5 rounded-xl border-[1.5px] border-lma-slate-200 bg-lma-slate-50 text-sm font-medium"/>

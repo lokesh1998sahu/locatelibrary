@@ -47,9 +47,9 @@ export default function DashboardPage(){
   const { init, showToast, post } = useLMA();
 
   const [scope,setScope]=useState("");
-  const [preset,setPreset]=useState<Preset>("month");
-  const [from,setFrom]=useState<Date>(presetRange("month").from);
-  const [to,setTo]=useState<Date>(presetRange("month").to);
+  const [preset,setPreset]=useState<Preset>("today");
+  const [from,setFrom]=useState<Date>(presetRange("today").from);
+  const [to,setTo]=useState<Date>(presetRange("today").to);
   const [data,setData]=useState<Dash|null>(null);
   const [loading,setLoading]=useState(false);
   const [customOpen,setCustomOpen]=useState(false);

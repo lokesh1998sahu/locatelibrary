@@ -10,7 +10,7 @@ type Card = { href:string; label:string; emoji:string; desc:string; badgeKey?:"r
 const CARDS: Card[] = [
   { href:"/lma960805/admissions",  label:"Admissions",  emoji:"📝", desc:"New & renewal receipts" },
   { href:"/lma960805/board",       label:"Seat Chart",  emoji:"🪑", desc:"Live seat map" },
-  { href:"/lma960805/renewals",    label:"Renewals",    emoji:"🔁", desc:"Expiring & cancellations", badgeKey:"renewals" },
+  { href:"/lma960805/renewals",    label:"Renewals",    emoji:"🔁", desc:"expiring & cancellations", badgeKey:"renewals" },
   { href:"/lma960805/students",    label:"Students",    emoji:"👥", desc:"Browse & edit" },
   { href:"/lma960805/dues",        label:"Dues",        emoji:"💰", desc:"Pending & written-off", badgeKey:"dues" },
   { href:"/lma960805/misc-income", label:"Misc Income", emoji:"💵", desc:"Day-pass, locker, xerox" },
@@ -49,8 +49,8 @@ export default function LmaHomePage() {
       ]);
       if(dash&&dash.ok) setToday({ net:dash.headline.net, receipts:dash.counts.receipts, dues:dash.headline.outstanding_dues });
       else setToday({net:0,receipts:0,dues:0});
-      const expiring=(ren?.expiring?.length||0)+(ren?.expired?.length||0);
-      setBadges({ renewals:expiring, dues:(dues?.pending?.length||dues?.total||0) });
+      const expiredCount=(ren?.expired?.length||0);
+      setBadges({ renewals:expiredCount, dues:(dues?.pending?.length||dues?.total||0) });
     }catch{ setToday({net:0,receipts:0,dues:0}); setConnected(false); }
     setStatsLoading(false);
   },[scope]);

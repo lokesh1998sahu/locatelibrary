@@ -19,6 +19,7 @@
 import { useState, useEffect, useMemo, useRef } from "react";
 import { useLMA } from "./LMAProvider";
 import { toDmy, fmtDMY } from "../_lib/dates";
+import { parsePhone10 } from "../_lib/phone";
 import CodePill from "./CodePill";
 
 const API = "/api/lma960805";
@@ -32,7 +33,7 @@ function dmyToIso(dmy:string){ if(!dmy)return""; const p=dmy.split("-"); if(p.le
 function isoToDmy(iso:string){ if(!iso)return""; const p=iso.split("-"); if(p.length!==3)return""; return `${+p[2]}-${+p[1]}-${+p[0]}`; }
 function normShiftKey(s:string):"MORNING"|"EVENING"|"FULL DAY"|"OTHER"{ const u=(s||"").toUpperCase().trim(); if(u==="MORNING")return"MORNING"; if(u==="EVENING")return"EVENING"; if(u==="FULL DAY"||u==="FULLDAY"||u==="FULL_DAY")return"FULL DAY"; return"OTHER"; }
 function autoDetectSearchType(q:string):"NAME"|"PHONE"|"STUDENT_ID"|"RECEIPT_NO"{ const t=q.trim(); if(!t)return"NAME"; if(/^R\d+/i.test(t))return"RECEIPT_NO"; const s=t.replace(/[\s\-\.\(\)\+]/g,""); if(/^\d{3,}$/.test(s))return"PHONE"; if(/^F\d+/i.test(t))return"STUDENT_ID"; return"NAME"; }
-function normalizePhone(input:string):string{ if(!input)return""; let c=input.replace(/[\s\-\.\(\)]/g,""); if(c.startsWith("+91"))c=c.slice(3); else if(c.startsWith("91")&&c.length>10)c=c.slice(2); c=c.replace(/\D/g,""); if(c.length>10)c=c.slice(-10); return c; }
+const normalizePhone = parsePhone10;
 
 interface PhoneEntry { number:string; tag:string; }
 interface Student  { student_id:string; library:string; branch:string; name:string; phones:PhoneEntry[]; address:string; preparing_for:string; aadhaar_last4:string; date_of_birth:string; gender?:string; is_past:boolean; }
@@ -282,7 +283,7 @@ function StepStudent({ init, resolvedLib, resolvedBranch, admitType, post, showT
           {phones.map((ph,i)=>(
             <div key={i} className="flex gap-2 mb-2">
               <input type="tel" inputMode="numeric" value={ph.number}
-                onChange={e=>{const n=[...phones];n[i]={...n[i],number:e.target.value};setPhones(n);}}
+                onChange={e=>{const n=[...phones];n[i]={...n[i],number:parsePhone10(e.target.value)};setPhones(n);}}
                 onBlur={()=>{const n=[...phones];n[i]={...n[i],number:normalizePhone(n[i].number)};setPhones(n);}}
                 placeholder={i===0?"SELF (primary)":`Phone ${i+1}`}
                 className="flex-1 px-3 py-2.5 rounded-xl border-[1.5px] border-lma-slate-200 bg-lma-slate-50 text-sm font-medium"/>

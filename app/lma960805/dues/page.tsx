@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
 import { useLMA, useScopeChips, type LMAInitData as InitData } from "../_components/LMAProvider";
-import { fmtDMY, inDateRange } from "../_lib/dates";
+import { fmtDMY, toIsoInput, inDateRange } from "../_lib/dates";
 import CodePill from "../_components/CodePill";
 import ReceiptModal from "../_components/ReceiptModal";
 import StudentModal from "../_components/StudentModal";
@@ -241,6 +241,7 @@ export default function DuesPage(){
 function PaymentSheet({ due, init, onClose, post, onDone }:{ due:PendingDue; init:InitData; onClose:()=>void; post:(a:string,p:any)=>Promise<any>; onDone:(text:string)=>void }){
   const [mode,setMode]=useState("");
   const [amount,setAmount]=useState(String(due.fees_due_balance));
+  const [date,setDate]=useState((()=>{const d=new Date();return `${d.getDate()}-${d.getMonth()+1}-${d.getFullYear()}`;})());
   const [notes,setNotes]=useState("");
   const [busy,setBusy]=useState(false);
 
@@ -248,7 +249,7 @@ function PaymentSheet({ due, init, onClose, post, onDone }:{ due:PendingDue; ini
     if(!mode||!amount){ return; }
     setBusy(true);
     // payload keys match logFeePayment params (receipt_no, payment_mode, amount_received, notes)
-    const r=await post("logFeePayment",{receipt_no:due.receipt_no,payment_mode:mode,amount_received:Number(amount),notes});
+    const r=await post("logFeePayment",{receipt_no:due.receipt_no,payment_mode:mode,amount_received:Number(amount),notes,receipt_date:date});
     setBusy(false);
     // logFeePayment returns the new FEES_DUE_LOG row's whatsapp_text
     if(r) onDone(String(r.whatsapp_text||""));
@@ -268,6 +269,8 @@ function PaymentSheet({ due, init, onClose, post, onDone }:{ due:PendingDue; ini
       <p className="text-[11px] text-lma-slate-500 mt-1">New balance will be ₹{Math.max(0,due.fees_due_balance-(Number(amount)||0))}.</p>
       <L>Note (optional)</L>
       <I value={notes} onChange={e=>setNotes(e.target.value)} placeholder="optional"/>
+      <L>Date</L>
+      <I type="date" value={toIsoInput(date)} onChange={e=>setDate(e.target.value)}/>{date && <span className="block text-[10px] font-bold text-lma-slate-500 mt-1">{fmtDMY(date)}</span>}
       <div className="flex gap-2.5 mt-4">
         <button onClick={onClose} className="flex-1 py-3 rounded-xl bg-lma-slate-100 text-lma-slate-600 font-bold">Cancel</button>
         <button onClick={submit} disabled={busy||!mode||!amount} className="flex-1 py-3 rounded-xl bg-gradient-to-br from-lma-primary to-lma-primary-2 text-white font-bold shadow-md disabled:opacity-50">{busy?"…":"Log Payment"}</button>

@@ -3,11 +3,12 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
 import { useLMA, useScopeChips, type LMAInitData as InitData } from "../_components/LMAProvider";
-import { fmtDMY, toIsoInput } from "../_lib/dates";
+import { fmtDMY, toIsoInput, inDateRange } from "../_lib/dates";
 import CodePill from "../_components/CodePill";
 import ReceiptModal from "../_components/ReceiptModal";
 import StudentModal from "../_components/StudentModal";
 import SearchBar, { matchesSearch } from "../_components/SearchBar";
+import DateRangeFilter from "../_components/DateRangeFilter";
 import Pager, { PAGE_SIZE } from "../_components/Pager";
 
 const API = "/api/lma960805";
@@ -33,6 +34,7 @@ export default function RefundsPage(){
 
   const [scope,setScope]=useState("");
   const [linkFilter,setLinkFilter]=useState<LinkFilter>("ANY");
+  const [dFrom,setDFrom]=useState(""); const [dTo,setDTo]=useState("");
   const [refunds,setRefunds]=useState<Refund[]>([]);
   const [sum,setSum]=useState(0);
   const [page,setPage]=useState(1);
@@ -81,7 +83,7 @@ export default function RefundsPage(){
   },[scope,linkFilter]);
 
  useEffect(()=>{ load(); },[scope,linkFilter,load]);
-  const refundsF=refunds.filter(r=>matchesSearch({...r, receipt_no:r.original_receipt_no}, search));
+  const refundsF=refunds.filter(r=>matchesSearch({...r, receipt_no:r.original_receipt_no}, search) && inDateRange(r.refund_date,dFrom,dTo));
   useEffect(()=>{ setPage(1); },[scope,linkFilter,search]);
 
 
@@ -114,6 +116,7 @@ export default function RefundsPage(){
       <button onClick={()=>setIssuing(true)} className="w-full mb-3 py-2.5 rounded-xl border-[1.5px] border-dashed border-lma-primary/40 text-lma-primary font-bold text-sm hover:bg-lma-primary/5 active:scale-[0.99]">+ Issue Refund</button>
 
       <SearchBar value={draft} onChange={setDraft} onSearch={()=>setSearch(draft)} searching={loading}/>
+      <DateRangeFilter from={dFrom} to={dTo} onChange={(f,t)=>{setDFrom(f);setDTo(t);setPage(1);}} className="mt-2 mb-3"/>
       {loading&&refunds.length===0?(
         <div className="text-center text-sm text-lma-slate-500 py-8">Loading…</div>
       ):refundsF.length===0?(
