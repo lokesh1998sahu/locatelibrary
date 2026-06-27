@@ -17,7 +17,6 @@
 // this module (e.g. `from "../_components/LMAProvider"`).
 
 import { createContext, useContext, useEffect, useState, useCallback, useRef, useMemo, ReactNode } from "react";
-import TechToolNav from "@/components/TechToolNav";
 
 const API      = "/api/lma960805";
 const PASSWORD = process.env.NEXT_PUBLIC_LMA_PASSWORD!;
@@ -232,7 +231,6 @@ export default function LMAProvider({ children }: { children: ReactNode }) {
     <LMAContext.Provider value={{ init, refreshInit, loading, lock, showToast, post }}>
       <div className="lma-app">
         {children}
-        <TechToolNav />
         {/* Shared toast — renders once at layout level so it persists across page navigation */}
         {toast && (
           <div className={`fixed bottom-6 left-1/2 -translate-x-1/2 px-4 py-3 rounded-xl shadow-lg z-[100000] lma-slide-up text-[14px] font-semibold ${toast.type==="error" ? "bg-lma-danger text-white" : "bg-lma-slate-900 text-white"}`}>

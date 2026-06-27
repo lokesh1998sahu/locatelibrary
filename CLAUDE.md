@@ -47,13 +47,13 @@ app/                      Next.js App Router
     _components/          LMA-local React components
     admissions/ board/ renewals/ students/ dues/
     misc-income/ refunds/ receipts/ dashboard/ settings/
-  mf-2/                   "My Financials 2.0" — private finance app
+  mf-2.0960805/           "My Financials 2.0" — private finance app
     (dashboard, add, ledger, masters)
   admissions/ kl-0508/ libraries-9608/ owner/
   cleaner/{daily,weekly}/ tech-tool/
 components/               Shared React components (hero, TechToolNav, etc.)
 public/                   Static assets, PWA icons, /whatsapp PWA assets
-next.config.ts            Host redirect: finance.locatelibrary.com → /mf-2
+next.config.ts            Host redirect: finance.locatelibrary.com → /mf-2.0960805
 tsconfig.json             Strict TS, "@/*" path alias for repo root
 eslint.config.mjs         Flat config, extends next/core-web-vitals + next/typescript
 vecel.json                ⚠ typo of `vercel.json` — see "Known cruft" below
@@ -66,7 +66,7 @@ vecel.json                ⚠ typo of `vercel.json` — see "Known cruft" below
 | `/`         | Marketing landing                                  | public                        | no  |
 | `/whatsapp` | Paste a number, jump to WhatsApp chat              | public                        | yes |
 | `/lma960805`| Library Management App (most active area)          | `NEXT_PUBLIC_LMA_PASSWORD`    | yes |
-| `/mf-2`     | Personal finance dashboard                         | `NEXT_PUBLIC_FINANCE_PASSWORD`| no  |
+| `/mf-2.0960805` | Personal finance dashboard                     | `NEXT_PUBLIC_FINANCE_PASSWORD`| no  |
 | `/owner`, `/admissions`, `/kl-0508`, `/libraries-9608`, `/cleaner/*`, `/tech-tool` | Various utilities | env-var passwords | no |
 
 ### Backend pattern

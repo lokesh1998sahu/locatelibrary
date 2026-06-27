@@ -1,5 +1,5 @@
 "use client";
-
+ 
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -9,9 +9,9 @@ import StudentModal from "../_components/StudentModal";
 import BookingFlow from "../_components/BookingFlow";
 import { toIsoInput, fmtDMY } from "../_lib/dates";
 import { genderCardStyle, normGender } from "../_lib/genderTheme";
-
+ 
 const API = "/api/lma960805";
-
+ 
 interface Library { library_code:string; display_name:string; active:boolean; has_branches:boolean; emoji:string; color?:string; }
 interface Branch  { library_code:string; branch_code:string; branch_display:string; active:boolean; emoji?:string; color?:string; }
 interface Occupant {
@@ -56,7 +56,7 @@ interface BoardResp {
   counts:{ floating:number; unassigned:number; other:number };
 }
 type ShiftView = "ALL"|"MORNING"|"EVENING"|"FULL DAY";
-
+ 
 const COLOR: Record<string,{bg:string;text:string;border:string;label:string}> = {
   OK:       { bg:"#dcfce7", text:"#15803d", border:"#86efac", label:"Occupied" },
   EXPIRING:         { bg:"#fee2e2", text:"#b91c1c", border:"#fca5a5", label:"Expiring" },
@@ -75,8 +75,8 @@ function occLook(o:{color:"OK"|"EXPIRING"|"EXPIRED";urgent?:boolean;has_dues?:bo
   if(o.has_dues) return { bg:base.bg, text:base.text, border:GOLD, ring:true };  // expiring/expired + dues
   return { bg:base.bg, text:base.text, border:base.border, ring:false };
 }
-
-
+ 
+ 
 // Convert a side-panel booking (floating/unassigned/otherShift) into a faux
 // BoardCell so the SAME DetailSheet can show it — full color/dues/actions.
 function panelItemToCell(it:SidePanelItem):BoardCell{
@@ -98,7 +98,7 @@ function panelItemToCell(it:SidePanelItem):BoardCell{
     blocked:{morning:false,evening:false,fullday:false},
   };
 }
-
+ 
 export default function BoardPage(){
   const router = useRouter();
   const { init, showToast, post } = useLMA();
@@ -122,9 +122,9 @@ export default function BoardPage(){
   const [showPngMenu,setShowPngMenu]=useState(false);
   const [customScale,setCustomScale]=useState("2.5");
   const boardRef = useRef<HTMLDivElement>(null);
-
+ 
   
-
+ 
   const resolved = useMemo(()=>{
     if(!init||!scope) return {lib:"",branch:"",label:""};
     const br=init.branches.find(b=>b.branch_code===scope);
@@ -132,7 +132,7 @@ export default function BoardPage(){
     const l=init.libraries.find(x=>x.library_code===scope);
     return {lib:scope,branch:"",label:l?.display_name||scope};
   },[init,scope]);
-
+ 
   const loadBoard=useCallback(async()=>{
     if(!resolved.lib) return;
     setLoading(true);
@@ -142,13 +142,13 @@ export default function BoardPage(){
     setLoading(false);
     if(r.ok) setBoard(r);
   },[resolved]);
-
+ 
   useEffect(()=>{ if(resolved.lib) loadBoard(); },[resolved.lib,resolved.branch,loadBoard]);
-
+ 
   const [showExport,setShowExport]=useState(false);
   const [genderM,setGenderM]=useState(false);
   const [genderF,setGenderF]=useState(false);
-
+ 
   const downloadPng=async(scale:number=2.5)=>{
     if(!board) return;
     setExporting(true);
@@ -177,10 +177,10 @@ export default function BoardPage(){
       alert("Export failed: "+(e instanceof Error?e.message:String(e)));
     }finally{ setExporting(false); setShowExport(false); }
   };
-
+ 
   // chip list (libraries + branches, no "All")
   const chips = useScopeChips({ includeAll: false });
-
+ 
   return (
    <div className="lma-page-body max-w-md mx-auto px-4 pt-4">
       {openRno && <ReceiptModal receiptNo={openRno} onClose={()=>setOpenRno(null)} onSaved={loadBoard}/>}
@@ -226,34 +226,34 @@ export default function BoardPage(){
   {showPngMenu&&<div className="fixed inset-0 z-40" onClick={()=>setShowPngMenu(false)}/>}
 </div>
       </header>
-
+ 
       {/* library chips */}
       <div className="flex gap-1.5 mb-3 overflow-x-auto -mx-4 px-4 pb-1">
         {chips.map(c=>(
           <button key={c.code} onClick={()=>{if(c.code!==scope){setScope(c.code);setBoard(null);setLoading(true);}}} style={scope===c.code&&c.color?{background:c.color,color:"#fff"}:undefined} className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-bold whitespace-nowrap ${scope===c.code&&!c.color?"bg-lma-slate-900 text-white":scope===c.code?"":"bg-white text-lma-slate-600"} shadow-sm`}>{c.emoji} {c.label}</button>
         ))}
       </div>
-
+ 
       {/* shift view toggle */}
       <div className="bg-white rounded-2xl p-1 flex gap-1 mb-3 shadow-sm">
         {(["ALL","MORNING","EVENING","FULL DAY"] as ShiftView[]).map(v=>(
           <button key={v} onClick={()=>setShiftView(v)} className={`flex-1 py-2 rounded-xl text-[11px] font-bold transition ${shiftView===v?"bg-lma-slate-900 text-white":"text-lma-slate-500"}`}>{v==="FULL DAY"?"Full":v.charAt(0)+v.slice(1).toLowerCase()}</button>
         ))}
       </div>
-
+ 
       {/* gender overlay toggle */}
       <div className="flex items-center gap-2 mb-3">
         <span className="text-[10px] font-bold text-lma-slate-400 uppercase tracking-wide">Highlight</span>
         <button onClick={()=>setGenderM(v=>!v)} style={genderM?{background:"#3b82f6",color:"#fff"}:undefined} className={`px-3 py-1.5 rounded-full text-[11px] font-bold shadow-sm transition ${genderM?"":"bg-white text-lma-slate-500"}`}>♂ Male</button>
         <button onClick={()=>setGenderF(v=>!v)} style={genderF?{background:"#ec4899",color:"#fff"}:undefined} className={`px-3 py-1.5 rounded-full text-[11px] font-bold shadow-sm transition ${genderF?"":"bg-white text-lma-slate-500"}`}>♀ Female</button>
       </div>
-
+ 
       {/* legend */}
       <div className="flex gap-3 mb-3 text-[10px] text-lma-slate-500 overflow-x-auto whitespace-nowrap pb-1">
         {(["OK","EXPIRING_PRIMARY","EXPIRING","EXPIRED","DUES"] as const).map((k)=>{const v=COLOR[k];return (<span key={k} className="flex items-center gap-1"><span className="w-3 h-3 rounded inline-block" style={{background:v.bg,border:`1px solid ${v.border}`}}></span>{v.label}</span>);})}
         <span className="flex items-center gap-1 shrink-0"><span className="w-3 h-3 rounded inline-block" style={{background:"repeating-linear-gradient(45deg,#fecaca,#fecaca 2px,#fee2e2 2px,#fee2e2 4px)",border:"1px solid #b91c1c"}}></span>Blocked</span><span className="flex items-center gap-1 shrink-0"><span className="w-3 h-3 rounded inline-block bg-lma-slate-100 border border-lma-slate-200"></span>Vacant</span>
       </div>
-
+ 
       {loading&&!board?(
         <div className="text-center text-sm text-lma-slate-500 py-8">Loading chart…</div>
       ):!board?(
@@ -273,7 +273,7 @@ export default function BoardPage(){
             <div className="text-base font-extrabold text-lma-slate-900">{resolved.label}</div>
             <div className="text-[10px] text-lma-slate-500">{fmtDMY(new Date())} · {shiftView==="ALL"?"All shifts":shiftView}</div>
           </div>
-
+ 
           {board.sections.sort((a,b)=>a.section_order-b.section_order).map(sec=>(
             <div key={sec.section_name} className="mb-4">
               {board.sections.length>1&&<div className="text-[11px] font-bold text-lma-slate-500 mb-1.5">{sec.section_name}</div>}
@@ -289,14 +289,14 @@ export default function BoardPage(){
               </div>
             </div>
           ))}
-
+ 
           {/* side panels */}
           <SidePanel title="Unassigned (booked, no seat)" items={board.unassigned} emoji="📋" onTap={(it)=>setDetail({cell:panelItemToCell(it),panel:true})}/>
           <SidePanel title="Floating (temp-vacated)" items={board.floating} emoji="🌀" onTap={(it)=>setDetail({cell:panelItemToCell(it),panel:true})} onReAllot={(it)=>setReAllot({receipt_no:it.receipt_no,name:it.name,student_id:it.student_id,shift:it.shift,original:it.temporary_seat})}/>
           <SidePanel title="Other shift (no fixed seat)" items={board.otherShift} emoji="🔄" onTap={(it)=>setDetail({cell:panelItemToCell(it),panel:true})}/>
         </div>
       )}
-
+ 
       {/* occupied detail popup */}
       {detail&&<DetailSheet
         cell={detail.cell}
@@ -318,13 +318,13 @@ export default function BoardPage(){
         onReAllot={(o)=>{ setDetail(null); setReAllot({receipt_no:o.receipt_no,name:o.name,student_id:o.student_id,shift:o.shift,original:o.temporary_seat||undefined}); }}
         onShare={(text,label)=>setShareEvent({text,label})}
       />}
-
+ 
       {/* block-create form */}
       {blockFormSeat&&<BlockForm seat={blockFormSeat.label} suggestedShift={blockFormSeat.suggestedShift} blockId={blockFormSeat.blockId} initReason={blockFormSeat.reason} initFrom={blockFormSeat.from} initTo={blockFormSeat.to} lib={resolved.lib} branch={resolved.branch} post={post} onClose={()=>setBlockFormSeat(null)} onSaved={()=>{ const wasEdit=!!blockFormSeat.blockId; setBlockFormSeat(null); showToast(wasEdit?"Block updated":"Seat blocked"); loadBoard(); }} showToast={showToast}/>}
-
+ 
       {/* tap on a BLOCK tile → detail + actions */}
       {blockDetail&&<BlockDetailSheet info={blockDetail.info} seatLabel={blockDetail.seatLabel} lib={resolved.lib} branch={resolved.branch} post={post} onClose={()=>setBlockDetail(null)} onRemoved={()=>{ setBlockDetail(null); showToast("Removed"); loadBoard(); }} showToast={showToast}/>}
-
+ 
       {/* re-allot seat picker (floating-restore OR move) */}
       {reAllot&&<ReAllotPicker
         ctx={reAllot}
@@ -336,7 +336,7 @@ export default function BoardPage(){
         onDone={()=>{ setReAllot(null); setDetail(null); loadBoard(); }}
         onShare={(text,label)=>setShareEvent({text,label})}
       />}
-
+ 
       {/* event share prompt */}
       {shareEvent&&(
         <div className="fixed inset-0 z-[10001] flex items-center justify-center px-6" onClick={()=>setShareEvent(null)}>
@@ -353,13 +353,13 @@ export default function BoardPage(){
           </div>
         </div>
       )}
-
+ 
        {/* off-screen detailed export layout */}
       {showExport&&board&&<DetailedExport board={board} label={resolved.label} shiftView={shiftView} genderM={genderM} genderF={genderF}/>}
     </div>
   );
 }
-
+ 
 // shorten "21-12-2026" → "21-12-26" for tile display
 function shortDate(dmy:string){
   if(!dmy) return "";
@@ -367,7 +367,7 @@ function shortDate(dmy:string){
   if(p.length!==3) return dmy;
   return `${p[0]}-${p[1]}-${p[2].slice(-2)}`;
 }
-
+ 
 // Auto-fit one short line (a date) to the cell width: the SVG scales to 100%
 // width, height capped (maxPx) so it never gets huge on large tiles. The text
 // always fits the available width — no truncation, sizes itself to the seat icon.
@@ -380,20 +380,20 @@ function FitText({ text, color="currentColor", maxPx=11 }:{ text:string; color?:
     </svg>
   );
 }
-
+ 
 // ── SEAT TILE ────────────────────────────────────────────────────
 function SeatTile({ cell, shiftView, onOpen, genderM, genderF }:{ cell:BoardCell; shiftView:ShiftView; onOpen:()=>void; genderM:boolean; genderF:boolean }){
   if(cell.cell_type==="DEAD") return <div className="aspect-square rounded" style={{background:"#f8fafc",border:"1px solid #e2e8f0"}}/>;
-
+ 
   // TRUE occupancy — NEVER hidden by the shift view (the toggle bug: occupants
   // were nulled per-view, so taken seats looked vacant/bookable).
-  const ovl=(g?:string)=>{ const n=normGender(g||""); if(genderM&&n==="M") return "#2563eb"; if(genderF&&n==="F") return "#db2777"; return null; };
+  const ovl=(g?:string)=>{ const n=normGender(g||""); if(genderM&&n==="M") return "rgba(59,130,246,0.32)"; if(genderF&&n==="F") return "rgba(236,72,153,0.34)"; return null; };
   const bi = cell.block_info || { morning:null, evening:null, fullday:null };
   const fd = cell.fullday;          // full-day booking → occupies whole seat
   const bF = bi.fullday;            // full-day block
   const m  = cell.morning, e  = cell.evening;
   const bM = bi.morning,   bE = bi.evening;
-
+ 
   // soft-hold: a temp-vacated receipt parked on THIS seat, tracked PER SHIFT.
   // (A2: full-day vacate holds BOTH halves; an evening vacate must affect the
   //  LOWER half only — never the whole tile.)
@@ -401,7 +401,7 @@ function SeatTile({ cell, shiftView, onOpen, genderM, genderF }:{ cell:BoardCell
   const heldFD = th ? th.fullday : null;
   const heldM  = th ? (th.morning || th.fullday) : null;
   const heldE  = th ? (th.evening || th.fullday) : null;
-
+ 
   // Bookability for the SELECTED shift (Morning + Evening = Full Day).
   const morningFree = !fd && !bF && !m && !bM;
   const eveningFree = !fd && !bF && !e && !bE;
@@ -412,19 +412,19 @@ function SeatTile({ cell, shiftView, onOpen, genderM, genderF }:{ cell:BoardCell
       true; // ALL → no filtering
   const dim = shiftView!=="ALL" && !bookableForView;
   const dimStyle = dim ? { opacity:0.32 } : null;
-
+ 
   // FULL DAY occupant fills whole tile
   if(fd){
     const col=occLook(fd);
     return (
       <button onClick={onOpen} className="aspect-square rounded flex flex-col items-center justify-center overflow-hidden px-0.5 relative" style={{background:col.bg,color:col.text,border:col.ring?`2px solid ${col.border}`:`1px solid ${col.border}`,boxShadow:col.ring?`inset 0 0 0 1px ${col.border}`:undefined,...dimStyle}}>
-        {ovl(fd.gender)&&<><span style={{position:"absolute",inset:0,border:`1.5px solid ${ovl(fd.gender)}`,borderRadius:"4px",pointerEvents:"none"}}/><span style={{position:"absolute",inset:"1.5px",border:"1px solid #ffffff",borderRadius:"2px",pointerEvents:"none"}}/></>}
+        {ovl(fd.gender)&&<span style={{position:"absolute",inset:0,background:ovl(fd.gender)!,pointerEvents:"none"}}/>}
         <span className="text-[10px] font-extrabold leading-none">{cell.display_label}</span>
         <div className="w-full px-0.5 mt-0.5"><FitText text={shortDate(fd.booking_to)} color={col.text} maxPx={11}/></div>
       </button>
     );
   }
-
+ 
   // FULL-DAY BLOCK fills whole tile too
   if(bF){
     return (
@@ -438,13 +438,13 @@ function SeatTile({ cell, shiftView, onOpen, genderM, genderF }:{ cell:BoardCell
       </button>
     );
   }
-
+ 
   // split tile: upper morning, lower evening
   const mCol = m?occLook(m):null;
   const eCol = e?occLook(e):null;
   const vacant = !m&&!e&&!bM&&!bE&&!heldM&&!heldE;   // truly empty (nothing booked/blocked/parked)
   const bothHeld = !!heldFD || (!!heldM && !!heldE); // whole-tile hold only when full-day or both halves parked
-
+ 
   const halfStyle=(occCol:any, blk:BlockInfo|null, held:any)=>{
     if(blk){
       return {
@@ -464,7 +464,7 @@ function SeatTile({ cell, shiftView, onOpen, genderM, genderF }:{ cell:BoardCell
     if(held) return <div className="w-full px-0.5"><FitText text={held.student_id} color="#b45309" maxPx={9}/></div>;
     return defaultDot;
   };
-
+ 
   return (
     <div className="aspect-square rounded overflow-hidden flex flex-col" style={{
       border: bothHeld?"1.5px dashed #f59e0b":(vacant?"1.5px solid rgba(0,0,0,0.5)":"1px solid #cbd5e1"),
@@ -472,12 +472,12 @@ function SeatTile({ cell, shiftView, onOpen, genderM, genderF }:{ cell:BoardCell
       ...dimStyle
     }}>
       <button onClick={onOpen} className="flex-1 flex items-center justify-center text-[7px] font-bold leading-none relative" style={halfStyle(mCol,bM,heldM)}>
-        {ovl(m?.gender)&&<><span style={{position:"absolute",inset:0,border:`1.5px solid ${ovl(m?.gender)}`,pointerEvents:"none"}}/><span style={{position:"absolute",inset:"1.5px",border:"1px solid #ffffff",pointerEvents:"none"}}/></>}
+        {ovl(m?.gender)&&<span style={{position:"absolute",inset:0,background:ovl(m?.gender)!,pointerEvents:"none"}}/>}
         {halfText(m,bM,heldM,(shiftView==="ALL"||shiftView==="MORNING")?"·":"") }
       </button>
       <button onClick={onOpen} className="text-[9px] font-extrabold text-lma-slate-700 leading-none py-0.5">{cell.display_label}</button>
       <button onClick={onOpen} className="flex-1 flex items-center justify-center text-[7px] font-bold leading-none relative" style={halfStyle(eCol,bE,heldE)}>
-        {ovl(e?.gender)&&<><span style={{position:"absolute",inset:0,border:`1.5px solid ${ovl(e?.gender)}`,pointerEvents:"none"}}/><span style={{position:"absolute",inset:"1.5px",border:"1px solid #ffffff",pointerEvents:"none"}}/></>}
+        {ovl(e?.gender)&&<span style={{position:"absolute",inset:0,background:ovl(e?.gender)!,pointerEvents:"none"}}/>}
         {halfText(e,bE,heldE,(shiftView==="ALL"||shiftView==="EVENING")?"·":"") }
       </button>
     </div>
@@ -562,7 +562,7 @@ function CollectDueInline({ receiptNo, balance, post, showToast, onChanged }:{ r
     </div>
   );
 }
-
+ 
 function RefundInline({ receiptNo, post, showToast, onChanged }:{ receiptNo:string; post:(a:string,p:any)=>Promise<any>; showToast:(m:string,t?:"success"|"error")=>void; onChanged:()=>void }){
   const { init }=useLMA();
   const modes=(init?.paymentTags||[]).filter(t=>t.active).map(t=>t.tag_name);
@@ -597,7 +597,7 @@ function RefundInline({ receiptNo, post, showToast, onChanged }:{ receiptNo:stri
     </div>
   );
 }
-
+ 
 function MoneyTrailInline({ receiptNo }:{ receiptNo:string }){
   const [open,setOpen]=useState(false);
   const [t,setT]=useState<any>(null);
@@ -639,7 +639,7 @@ function MoneyTrailInline({ receiptNo }:{ receiptNo:string }){
     </div>
   );
 }
-
+ 
 function DetailCopyRow({ occupant, lib, branch, showToast }:{ occupant:Occupant; lib:string; branch:string; showToast:(m:string,t?:"success"|"error")=>void }){
   const [loading,setLoading]=useState<""|"student"|"group"|"contact">("");
   const fetchReceipt=async()=>{
@@ -664,7 +664,7 @@ function DetailCopyRow({ occupant, lib, branch, showToast }:{ occupant:Occupant;
     </div>
   );
 }
-
+ 
 // ── LANE WRAPPER (a labeled section inside the unified seat card) ──
 function Lane({ emoji, label, tone, children }:{ emoji:string; label:string; tone:string; children:React.ReactNode }){
   return (
@@ -676,7 +676,7 @@ function Lane({ emoji, label, tone, children }:{ emoji:string; label:string; ton
     </div>
   );
 }
-
+ 
 // ── UNIFIED SEAT CARD ────────────────────────────────────────────
 // Every seat tap opens this. A seat has up to 3 lanes (FULL DAY, or
 // MORNING + EVENING). Each lane is independently BOOKED / BLOCKED / VACANT,
@@ -686,9 +686,9 @@ function DetailSheet({ cell, panel, onClose, router, scope, lib, branch, post, s
   const [confirmVacate,setConfirmVacate]=useState<Occupant|null>(null);
   const [chooseMode,setChooseMode]=useState<""|"ADD"|"BLOCK">(""); // fully-vacant: ask shift before booking/blocking
   const L = branch||lib;
-
+ 
   const goBook=(shift?:string)=>{ onAddBooking(cell.display_label, shift||""); };
-
+ 
   const doVacate=async(o:Occupant)=>{
     setBusy(true);
     const r=await post("tempVacateSeat",{receipt_no:o.receipt_no});
@@ -704,7 +704,7 @@ function DetailSheet({ cell, panel, onClose, router, scope, lib, branch, post, s
     setBusy(false);
     if(r&&r.ok!==false){ showToast("Removed"); onChanged(); } else showToast((r&&r.error)||"Failed","error");
   };
-
+ 
   const doNotRenew=async(o:Occupant)=>{
     if(busy) return;
     if(!confirm(`Flag receipt ${o.receipt_no} as Do-Not-Renew? It will stop appearing in renewal lists.`)) return;
@@ -713,14 +713,14 @@ function DetailSheet({ cell, panel, onClose, router, scope, lib, branch, post, s
     setBusy(false);
     if(r&&r.ok!==false){ showToast("Marked: do not renew"); onChanged(); } else showToast((r&&r.error)||"Failed","error");
   };
-
+ 
   // ── lane data ──
   const bi=cell.block_info||{morning:null,evening:null,fullday:null};
   const th=cell.temp_held||{morning:null,evening:null,fullday:null};
   const fdOcc=cell.fullday, fdBlk=bi.fullday;
   const mOcc=cell.morning,  mBlk=bi.morning;
   const eOcc=cell.evening,  eBlk=bi.evening;
-
+ 
   // ── BOOKED lane: details + actions ──
   const BookingPanel=(o:Occupant)=>{
     const col=(o.color==="EXPIRING"&&o.urgent)?COLOR.EXPIRING_PRIMARY:(COLOR[o.color]||COLOR.OK);
@@ -752,7 +752,7 @@ function DetailSheet({ cell, panel, onClose, router, scope, lib, branch, post, s
       </div>
     );
   };
-
+ 
   // ── BLOCKED lane: same architecture as a booking ──
 const BlockPanel=(blk:BlockInfo)=>{
     const exp=blk.expired;
@@ -772,7 +772,7 @@ const BlockPanel=(blk:BlockInfo)=>{
     </div>
     );
   };
-
+ 
   // ── VACANT lane: add booking / block seat ──
   const VacantPanel=(shift:"MORNING"|"EVENING"|"FULL DAY"|undefined, held:TempHeldInfo|null)=>{
     // Fully-vacant seat (shift undefined): Add Booking AND Block Seat each ask the shift first.
@@ -801,7 +801,7 @@ const BlockPanel=(blk:BlockInfo)=>{
       </div>
     );
   };
-
+ 
   // ── status summary line ──
   const stateOf=(o:Occupant|null,b:BlockInfo|null)=> o?"booked":b?"blocked":"vacant";
   let summary="";
@@ -810,7 +810,7 @@ const BlockPanel=(blk:BlockInfo)=>{
   else if(fdBlk) summary="Full day · blocked";
   else if(!mOcc&&!eOcc&&!mBlk&&!eBlk) summary="Vacant";
   else summary=`Morning ${stateOf(mOcc,mBlk)} · Evening ${stateOf(eOcc,eBlk)}`;
-
+ 
   // ── body ──
   let body:React.ReactNode;
   if(panel){
@@ -835,7 +835,7 @@ const BlockPanel=(blk:BlockInfo)=>{
       </div>
     );
   }
-
+ 
   return (
     <div className="fixed inset-0 z-[9998] flex items-end justify-center" onClick={onClose}>
       <div className="absolute inset-0 bg-black/50 backdrop-blur-sm"/>
@@ -848,7 +848,7 @@ const BlockPanel=(blk:BlockInfo)=>{
         </div>
         {body}
         <button onClick={onClose} className="w-full mt-4 py-3 rounded-xl bg-lma-slate-100 text-lma-slate-600 font-bold">Close</button>
-
+ 
         {confirmVacate&&(
           <div className="fixed inset-0 z-[9999] flex items-center justify-center px-6" onClick={()=>setConfirmVacate(null)}>
             <div className="absolute inset-0 bg-black/40"/>
@@ -866,7 +866,7 @@ const BlockPanel=(blk:BlockInfo)=>{
     </div>
   );
 }
-
+ 
 // ── DETAILED EXPORT LAYOUT (off-screen, captured by html2canvas) ──
 function DetailedExport({ board, label, shiftView, genderM, genderF }:{ board:BoardResp; label:string; shiftView:ShiftView; genderM:boolean; genderF:boolean }){
   const EXPORT_COLOR: Record<string,{bg:string;text:string;border:string}> = {
@@ -889,7 +889,7 @@ function DetailedExport({ board, label, shiftView, genderM, genderF }:{ board:Bo
   const dueAmt=(o:Occupant)=> o.fees_due_balance>0
     ? <div style={{fontSize:"12px",fontWeight:900,textAlign:"center",lineHeight:1.2,minHeight:"15px",flexShrink:0,color:"#92400e",background:"#fde68a",borderRadius:"4px",margin:"1px 4px"}}>{`₹${o.fees_due_balance} DUE`}</div>
     : <div style={{minHeight:"15px",flexShrink:0}}/>;
-
+ 
   // side-panel item look — mirrors the on-screen SidePanel color logic
   function panelLook(it:SidePanelItem){
     const dueGold = it.has_dues;
@@ -898,11 +898,11 @@ function DetailedExport({ board, label, shiftView, genderM, genderF }:{ board:Bo
     if(dueGold)               return { bg:"#fde68a", fg:"#92400e", sub:"#a16207", ring:false };
     return { bg:"#dcfce7", fg:"#15803d", sub:"#16a34a", ring:false };
   }
-
+ 
   function richCell(cell:BoardCell){
     if(cell.cell_type==="DEAD") return <div style={{background:"#f8fafc",border:"1px solid #e2e8f0",borderRadius:"8px",width:"100%",height:"100%"}}/>;
     const fd=cell.fullday, m=cell.morning, e=cell.evening;
-    const ovl=(g?:string)=>{ const n=normGender(g||""); if(genderM&&n==="M") return "#2563eb"; if(genderF&&n==="F") return "#db2777"; return null; };
+    const ovl=(g?:string)=>{ const n=normGender(g||""); if(genderM&&n==="M") return "rgba(59,130,246,0.32)"; if(genderF&&n==="F") return "rgba(236,72,153,0.34)"; return null; };
     const b=cell.blocked||{morning:false,evening:false,fullday:false};
     const bi=cell.block_info||{morning:null,evening:null,fullday:null};
     const vacantTile = !fd && !m && !e && !b.morning && !b.evening && !b.fullday;
@@ -917,7 +917,7 @@ function DetailedExport({ board, label, shiftView, genderM, genderF }:{ board:Bo
     const VACANT_FILL = "rgba(0,0,0,0.08)";
     const VACANT_BORDER = "1.5px solid rgba(0,0,0,0.55)";
     const HELD_BORDER = "2px dashed rgba(0,0,0,0.75)";
-
+ 
     // Shrinks font so 3-line names never bury the date
 const halfNameSize=(name:string)=>{
   const l=name.replace(/\s+/g," ").trim().length;
@@ -925,7 +925,7 @@ const halfNameSize=(name:string)=>{
   if(l>16) return "11px";
   return "13px";
 };
-
+ 
     // one occupant's data block (used in a half, or full-day upper area)
     const dataRows=(o:Occupant)=>(
   <>
@@ -933,15 +933,15 @@ const halfNameSize=(name:string)=>{
       <span style={{whiteSpace:"nowrap"}}>{o.student_id}</span>
       <span style={{whiteSpace:"nowrap"}}>{o.receipt_no}</span>
     </div>
-
+ 
     {/* ↓ minHeight:0 lets flex shrink it; overflow:hidden clips; dynamic fontSize; center-align */}
     <div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",fontSize:halfNameSize(o.name),fontWeight:800,textAlign:"center",lineHeight:1.2,wordBreak:"break-word"}}>{o.name}</div>
-
+ 
     {dueAmt(o)}
     <div style={{fontSize:"12px",fontWeight:800,textAlign:"center",lineHeight:1.2,flexShrink:0,marginBottom:"3px"}}>{fmtDMY(o.booking_to)}</div>
   </>
 );
-
+ 
     // block detail rows (mirrors a booking tile: tag+id top, reason middle, dates bottom)
     const blockRows=(blk:BlockInfo)=>{
       const dates=(blk.block_from||blk.block_to)?`${blk.block_from||"…"} → ${blk.block_to||"…"}`:"";
@@ -957,12 +957,12 @@ const halfNameSize=(name:string)=>{
         </>
       );
     };
-
+ 
     // a half-zone: occupant data, blocked/hold stripe, or empty
     const halfZone=(o:Occupant|null, blk:BlockInfo|null, held?:any)=>{
       if(o){
         const col=exLook(o);
-        return <div style={{position:"relative",height:"100%",width:"100%",background:col.bg,color:col.text,borderRadius:"4px",padding:"1px 7px 9px 7px",display:"flex",flexDirection:"column",boxSizing:"border-box",overflow:"hidden",boxShadow:col.ring?`inset 0 0 0 3px ${EXPORT_GOLD}`:undefined}}>{ovl(o.gender)&&<><div style={{position:"absolute",inset:0,border:`3px solid ${ovl(o.gender)}`,borderRadius:"4px",pointerEvents:"none"}}/><div style={{position:"absolute",inset:"3px",border:"1px solid #ffffff",borderRadius:"2px",pointerEvents:"none"}}/></>}{dataRows(o)}</div>;
+        return <div style={{position:"relative",height:"100%",width:"100%",background:col.bg,color:col.text,borderRadius:"4px",padding:"1px 7px 9px 7px",display:"flex",flexDirection:"column",boxSizing:"border-box",overflow:"hidden",boxShadow:col.ring?`inset 0 0 0 3px ${EXPORT_GOLD}`:undefined}}>{ovl(o.gender)&&<span style={{position:"absolute",inset:0,background:ovl(o.gender)!,pointerEvents:"none",borderRadius:"4px"}}/>}{dataRows(o)}</div>;
       }
       if(blk){
         return (
@@ -977,10 +977,10 @@ const halfNameSize=(name:string)=>{
       // empty half — dark fill when the OTHER half is occupied
       return <div style={{height:"100%",width:"100%",background: vacantTile?"transparent":VACANT_FILL,borderRadius:"4px"}}/>;
     };
-
+ 
     // notes badge (optional) — small line under seat number
     const notesText = (cell.notes && String(cell.notes).trim()) ? String(cell.notes).trim() : "";
-
+ 
     // number band (middle) — transparent when fully vacant so wrapper's dark fill shows uninterrupted
     const numberBand=(
       <div style={{flexShrink:0,minHeight:"30px",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",background: vacantTile?"transparent":"#fff",padding:"0px 0px 6px"}}>
@@ -988,12 +988,12 @@ const halfNameSize=(name:string)=>{
         {notesText && <span style={{fontSize:"8px",fontWeight:700,color:"#94a3b8",lineHeight:1,marginTop:"1px",maxWidth:"100%",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{notesText}</span>}
       </div>
     );
-
+ 
     // FULL DAY (occupied)
     if(fd){
       const col=exLook(fd);
       return (
-        <div style={{position:"relative",border:col.ring?`3px solid ${EXPORT_GOLD}`:"1.5px solid #cbd5e1",borderRadius:"8px",overflow:"hidden",height:"100%",display:"flex",flexDirection:"column",background:col.bg,color:col.text,boxSizing:"border-box",padding:"5px 7px"}}>{ovl(fd.gender)&&<><div style={{position:"absolute",inset:0,border:`3px solid ${ovl(fd.gender)}`,borderRadius:"8px",pointerEvents:"none"}}/><div style={{position:"absolute",inset:"3px",border:"1px solid #ffffff",borderRadius:"6px",pointerEvents:"none"}}/></>}
+        <div style={{position:"relative",border:col.ring?`3px solid ${EXPORT_GOLD}`:"1.5px solid #cbd5e1",borderRadius:"8px",overflow:"hidden",height:"100%",display:"flex",flexDirection:"column",background:col.bg,color:col.text,boxSizing:"border-box",padding:"5px 7px"}}>{ovl(fd.gender)&&<span style={{position:"absolute",inset:0,background:ovl(fd.gender)!,pointerEvents:"none",borderRadius:"8px"}}/>}
           <div style={{display:"flex",justifyContent:"space-between",fontSize:"12px",fontWeight:900,lineHeight:1.2,gap:"4px",flexShrink:0}}>
             <span style={{whiteSpace:"nowrap"}}>{fd.student_id}</span>
             <span style={{whiteSpace:"nowrap"}}>{fd.receipt_no}</span>
@@ -1008,7 +1008,7 @@ const halfNameSize=(name:string)=>{
         </div>
       );
     }
-
+ 
     // FULL-DAY BLOCK fills whole tile (with full detail)
     if(bi.fullday){
       const blk=bi.fullday;
@@ -1029,7 +1029,7 @@ const halfNameSize=(name:string)=>{
         </div>
       );
     }
-
+ 
     // MORNING (upper) + EVENING (lower), number band in middle — grid for deterministic html2canvas rendering
     const wrapperBorder = wholeHeld ? HELD_BORDER : (vacantTile ? VACANT_BORDER : "1.5px solid #cbd5e1");
     const wrapperBg = wholeHeld ? "#fffbeb" : (vacantTile ? VACANT_FILL : "#fff");
@@ -1043,9 +1043,9 @@ const halfNameSize=(name:string)=>{
       </div>
     );
   }
-
+ 
   const hasPanels = board.unassigned.length>0 || board.floating.length>0 || board.otherShift.length>0;
-
+ 
   return (
     <div id="board-detailed-export" style={{position:"fixed",left:"-99999px",top:0,background:"#fff",padding:"24px",width:"fit-content"}}>
       <div style={{textAlign:"center",marginBottom:"28px"}}>
@@ -1123,13 +1123,13 @@ function ReAllotPicker({ ctx, lib, branch, post, onClose, showToast, onDone, onS
   const [loading,setLoading]=useState(true);
   const [busy,setBusy]=useState(false);
   const [picked,setPicked]=useState<string>("");
-
+ 
   useEffect(()=>{
     const params=new URLSearchParams({action:"getVacantSeats",library_code:lib,shift:ctx.shift});
     if(branch) params.set("branch_code",branch);
     fetch(`${API}?${params}`).then(r=>r.json()).then((r:PickResp)=>{ setData(r); setLoading(false); }).catch(()=>{ setLoading(false); });
   },[lib,branch,ctx.shift]);
-
+ 
   const submit=async(seat:string)=>{
     setBusy(true);
     const r=await post("reAllotSeat",{receipt_no:ctx.receipt_no,seat_no:seat});
@@ -1137,7 +1137,7 @@ function ReAllotPicker({ ctx, lib, branch, post, onClose, showToast, onDone, onS
     if(r&&r.reallotted){ showToast(`${ctx.student_id} → seat ${r.seat_no}`); if(r.whatsapp_text) onShare(r.whatsapp_text,"Seat changed"); onDone(); }
     else showToast(r&&r.error?r.error:"Re-allot failed","error");
   };
-
+ 
   return (
     <div className="fixed inset-0 z-[9999] flex items-end justify-center" onClick={onClose}>
       <div className="absolute inset-0 bg-black/50 backdrop-blur-sm"/>
@@ -1147,7 +1147,7 @@ function ReAllotPicker({ ctx, lib, branch, post, onClose, showToast, onDone, onS
         <p className="text-[12px] text-lma-slate-500 mb-1">{ctx.student_id} · {ctx.name} · {ctx.shift}</p>
         {ctx.original&&<p className="text-[12px] text-lma-warn font-semibold mb-3">Original seat <b>{ctx.original}</b> is highlighted — tap it to restore, or pick another vacant seat.</p>}
         {!ctx.original&&<p className="text-[12px] text-lma-slate-500 mb-3">Pick a vacant seat to move them to.</p>}
-
+ 
         {loading?(
           <div className="text-center text-sm text-lma-slate-500 py-8">Loading seats…</div>
         ):!data||!data.sections?(
@@ -1185,7 +1185,7 @@ function ReAllotPicker({ ctx, lib, branch, post, onClose, showToast, onDone, onS
             ))}
           </div>
         )}
-
+ 
         <div className="flex gap-2 mt-5 sticky bottom-0 bg-white pt-2">
           <button onClick={onClose} className="flex-1 py-3 rounded-xl bg-lma-slate-100 text-lma-slate-600 font-bold">Cancel</button>
           <button disabled={!picked||busy} onClick={()=>submit(picked)} className="flex-1 py-3 rounded-xl bg-gradient-to-br from-lma-primary to-lma-primary-2 text-white font-bold shadow-md disabled:opacity-50">{busy?"…":picked?`Allot ${picked}`:"Pick a seat"}</button>
@@ -1195,12 +1195,12 @@ function ReAllotPicker({ ctx, lib, branch, post, onClose, showToast, onDone, onS
   );
 }
 // ── BLOCK FORM + DETAIL ──────────────────────────────────
-
+ 
 // Map a tile's tap area to the SEAT_BLOCKS shift value.
 // Upper half = MORNING, lower = EVENING, full tile = FULL DAY by default.
 // User can override on the form (ALL = blocks every shift on that seat).
 const BLOCK_SHIFTS=["MORNING","EVENING","FULL DAY"];
-
+ 
 function ShiftPicker({ value, onChange }:{ value:string; onChange:(v:string)=>void }){
   return (
     <div className="grid grid-cols-3 gap-1.5">
@@ -1210,7 +1210,7 @@ function ShiftPicker({ value, onChange }:{ value:string; onChange:(v:string)=>vo
     </div>
   );
 }
-
+ 
 function BlockForm({ seat, suggestedShift, blockId, initReason, initFrom, initTo, lib, branch, post, onClose, onSaved, showToast }:{ seat:string; suggestedShift:string; blockId?:string; initReason?:string; initFrom?:string; initTo?:string; lib:string; branch:string; post:(a:string,p:any)=>Promise<any>; onClose:()=>void; onSaved:()=>void; showToast:(m:string,t?:"success"|"error")=>void }){
   const isEdit=!!blockId;
   const [shift,setShift]=useState(suggestedShift||"FULL DAY");
@@ -1252,7 +1252,7 @@ function BlockForm({ seat, suggestedShift, blockId, initReason, initFrom, initTo
     </div>
   );
 }
-
+ 
 function BlockDetailSheet({ info, seatLabel, lib, branch, post, onClose, onRemoved, showToast }:{ info:BlockInfo; seatLabel:string; lib:string; branch:string; post:(a:string,p:any)=>Promise<any>; onClose:()=>void; onRemoved:()=>void; showToast:(m:string,t?:"success"|"error")=>void }){
   const [busy,setBusy]=useState(false);
   const remove=async()=>{
@@ -1282,7 +1282,7 @@ function BlockDetailSheet({ info, seatLabel, lib, branch, post, onClose, onRemov
     </div>
   );
 }
-
+ 
 // ── form helpers (scoped so they don't clash with anything) ──
 function Lbl({ children }:{ children:React.ReactNode }){ return <label className="block text-[11px] font-bold text-lma-slate-500 uppercase tracking-wide mb-1 mt-2">{children}</label>; }
 function Txt(props:React.InputHTMLAttributes<HTMLInputElement>){ return <input {...props} className="w-full px-3.5 py-2.5 rounded-xl border-[1.5px] border-lma-slate-200 bg-lma-slate-50 focus:bg-white focus:border-lma-primary outline-none text-[14px] font-medium"/>; }

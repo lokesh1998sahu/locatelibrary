@@ -94,7 +94,7 @@ export default function AddEntryPage() {
 
   useEffect(() => {
     const auth = localStorage.getItem("financeAuthorized")
-    if (auth !== "true") window.location.href = "/mf-2"
+    if (auth !== "true") window.location.href = "/mf-2.0960805"
   }, [])
 
   useEffect(() => {
@@ -281,7 +281,7 @@ export default function AddEntryPage() {
         <div className="finance-header">
           <div style={{ position: "relative", textAlign: "center" }}>
             <div className="finance-title">My Financials 2.0</div>
-            <button onClick={() => { localStorage.removeItem("financeAuthorized"); window.location.href = "/mf-2" }} style={{
+            <button onClick={() => { localStorage.removeItem("financeAuthorized"); window.location.href = "/mf-2.0960805" }} style={{
               position: "absolute", right: 0, top: 0,
               fontSize: 13, border: "none", background: "transparent",
               color: "#dc2626", cursor: "pointer", fontWeight: 600, fontFamily: "'DM Sans', sans-serif"
@@ -293,8 +293,8 @@ export default function AddEntryPage() {
           {/* Top Nav */}
           <div className="finance-nav">
             <button className="active">Add</button>
-            <button onClick={() => window.location.href = "/mf-2/ledger"}>Ledger</button>
-            <button onClick={() => window.location.href = "/mf-2/masters"}>Masters</button>
+            <button onClick={() => window.location.href = "/mf-2.0960805/ledger"}>Ledger</button>
+            <button onClick={() => window.location.href = "/mf-2.0960805/masters"}>Masters</button>
           </div>
 
           {/* Engine Switcher */}

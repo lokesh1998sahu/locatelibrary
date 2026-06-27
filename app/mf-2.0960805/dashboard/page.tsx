@@ -25,7 +25,7 @@ export default function FinanceDashboard() {
   useEffect(() => {
     const auth = localStorage.getItem("financeAuthorized")
     if (auth !== "true") {
-      window.location.href = "/mf-2"
+      window.location.href = "/mf-2.0960805"
     }
   }, [])
 
@@ -90,7 +90,7 @@ export default function FinanceDashboard() {
 
   function logout() {
     localStorage.removeItem("financeAuthorized")
-    window.location.href = "/mf-2"
+    window.location.href = "/mf-2.0960805"
   }
 
   const navItems = [
@@ -98,21 +98,21 @@ export default function FinanceDashboard() {
       label: "Add Entry",
       icon: "+",
       desc: "Transaction, Contra, Adjustment",
-      href: "/mf-2/add",
+      href: "/mf-2.0960805/add",
       color: "#0a0a0a"
     },
     {
       label: "Ledger",
       icon: "≡",
       desc: "View, search & reverse entries",
-      href: "/mf-2/ledger",
+      href: "/mf-2.0960805/ledger",
       color: "#0a0a0a"
     },
     {
       label: "Masters",
       icon: "⊕",
       desc: "Manage names & heads",
-      href: "/mf-2/masters",
+      href: "/mf-2.0960805/masters",
       color: "#0a0a0a"
     }
   ]
@@ -200,7 +200,7 @@ export default function FinanceDashboard() {
               <button
                 onClick={() => {
                   localStorage.setItem("mf2_open_sheet", recentSheet)
-                  window.location.href = "/mf-2/ledger"
+                  window.location.href = "/mf-2.0960805/ledger"
                 }}
                 style={{
                   fontSize: 12, color: "#111", fontWeight: 600,

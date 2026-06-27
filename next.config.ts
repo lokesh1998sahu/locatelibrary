@@ -24,7 +24,7 @@ const nextConfig: NextConfig = {
             value: "finance.locatelibrary.com",
           },
         ],
-        destination: "/mf-2",
+        destination: "/mf-2.0960805",
         permanent: false,
       },
     ];

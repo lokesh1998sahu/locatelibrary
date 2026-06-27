@@ -13,7 +13,7 @@ export default function FinanceAccess() {
   useEffect(() => {
     const saved = localStorage.getItem("financeAuthorized")
     if (saved === "true") {
-      window.location.href = "/mf-2/dashboard"
+      window.location.href = "/mf-2.0960805/dashboard"
     }
   }, [])
 
@@ -24,7 +24,7 @@ export default function FinanceAccess() {
     setTimeout(() => {
       if (passwordInput === PASSWORD) {
         localStorage.setItem("financeAuthorized", "true")
-        window.location.href = "/mf-2/dashboard"
+        window.location.href = "/mf-2.0960805/dashboard"
       } else {
         setError("Incorrect password")
         setPasswordInput("")

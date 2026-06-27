@@ -41,7 +41,7 @@ const tools = [
     id: "mf-2",
     label: "My Financials 2.0",
     description: "Personal finance dashboard & transaction tracker",
-    href: "/mf-2",
+    href: "/mf-2.0960805",
     emoji: "₹",
     emojiMono: true,
     accent: "#34d399",

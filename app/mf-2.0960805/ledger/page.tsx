@@ -74,7 +74,7 @@ export default function LedgerPage() {
 
   useEffect(() => {
     const auth = localStorage.getItem("financeAuthorized")
-    if (auth !== "true") window.location.href = "/mf-2"
+    if (auth !== "true") window.location.href = "/mf-2.0960805"
   }, [])
 
   useEffect(() => { searchRef.current?.focus() }, [])
@@ -202,7 +202,7 @@ export default function LedgerPage() {
       amount
     }
     localStorage.setItem("duplicateEntry", JSON.stringify(payload))
-    window.location.href = "/mf-2/add"
+    window.location.href = "/mf-2.0960805/add"
   }
 
   async function saveEdit() {
@@ -224,7 +224,7 @@ export default function LedgerPage() {
 
   function logout() {
     localStorage.removeItem("financeAuthorized")
-    window.location.href = "/mf-2"
+    window.location.href = "/mf-2.0960805"
   }
 
   const categories = [...new Set(sheets.map(s => s.category))]
@@ -271,9 +271,9 @@ export default function LedgerPage() {
             }}>Logout</button>
           </div>
           <div className="finance-nav">
-            <button onClick={() => window.location.href = "/mf-2/add"}>Add</button>
+            <button onClick={() => window.location.href = "/mf-2.0960805/add"}>Add</button>
             <button className="active">Ledger</button>
-            <button onClick={() => window.location.href = "/mf-2/masters"}>Masters</button>
+            <button onClick={() => window.location.href = "/mf-2.0960805/masters"}>Masters</button>
           </div>
         </div>
 

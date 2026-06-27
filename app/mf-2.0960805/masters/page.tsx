@@ -54,7 +54,7 @@ export default function MastersPage() {
 
   useEffect(() => {
     const auth = localStorage.getItem("financeAuthorized")
-    if (auth !== "true") window.location.href = "/mf-2"
+    if (auth !== "true") window.location.href = "/mf-2.0960805"
   }, [])
 
   useEffect(() => {
@@ -102,7 +102,7 @@ export default function MastersPage() {
 
   function logout() {
     localStorage.removeItem("financeAuthorized")
-    window.location.href = "/mf-2"
+    window.location.href = "/mf-2.0960805"
   }
 
   const isHead = data?.type === "HEAD"
@@ -125,8 +125,8 @@ export default function MastersPage() {
             </button>
           </div>
           <div className="finance-nav">
-            <button onClick={() => window.location.href = "/mf-2/add"}>Add</button>
-            <button onClick={() => window.location.href = "/mf-2/ledger"}>Ledger</button>
+            <button onClick={() => window.location.href = "/mf-2.0960805/add"}>Add</button>
+            <button onClick={() => window.location.href = "/mf-2.0960805/ledger"}>Ledger</button>
             <button className="active">Masters</button>
           </div>
         </div>

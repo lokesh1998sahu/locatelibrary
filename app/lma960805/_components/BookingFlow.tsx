@@ -60,10 +60,10 @@ export default function BookingFlow({ renewReceiptNo, addMode, libCode, presetSe
   useEffect(()=>{ if(!renewReceiptNo) return; let alive=true; (async()=>{
     setLoading(true);
     try{
-      const qs=new URLSearchParams({ action:"getReceiptLog", q:renewReceiptNo, search_type:"RECEIPT_NO", limit:"5" });
+      const qs=new URLSearchParams({ action:"getReceiptLog", q:renewReceiptNo, search_type:"RECEIPT_NO", exact:"1", limit:"5" });
       const r=await fetch(`${API}?${qs}`).then(x=>x.json());
       const list:Receipt[]=(r&&r.receipts)||[];
-      if(alive) setRenewFrom(list.find(x=>x.receipt_no===renewReceiptNo)||list[0]||null);
+      if(alive){ const exact=list.find(x=>x.receipt_no===renewReceiptNo)||null; if(!exact) showToast("Receipt "+renewReceiptNo+" not found","error"); setRenewFrom(exact); }
     }catch{ if(alive) showToast("Couldn't load receipt","error"); }
     if(alive) setLoading(false);
   })(); return ()=>{ alive=false; }; // eslint-disable-next-line react-hooks/exhaustive-deps
