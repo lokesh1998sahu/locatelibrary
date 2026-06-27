@@ -11,7 +11,7 @@ import SearchBar, { autoDetectSearchType } from "../_components/SearchBar";
 import DateRangeFilter from "../_components/DateRangeFilter";
 import Pager, { PAGE_SIZE } from "../_components/Pager";
 
-const API = "/api/lma";
+const API = "/api/lma960805";
 
 interface PhoneEntry { number:string; tag:string; }
 interface Receipt {
