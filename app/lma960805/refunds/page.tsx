@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
 import { useLMA, useScopeChips, type LMAInitData as InitData } from "../_components/LMAProvider";
-import { fmtDMY, toIsoInput, inDateRange } from "../_lib/dates";
+import { fmtDMY, fmtDMYT, toIsoInput, inDateRange } from "../_lib/dates";
 import CodePill from "../_components/CodePill";
 import ReceiptModal from "../_components/ReceiptModal";
 import StudentModal from "../_components/StudentModal";
@@ -135,7 +135,7 @@ export default function RefundsPage(){
                 <span className="text-sm font-extrabold text-lma-danger ml-auto">−₹{r.amount}</span>
               </div>
            <button onClick={()=>setOpenStu({id:r.student_id,library:homeLib(r)})} className="block w-full text-left text-sm font-semibold text-lma-slate-800 truncate hover:underline">{r.name} <span className="text-[10px] font-bold text-lma-slate-400">{r.student_id}</span></button>
-              <div className="text-[11px] text-lma-slate-500 mt-0.5"><CodePill code={r.branch||r.library}/> · vs <button onClick={()=>setOpenRno(r.original_receipt_no)} className="text-lma-primary underline decoration-dotted font-bold">{r.original_receipt_no}</button> · {r.refund_mode} · {fmtDMY(r.refund_date)}</div>
+              <div className="text-[11px] text-lma-slate-500 mt-0.5"><CodePill code={r.branch||r.library}/> · vs <button onClick={()=>setOpenRno(r.original_receipt_no)} className="text-lma-primary underline decoration-dotted font-bold">{r.original_receipt_no}</button> · {r.refund_mode} · {fmtDMYT(r.refund_date)}</div>
               {r.refund_reason&&<div className="text-[11px] text-lma-slate-400 mt-0.5">{r.refund_reason}</div>}
               <div className="grid grid-cols-3 gap-2 mt-2.5">
                 <button onClick={()=>setViewFor(r)} className="py-2 rounded-lg bg-lma-slate-100 text-lma-slate-600 font-bold text-xs">View</button>
@@ -173,7 +173,7 @@ export default function RefundsPage(){
           <Row k="Mode" v={`${viewFor.refund_mode} (${viewFor.refund_fees_mode})`}/>
           <Row k="Against receipt" v={viewFor.original_receipt_no}/>
           <Row k="Library" v={<CodePill code={viewFor.branch||viewFor.library}/>}/>
-          <Row k="Date" v={fmtDMY(viewFor.refund_date)}/>
+          <Row k="Date" v={fmtDMYT(viewFor.refund_date)}/>
           <Row k="Type" v={viewFor.linked_to_cancellation?"From cancellation":"Standalone"}/>
           {viewFor.refund_reason&&<Row k="Reason" v={viewFor.refund_reason}/>}
           {viewFor.refund_whatsapp_text&&(

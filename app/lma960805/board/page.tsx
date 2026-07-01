@@ -1,5 +1,6 @@
 "use client";
 
+import { buildContactText } from "../_lib/contact";
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -8,7 +9,7 @@ import { parsePhone10 } from "../_lib/phone";
 import ReceiptModal from "../_components/ReceiptModal";
 import StudentModal from "../_components/StudentModal";
 import BookingFlow from "../_components/BookingFlow";
-import { toIsoInput, fmtDMY } from "../_lib/dates";
+import { toIsoInput, fmtDMY, fmtDMYT } from "../_lib/dates";
 import { genderCardStyle, normGender } from "../_lib/genderTheme";
 
 const API = "/api/lma960805";
@@ -366,7 +367,7 @@ function shortDate(dmy:string){
   if(!dmy) return "";
   const p=dmy.split("-");
   if(p.length!==3) return dmy;
-  return `${p[0]}-${p[1]}-${p[2].slice(-2)}`;
+  const _f=fmtDMY(dmy).split("-"); return _f.length===3?`${_f[0]}-${_f[1]}`:fmtDMY(dmy);
 }
 
 // Auto-fit one short line (a date) to the cell width: the SVG scales to 100%
@@ -630,12 +631,12 @@ function MoneyTrailInline({ receiptNo }:{ receiptNo:string }){
             <div className="space-y-1.5">
               <div>
                 <div className="font-bold text-lma-slate-500 mb-0.5">Due payments</div>
-                {(t.dues_payments&&t.dues_payments.length)?t.dues_payments.map((d:any,i:number)=>(<div key={i} className="flex justify-between"><span className="text-lma-slate-500">{d.received_on||"—"} · {d.mode||""}</span><span className="font-bold">₹{d.amount||0}</span></div>)):<div className="text-lma-slate-400">None</div>}
+                {(t.dues_payments&&t.dues_payments.length)?t.dues_payments.map((d:any,i:number)=>(<div key={i} className="flex justify-between"><span className="text-lma-slate-500">{d.received_on?fmtDMYT(d.received_on):"—"} · {d.mode||""}</span><span className="font-bold">₹{d.amount||0}</span></div>)):<div className="text-lma-slate-400">None</div>}
               </div>
               <div className="h-px bg-lma-slate-200"/>
               <div>
                 <div className="font-bold text-lma-slate-500 mb-0.5">Refunds</div>
-                {(t.refunds&&t.refunds.length)?t.refunds.map((r:any,i:number)=>(<div key={i} className="flex justify-between"><span className="text-lma-slate-500">{r.refund_date||"—"} · {r.mode||""}</span><span className="font-bold text-lma-danger">₹{r.amount||0}</span></div>)):<div className="text-lma-slate-400">None</div>}
+                {(t.refunds&&t.refunds.length)?t.refunds.map((r:any,i:number)=>(<div key={i} className="flex justify-between"><span className="text-lma-slate-500">{r.refund_date?fmtDMYT(r.refund_date):"—"} · {r.mode||""}</span><span className="font-bold text-lma-danger">₹{r.amount||0}</span></div>)):<div className="text-lma-slate-400">None</div>}
               </div>
             </div>
           )}
@@ -660,7 +661,7 @@ function DetailCopyRow({ occupant, lib, branch, showToast }:{ occupant:Occupant;
   };
   const copyStudent=async()=>{ setLoading("student"); const rec=await fetchReceipt(); setLoading(""); if(rec&&rec.receipt_text){ navigator.clipboard.writeText(rec.receipt_text); showToast("Student copy"); } else showToast("No receipt text","error"); };
   const copyGroup=async()=>{ setLoading("group"); const rec=await fetchReceipt(); setLoading(""); if(rec&&rec.registration_text){ navigator.clipboard.writeText(rec.registration_text); showToast("Group copy"); } else showToast("No group text (renewal?)","error"); };
-  const copyContact=async()=>{ setLoading("contact"); const rec=await fetchReceipt(); setLoading(""); const L=rec?(rec.branch||rec.library):(branch||lib); navigator.clipboard.writeText(`${occupant.name} ${L} ${occupant.student_id}`); showToast("Contact copy"); };
+  const copyContact=async()=>{ setLoading("contact"); const rec=await fetchReceipt(); setLoading(""); const L=rec?(rec.branch||rec.library):(branch||lib); navigator.clipboard.writeText(buildContactText(occupant.name, L, occupant.student_id, rec?.phones)); showToast("Contact copy"); };
   return (
     <div className={`grid ${occupant.receipt_type==="RENEWAL"?"grid-cols-2":"grid-cols-3"} gap-2 mt-3`}>
       <button disabled={!!loading} onClick={copyStudent} className="py-2 rounded-lg bg-lma-accent/10 text-lma-accent font-bold text-xs disabled:opacity-50">{loading==="student"?"…":"📋 Student"}</button>

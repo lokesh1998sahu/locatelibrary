@@ -16,6 +16,7 @@
 //
 // onComplete() lets the host refresh its data.
 
+import { buildContactText } from "../_lib/contact";
 import { useState, useEffect, useMemo, useRef } from "react";
 import { useLMA } from "./LMAProvider";
 import { toDmy, fmtDMY } from "../_lib/dates";
@@ -40,7 +41,7 @@ interface Student  { student_id:string; library:string; branch:string; name:stri
 interface Receipt  { receipt_no:string; student_id:string; library:string; branch:string; name:string; phones:PhoneEntry[]; seat_no:string; shift:string; shift_name:string; shift_time:string; booking_from:string; booking_to:string; status:string; is_cross_library?:string; fee?:number; }
 interface SeatCell { row_in_section:number; col_in_section:number; seat_no:number; display_label:string; notes:string; cell_type:string; state?:string; occupant?:{receipt_no:string;student_id:string;name:string;shift:string}|null; share_note?:string|null; }
 interface VacantResp { ok:boolean; needs_seat:boolean; sections:{section_name:string;section_order:number;rows:number;cols:number;seats:SeatCell[]}[]; }
-interface ResultData { receipt_no:string; student_id:string; receipt_text:string; registration_text:string; }
+interface ResultData { receipt_no:string; student_id:string; receipt_text:string; registration_text:string; name:string; library:string; phones:PhoneEntry[]; }
 type PayMode = { mode:string; amount:string };
 interface BookingPreload { seat?:string; shift?:string; fee?:string; from?:string; to?:string; }
 interface BookingCtx { admitType:"NEW"|"RENEWAL"; student:Student|null; isCross:boolean; crossOrigin:string; renewFrom?:Receipt|null; preload?:BookingPreload; }
@@ -158,6 +159,7 @@ function DoneView({ result, onClose }:{ result:ResultData; onClose:()=>void }){
           </div>
         </>
       )}
+      <button onClick={()=>copy(buildContactText(result.name, result.library, result.student_id, result.phones),"c")} className="w-full mt-3 py-2.5 rounded-xl bg-lma-warn/10 text-lma-warn font-bold text-sm">{copied==="c"?"Copied":"📇 Copy Contact"}</button>
       <button onClick={onClose} className="w-full mt-4 py-3 rounded-xl bg-gradient-to-br from-lma-primary to-lma-primary-2 text-white font-extrabold shadow-md">Done</button>
     </div>
   );
@@ -503,7 +505,7 @@ function StepBooking({ init, resolvedLib, resolvedBranch, ctx, post, showToast, 
       if(ctx.admitType==="RENEWAL"&&ctx.renewFrom){
         await post("markReceiptRenewed",{ receipt_no:ctx.renewFrom.receipt_no, successor:res.receipt_no });
       }
-      onDone({ receipt_no:res.receipt_no, student_id:res.student_id, receipt_text:res.receipt_text, registration_text:res.registration_text });
+      onDone({ receipt_no:res.receipt_no, student_id:res.student_id, receipt_text:res.receipt_text, registration_text:res.registration_text, name:ctx.student?.name||"", library:resolvedBranch||resolvedLib, phones:ctx.student?.phones||[] });
     }
   };
 

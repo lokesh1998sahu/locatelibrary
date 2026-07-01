@@ -17,6 +17,7 @@ export function parseAnyDate(v:any):Date|null{
   const d=new Date(s);return isNaN(d.getTime())?null:d;
 }
 export function fmtDMY(v:any):string{ const d=parseAnyDate(v); return d?`${d.getDate()}-${_MON[d.getMonth()]}-${d.getFullYear()}`:(v?String(v):""); }
+export function fmtDMYT(v:any):string{ const dmy=fmtDMY(v); if(!dmy) return ""; const m=String(v).match(/(\d{1,2}):(\d{2})/); if(!m) return dmy; let h=+m[1]; const ap=h<12?"AM":"PM"; h=h%12||12; return `${dmy} (${h}:${m[2]} ${ap})`; }
 export function toIsoInput(v:any):string{ const d=parseAnyDate(v); return d?`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`:""; }
 export function toDmy(v:any):string{ const d=parseAnyDate(v); return d?`${d.getDate()}-${d.getMonth()+1}-${d.getFullYear()}`:(v?String(v):""); }
 export function daysFromToday(v:any):number|null{ const d=parseAnyDate(v); if(!d)return null; const a=new Date(d.getFullYear(),d.getMonth(),d.getDate()); const t=new Date(); const b=new Date(t.getFullYear(),t.getMonth(),t.getDate()); return Math.round((a.getTime()-b.getTime())/86400000); }

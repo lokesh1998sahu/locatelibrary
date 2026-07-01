@@ -12,9 +12,10 @@
 //   ...onClick={()=>setRno(r.receipt_no)}   // card / receipt-no click
 //   {rno && <ReceiptModal receiptNo={rno} onClose={()=>setRno(null)} onSaved={reload}/>}
 
+import { buildContactText } from "../_lib/contact";
 import { useState, useEffect } from "react";
 import { useLMA } from "./LMAProvider";
-import { fmtDMY, toIsoInput, toDmy } from "../_lib/dates";
+import { fmtDMY, fmtDMYT, toIsoInput, toDmy } from "../_lib/dates";
 import { genderCardStyle } from "../_lib/genderTheme";
 import StudentModal from "./StudentModal";
 import BookingFlow from "./BookingFlow";
@@ -39,7 +40,7 @@ interface Receipt {
   pay_mode_1:string; pay_amount_1:number; pay_mode_2:string; pay_amount_2:number; pay_mode_3:string; pay_amount_3:number;
   fees_due:number; fees_due_balance:number; type:string; is_cross_library:string;
   status:string; dues_status:string; renewed_from:string; gender:string; cancelled_on:string;
-  receipt_text:string; registration_text:string;
+  receipt_text:string; registration_text:string; generated_at:string;
 }
 interface EditEvent { letter:string; edited_at:string; remark:string; changed_fields:string; before:string; after:string; whatsapp_text?:string; }
 
@@ -117,6 +118,7 @@ export default function ReceiptModal({ receiptNo, onClose, onSaved, context }:{
               {(()=>{ const b=rcptStatus(receipt); return <span className={`font-bold px-2 py-0.5 rounded ${b.cls}`}>{b.label}</span>; })()}
               <span className="font-bold px-2 py-0.5 rounded bg-lma-slate-100 text-lma-slate-600 ml-auto">until {fmtDMY(receipt.booking_to)}</span>
             </div>
+            {receipt.generated_at&&<div className="text-[10px] text-lma-slate-400 mb-2">Created {fmtDMYT(receipt.generated_at)}</div>}
             <pre className="text-[11px] text-lma-slate-700 whitespace-pre-wrap font-mono bg-lma-slate-50 rounded-lg p-3 max-h-56 overflow-y-auto">{receipt.receipt_text}</pre>
             <MoneyTrail receiptNo={receipt.receipt_no}/>
             {context!=="refunds"&&receipt.fees_due_balance>0&&<CollectDueInline receiptNo={receipt.receipt_no} balance={receipt.fees_due_balance} post={post} showToast={showToast} onChanged={refresh}/>}
@@ -126,7 +128,7 @@ export default function ReceiptModal({ receiptNo, onClose, onSaved, context }:{
               {receipt.type==="NEW"&&receipt.registration_text&&(
                 <button onClick={()=>{ navigator.clipboard.writeText(receipt.registration_text); showToast("Group copy"); }} className="py-2.5 rounded-xl bg-lma-primary/10 text-lma-primary font-bold text-xs">📢 Group</button>
               )}
-              <button onClick={()=>{ navigator.clipboard.writeText(`${receipt.name} ${receipt.branch||receipt.library} ${receipt.student_id}`); showToast("Contact copy"); }} className="py-2.5 rounded-xl bg-lma-warn/10 text-lma-warn font-bold text-xs">📇 Contact</button>
+              <button onClick={()=>{ navigator.clipboard.writeText(buildContactText(receipt.name, receipt.branch||receipt.library, receipt.student_id, receipt.phones)); showToast("Contact copy"); }} className="py-2.5 rounded-xl bg-lma-warn/10 text-lma-warn font-bold text-xs">📇 Contact</button>
             </div>
             {(() => {
               const bookingActions = (<>
@@ -610,10 +612,10 @@ function MoneyTrail({receiptNo}:{receiptNo:string}){
               {(t.dues_payments.length>0||t.refunds.length>0)&&(
                 <div className="mt-2 pt-2 border-t border-lma-slate-200 space-y-0.5">
                   {t.dues_payments.map((d:any)=>(
-                    <div key={d.payment_id} className="flex justify-between text-[10px]"><span className="text-lma-slate-500">Dues · {d.mode} · {fmtDMY(d.received_on)}</span><span className="font-bold text-lma-accent">{inr(d.amount)}</span></div>
+                    <div key={d.payment_id} className="flex justify-between text-[10px]"><span className="text-lma-slate-500">Dues · {d.mode} · {fmtDMYT(d.received_on)}</span><span className="font-bold text-lma-accent">{inr(d.amount)}</span></div>
                   ))}
                   {t.refunds.map((r:any)=>(
-                    <div key={r.refund_id} className="flex justify-between text-[10px]"><span className="text-lma-slate-500">Refund · {r.mode} · {fmtDMY(r.refund_date)}</span><span className="font-bold text-lma-danger">−{inr(r.amount)}</span></div>
+                    <div key={r.refund_id} className="flex justify-between text-[10px]"><span className="text-lma-slate-500">Refund · {r.mode} · {fmtDMYT(r.refund_date)}</span><span className="font-bold text-lma-danger">−{inr(r.amount)}</span></div>
                   ))}
                 </div>
               )}

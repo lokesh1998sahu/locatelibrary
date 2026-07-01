@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
 import { useLMA, useScopeChips, type LMAInitData as InitData } from "../_components/LMAProvider";
-import { fmtDMY, toIsoInput, inDateRange } from "../_lib/dates";
+import { fmtDMY, fmtDMYT, toIsoInput, inDateRange } from "../_lib/dates";
 import CodePill from "../_components/CodePill";
 import ReceiptModal from "../_components/ReceiptModal";
 import StudentModal from "../_components/StudentModal";
@@ -183,7 +183,7 @@ export default function DuesPage(){
                   {p.name&&<span className="text-[11px] text-lma-slate-500 truncate">{p.name}</span>}
                   <span className="text-sm font-extrabold text-lma-accent ml-auto">+₹{p.amount_received}</span>
                 </div>
-                <div className="text-[11px] text-lma-slate-500">{p.payment_mode} · {fmtDMY(p.received_on)} · ₹{p.balance_before}→₹{p.balance_after}</div>
+                <div className="text-[11px] text-lma-slate-500">{p.payment_mode} · {fmtDMYT(p.received_on)} · ₹{p.balance_before}→₹{p.balance_after}</div>
                 {p.notes&&<div className="text-[11px] text-lma-slate-400 mt-0.5">{p.notes}</div>}
                 {p.whatsapp_text&&<button onClick={()=>{navigator.clipboard.writeText(p.whatsapp_text);showToast("Copied receipt message");}} className="mt-2 py-1.5 px-3 rounded-lg bg-lma-accent/10 text-lma-accent font-bold text-xs">Copy WhatsApp</button>}
               </div>

@@ -12,9 +12,10 @@
 //   {stuId && <StudentModal studentId={stuId} library={lib}
 //                onClose={()=>setStuId(null)} onSaved={reload}/>}
 
+import { buildContactText } from "../_lib/contact";
 import { useState, useEffect } from "react";
 import { useLMA } from "./LMAProvider";
-import { fmtDMY, toIsoInput } from "../_lib/dates";
+import { fmtDMY, fmtDMYT, toIsoInput } from "../_lib/dates";
 import { parsePhone10 } from "../_lib/phone";
 import { genderLabel } from "../_lib/genderTheme";
 import CodePill from "./CodePill";
@@ -153,11 +154,11 @@ export default function StudentModal({ studentId, library, crossOrigin, onClose,
               {student.address && <Row label="Address">{student.address}</Row>}
               {student.aadhaar_last4 && <Row label="Aadhaar">•••• {student.aadhaar_last4}</Row>}
               {student.date_of_birth && <Row label="DOB">{fmtDMY(student.date_of_birth)}</Row>}
-              {student.added_on && <Row label="Added">{fmtDMY(student.added_on)}</Row>}
+              {student.added_on && <Row label="Added">{fmtDMYT(student.added_on)}</Row>}
             </div>
 
             <div className={`grid gap-2 mt-4 ${onDelete?"grid-cols-3":"grid-cols-2"}`}>
-              <button onClick={()=>{ navigator.clipboard.writeText(`${student.name} ${student.branch||student.library} ${student.student_id}`); showToast("Contact copied"); }} className="py-2.5 rounded-xl bg-lma-warn/10 text-lma-warn font-bold text-xs">📇 Copy</button>
+              <button onClick={()=>{ navigator.clipboard.writeText(buildContactText(student.name, student.branch||student.library, student.student_id, student.phones)); showToast("Contact copied"); }} className="py-2.5 rounded-xl bg-lma-warn/10 text-lma-warn font-bold text-xs">📇 Copy</button>
               {onDelete && <button onClick={onDelete} className="py-2.5 rounded-xl bg-lma-danger/10 text-lma-danger font-bold text-xs">🗑 Delete</button>}
               <button onClick={startEdit} className="py-2.5 rounded-xl bg-lma-primary text-white font-bold text-sm">✏️ Edit</button>
             </div>
