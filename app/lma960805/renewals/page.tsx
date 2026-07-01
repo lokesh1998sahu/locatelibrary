@@ -9,6 +9,7 @@ import ReceiptModal from "../_components/ReceiptModal";
 import StudentModal from "../_components/StudentModal";
 import SearchBar, { matchesSearch } from "../_components/SearchBar";
 import DateRangeFilter from "../_components/DateRangeFilter";
+import { parsePhone10 } from "../_lib/phone";
 import Pager, { PAGE_SIZE } from "../_components/Pager";
 import BookingFlow from "../_components/BookingFlow";
  
@@ -19,7 +20,7 @@ interface QueueItem {
   seat_no:string; shift:string; shift_name:string; booking_from:string; booking_to:string;
   fee:number; fees_due_balance:number; dues_status:string; is_cross_library:string;
   status:string; renewed_from:string; lifecycle:string; days_until_expiry:number;
-  receipt_text:string; cancel_whatsapp_text?:string;
+  receipt_text:string; cancel_whatsapp_text?:string; phone?:string;
 }
  
 type Tab = "EXPIRING"|"EXPIRED"|"CANCELLED";
@@ -56,7 +57,7 @@ export default function RenewalsPage(){
  
   const load=useCallback(async()=>{
     setLoading(true);
-    const p=new URLSearchParams(); if(scope) p.set("library",scope);
+    const p=new URLSearchParams(); // B4: load all scopes; filter client-side
     const [rq,cq]=await Promise.all([
       fetch(`${API}?action=getRenewalsQueue&${p}`).then(r=>r.json()),
       fetch(`${API}?action=getCancellationsQueue&${p}`).then(r=>r.json()),
@@ -64,10 +65,11 @@ export default function RenewalsPage(){
     setLoading(false);
     setExpiring(rq.expiring||[]); setExpired(rq.expired||[]);
     setCancellations(cq.items||[]);
-  },[scope]);
+  },[]);
  
-  useEffect(()=>{ load(); },[scope,load]);
+  useEffect(()=>{ load(); },[load]);
  
+  const remind=(it:QueueItem, expired:boolean)=>{ const ph=parsePhone10(it.phone||""); if(!ph){ showToast("No phone number on file","error"); return; } const libName=(init?.libraries?.find(l=>l.library_code===it.library)?.display_name)||it.library; const msg=`Hi ${it.name}, your seat at ${libName} ${expired?"expired on":"is expiring on"} ${fmtDMY(it.booking_to)}. Please deposit the fees to renew, or reply here if you're not continuing. Thank you!`; window.open(`https://wa.me/91${ph}?text=${encodeURIComponent(msg)}`,"_blank"); };
   const doDoNotRenew=async(it:QueueItem)=>{
     const r=await post("markReceiptDoNotRenew",{receipt_no:it.receipt_no});
     if(r){ showToast("Marked Do Not Renew"); load(); }
@@ -89,13 +91,18 @@ export default function RenewalsPage(){
   // split EXPIRING into Soon (within primary window) vs Expiring (secondary) — mirrors seat-chart two-tier code
   const primaryDays=(it:QueueItem)=>{ const s=(init?.settings as any)?.[it.branch||it.library]||(init?.settings as any)?.[it.library]; const n=Number(s?.renewal_alert_days_primary); return n>0?n:3; };
   const tierOf=(it:QueueItem):"soon"|"expiring"=> it.days_until_expiry<=primaryDays(it) ? "soon" : "expiring";
-  const expiringF=expiring.filter(it=>matchesSearch(it,search) && inDateRange(it.booking_to,dFrom,dTo));
-  const expiredF=expired.filter(it=>matchesSearch(it,search) && inDateRange(it.booking_to,dFrom,dTo));
-  const cancellationsF=cancellations.filter(it=>matchesSearch(it,search) && inDateRange(it.booking_to,dFrom,dTo));
+  const expiringBase=expiring.filter(it=>matchesSearch(it,search) && inDateRange(it.booking_to,dFrom,dTo));
+  const expiredBase=expired.filter(it=>matchesSearch(it,search) && inDateRange(it.booking_to,dFrom,dTo));
+  const cancellationsBase=cancellations.filter(it=>matchesSearch(it,search) && inDateRange(it.booking_to,dFrom,dTo));
+  const activeBase=tab==="EXPIRING"?expiringBase:tab==="EXPIRED"?expiredBase:cancellationsBase;
+  const renCounts:Record<string,number>={}; activeBase.forEach(it=>{ const k=homeLib(it); if(k) renCounts[k]=(renCounts[k]||0)+1; });
+  const expiringF=scope?expiringBase.filter(it=>homeLib(it)===scope):expiringBase;
+  const expiredF=scope?expiredBase.filter(it=>homeLib(it)===scope):expiredBase;
+  const cancellationsF=scope?cancellationsBase.filter(it=>homeLib(it)===scope):cancellationsBase;
   const soonList=expiringF.filter(it=>tierOf(it)==="soon");
   const laterList=expiringF.filter(it=>tierOf(it)==="expiring");
   const expShown = expSub==="SOON"?soonList : expSub==="LATER"?laterList : expiringF;
-  useEffect(()=>{ setPage(1); },[tab,search,expSub]);
+  useEffect(()=>{ setPage(1); },[tab,search,expSub,scope,dFrom,dTo]);
  
   const secondaryFor=(it:QueueItem,kind:"expiring"|"expired")=>kind==="expiring"
     ? ()=>setActionFor(it)
@@ -122,7 +129,7 @@ export default function RenewalsPage(){
       {/* scope chips */}
       <div className="flex gap-1.5 mb-3 overflow-x-auto -mx-4 px-4 pb-1">
         {chips.map(c=>(
-          <button key={c.code||"all"} onClick={()=>setScope(c.code)} style={scope===c.code&&c.color?{background:c.color,color:"#fff"}:undefined} className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-bold whitespace-nowrap ${scope===c.code&&!c.color?"bg-lma-slate-900 text-white":scope===c.code?"":"bg-white text-lma-slate-600"} shadow-sm`}>{c.emoji} {c.label}</button>
+          <button key={c.code||"all"} onClick={()=>setScope(c.code)} style={scope===c.code&&c.color?{background:c.color,color:"#fff"}:undefined} className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-bold whitespace-nowrap ${scope===c.code&&!c.color?"bg-lma-slate-900 text-white":scope===c.code?"":"bg-white text-lma-slate-600"} shadow-sm`}>{c.emoji} {c.label} <span className={`ml-1 px-1.5 py-0.5 rounded-full text-[10px] font-bold ${scope===c.code?"bg-white/25 text-white":"bg-lma-slate-100 text-lma-slate-500"}`}>{c.code?(renCounts[c.code]||0):activeBase.length}</span></button>
         ))}
       </div>
  
@@ -146,7 +153,7 @@ export default function RenewalsPage(){
               <div className="space-y-2">
                 {expShown.slice((page-1)*PAGE_SIZE, page*PAGE_SIZE).map(it=>(
                   <ReviewCard key={it.receipt_no} it={it} kind={tierOf(it)}
-                    onRenew={()=>setRenew(it)} onSecondary={secondaryFor(it,"expiring")}
+                    onRenew={()=>setRenew(it)} onSecondary={secondaryFor(it,"expiring")} onRemind={()=>remind(it,false)}
                     onRno={()=>setOpenRno(it.receipt_no)} onStu={()=>setOpenStu({id:it.student_id,library:homeLib(it)})}/>
                 ))}
                 <Pager page={page} totalPages={Math.max(1,Math.ceil(expShown.length/PAGE_SIZE))} onPage={setPage}/>
@@ -161,7 +168,7 @@ export default function RenewalsPage(){
           <div className="space-y-2">
             {expiredF.slice((page-1)*PAGE_SIZE, page*PAGE_SIZE).map(it=>(
               <ReviewCard key={it.receipt_no} it={it} kind="expired"
-                onRenew={()=>setRenew(it)} onSecondary={secondaryFor(it,"expired")}
+                onRenew={()=>setRenew(it)} onSecondary={secondaryFor(it,"expired")} onRemind={()=>remind(it,true)}
                 onRno={()=>setOpenRno(it.receipt_no)} onStu={()=>setOpenStu({id:it.student_id,library:homeLib(it)})}/>
             ))}
             <Pager page={page} totalPages={Math.max(1,Math.ceil(expiredF.length/PAGE_SIZE))} onPage={setPage}/>
@@ -218,8 +225,8 @@ const LOOK:Record<"soon"|"expiring"|"expired",{accent:string;pillBg:string;pillF
 };
  
 // ── Review card (Soon + Expiring + Expired) ──
-function ReviewCard({ it, kind, onRenew, onSecondary, onRno, onStu }:{
-  it:QueueItem; kind:"soon"|"expiring"|"expired"; onRenew:()=>void; onSecondary:()=>void; onRno:()=>void; onStu:()=>void;
+function ReviewCard({ it, kind, onRenew, onSecondary, onRno, onStu, onRemind }:{
+  it:QueueItem; kind:"soon"|"expiring"|"expired"; onRenew:()=>void; onSecondary:()=>void; onRno:()=>void; onStu:()=>void; onRemind?:()=>void;
 }){
   const lk = LOOK[kind];
   const isExpired = kind==="expired";
@@ -239,11 +246,12 @@ function ReviewCard({ it, kind, onRenew, onSecondary, onRno, onStu }:{
         <span>· till {fmtDMY(it.booking_to)}</span>
         {it.fees_due_balance>0&&<span className="font-bold text-lma-danger">· Due ₹{it.fees_due_balance}</span>}
       </div>
-      <div className="grid grid-cols-2 gap-2 mt-2.5">
+      <div className={`grid ${onRemind?"grid-cols-3":"grid-cols-2"} gap-2 mt-2.5`}>
         <button onClick={onRenew} className="py-2 rounded-lg bg-gradient-to-br from-lma-primary to-lma-primary-2 text-white font-bold text-xs shadow-sm">Renew</button>
         {isExpired
           ? <button onClick={onSecondary} className="py-2 rounded-lg bg-lma-slate-100 text-lma-slate-600 font-bold text-xs">Don&apos;t Renew</button>
           : <button onClick={onSecondary} className="py-2 rounded-lg bg-lma-danger/10 text-lma-danger font-bold text-xs">Cancel</button>}
+        {onRemind&&<button onClick={onRemind} className="py-2 rounded-lg bg-lma-accent/10 text-lma-accent font-bold text-xs">💬 Remind</button>}
       </div>
     </div>
   );

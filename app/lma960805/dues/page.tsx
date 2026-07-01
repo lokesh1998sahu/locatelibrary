@@ -66,10 +66,10 @@ export default function DuesPage(){
 
   const load=useCallback(async()=>{
     setLoading(true);
-    const p=new URLSearchParams(); if(scope) p.set("library",scope);
+    const p=new URLSearchParams(); // B4: load all scopes; filter client-side
     const [pd,pl,ir]=await Promise.all([
       fetch(`${API}?action=getPendingDues&${p}`).then(r=>r.json()),
-      fetch(`${API}?action=getDuePaymentLog&${p}&page=1&limit=30`).then(r=>r.json()),
+      fetch(`${API}?action=getDuePaymentLog&${p}&all=1&page=1&limit=30`).then(r=>r.json()),
       fetch(`${API}?action=getIrrecoverableDues&${p}`).then(r=>r.json()),
     ]);
     setLoading(false);
@@ -106,16 +106,21 @@ export default function DuesPage(){
       irrecoverable_whatsapp_text:String(x.irrecoverable_whatsapp_text||""),
     }));
     setIrrec(irList);
-  },[scope]);
+  },[]);
 
-  useEffect(()=>{ load(); },[scope,load]);
+  useEffect(()=>{ load(); },[load]);
 
 
   const chips = useScopeChips();
-  const pendingF=pending.filter(d=>matchesSearch(d,search) && inDateRange(d.booking_to,dFrom,dTo));
-  const paymentsF=payments.filter(p=>matchesSearch(p,search) && inDateRange(p.received_on,dFrom,dTo));
-  const irrecF=irrec.filter(d=>matchesSearch(d,search));
-  useEffect(()=>{ setPage(1); },[tab,search]);
+  const pendingBase=pending.filter(d=>matchesSearch(d,search) && inDateRange(d.booking_to,dFrom,dTo));
+  const paymentsBase=payments.filter(p=>matchesSearch(p,search) && inDateRange(p.received_on,dFrom,dTo));
+  const irrecBase=irrec.filter(d=>matchesSearch(d,search));
+  const activeBase=tab==="PENDING"?pendingBase:tab==="PAYMENTS"?paymentsBase:irrecBase;
+  const dueCounts:Record<string,number>={}; (activeBase as any[]).forEach((it)=>{ const k=homeLib(it); if(k) dueCounts[k]=(dueCounts[k]||0)+1; });
+  const pendingF=scope?pendingBase.filter(d=>homeLib(d)===scope):pendingBase;
+  const paymentsF=scope?paymentsBase.filter(p=>homeLib(p)===scope):paymentsBase;
+  const irrecF=scope?irrecBase.filter(d=>homeLib(d)===scope):irrecBase;
+  useEffect(()=>{ setPage(1); },[tab,search,scope,dFrom,dTo]);
 
   return (
    <div className="lma-page-body max-w-md mx-auto px-4 pt-4">
@@ -135,7 +140,7 @@ export default function DuesPage(){
 
       <div className="flex gap-1.5 mb-3 overflow-x-auto -mx-4 px-4 pb-1">
         {chips.map(c=>(
-          <button key={c.code||"all"} onClick={()=>setScope(c.code)} style={scope===c.code&&c.color?{background:c.color,color:"#fff"}:undefined} className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-bold whitespace-nowrap ${scope===c.code&&!c.color?"bg-lma-slate-900 text-white":scope===c.code?"":"bg-white text-lma-slate-600"} shadow-sm`}>{c.emoji} {c.label}</button>
+          <button key={c.code||"all"} onClick={()=>setScope(c.code)} style={scope===c.code&&c.color?{background:c.color,color:"#fff"}:undefined} className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-bold whitespace-nowrap ${scope===c.code&&!c.color?"bg-lma-slate-900 text-white":scope===c.code?"":"bg-white text-lma-slate-600"} shadow-sm`}>{c.emoji} {c.label} <span className={`ml-1 px-1.5 py-0.5 rounded-full text-[10px] font-bold ${scope===c.code?"bg-white/25 text-white":"bg-lma-slate-100 text-lma-slate-500"}`}>{c.code?(dueCounts[c.code]||0):activeBase.length}</span></button>
         ))}
       </div>
 

@@ -53,7 +53,7 @@ export default function RefundsPage(){
   const load=useCallback(async()=>{
     setLoading(true);
     const p=new URLSearchParams();
-    if(scope) p.set("library",scope);
+    p.set("all","1"); // B4: load all scopes; filter client-side
     if(linkFilter!=="ANY") p.set("linked_to_cancellation",linkFilter);
     p.set("page","1"); p.set("limit","100");
     const r=await fetch(`${API}?action=getRefundLog&${p}`).then(r=>r.json());
@@ -80,10 +80,12 @@ export default function RefundsPage(){
     }));
     setRefunds(list);
     setSum(typeof r.sum==="number"?r.sum:list.reduce((s,d)=>s+d.amount,0));
-  },[scope,linkFilter]);
+  },[linkFilter]);
 
- useEffect(()=>{ load(); },[scope,linkFilter,load]);
-  const refundsF=refunds.filter(r=>matchesSearch({...r, receipt_no:r.original_receipt_no}, search) && inDateRange(r.refund_date,dFrom,dTo));
+ useEffect(()=>{ load(); },[linkFilter,load]);
+  const base=refunds.filter(r=>matchesSearch({...r, receipt_no:r.original_receipt_no}, search) && inDateRange(r.refund_date,dFrom,dTo));
+  const refundCounts:Record<string,number>={}; base.forEach(r=>{ const k=homeLib(r); if(k) refundCounts[k]=(refundCounts[k]||0)+1; });
+  const refundsF=scope?base.filter(r=>homeLib(r)===scope):base;
   useEffect(()=>{ setPage(1); },[scope,linkFilter,search]);
 
 
@@ -101,7 +103,7 @@ export default function RefundsPage(){
 
       <div className="flex gap-1.5 mb-3 overflow-x-auto -mx-4 px-4 pb-1">
         {chips.map(c=>(
-          <button key={c.code||"all"} onClick={()=>setScope(c.code)} style={scope===c.code&&c.color?{background:c.color,color:"#fff"}:undefined} className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-bold whitespace-nowrap ${scope===c.code&&!c.color?"bg-lma-slate-900 text-white":scope===c.code?"":"bg-white text-lma-slate-600"} shadow-sm`}>{c.emoji} {c.label}</button>
+          <button key={c.code||"all"} onClick={()=>setScope(c.code)} style={scope===c.code&&c.color?{background:c.color,color:"#fff"}:undefined} className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-bold whitespace-nowrap ${scope===c.code&&!c.color?"bg-lma-slate-900 text-white":scope===c.code?"":"bg-white text-lma-slate-600"} shadow-sm`}>{c.emoji} {c.label} <span className={`ml-1 px-1.5 py-0.5 rounded-full text-[10px] font-bold ${scope===c.code?"bg-white/25 text-white":"bg-lma-slate-100 text-lma-slate-500"}`}>{c.code?(refundCounts[c.code]||0):base.length}</span></button>
         ))}
       </div>
 

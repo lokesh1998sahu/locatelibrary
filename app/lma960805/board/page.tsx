@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useLMA, useScopeChips } from "../_components/LMAProvider";
+import { parsePhone10 } from "../_lib/phone";
 import ReceiptModal from "../_components/ReceiptModal";
 import StudentModal from "../_components/StudentModal";
 import BookingFlow from "../_components/BookingFlow";
@@ -16,7 +17,7 @@ interface Library { library_code:string; display_name:string; active:boolean; ha
 interface Branch  { library_code:string; branch_code:string; branch_display:string; active:boolean; emoji?:string; color?:string; }
 interface Occupant {
   receipt_no:string; student_id:string; name:string; shift:string; shift_name:string;
-  booking_to:string; fees_due_balance:number; dues_status:string; is_cross_library:string;
+  booking_to:string; fees_due_balance:number; dues_status:string; is_cross_library:string; phone?:string;
   color:"OK"|"EXPIRING"|"EXPIRED";
   urgent?:boolean;   // B1: within PRIMARY window → darkest-red text
   has_dues?:boolean;
@@ -535,6 +536,7 @@ function CollectDueInline({ receiptNo, balance, post, showToast, onChanged }:{ r
   const modes=(init?.paymentTags||[]).filter(t=>t.active).map(t=>t.tag_name);
   const [open,setOpen]=useState(false);
   const [amt,setAmt]=useState(String(balance||""));
+  const [date,setDate]=useState(new Date().toISOString().slice(0,10));
   const [mode,setMode]=useState("");
   const [busy,setBusy]=useState(false);
   const [err,setErr]=useState("");
@@ -543,13 +545,14 @@ function CollectDueInline({ receiptNo, balance, post, showToast, onChanged }:{ r
     if(!n||n<=0){ setErr("Enter a valid amount"); return; }
     if(!mode){ setErr("Select a payment mode"); return; }
     setBusy(true); setErr("");
-    const r=await post("logFeePayment",{ receipt_no:receiptNo, payment_mode:mode, amount_received:n, notes:"" });
+    const r=await post("logFeePayment",{ receipt_no:receiptNo, payment_mode:mode, amount_received:n, notes:"", receipt_date:date });
     setBusy(false);
     if(r&&r.ok!==false){ showToast("Due collected"); setOpen(false); onChanged(); } else setErr((r&&r.error)||"Could not collect due");
   };
   if(!open) return <button onClick={()=>setOpen(true)} className="mt-1.5 w-full py-2 rounded-lg bg-lma-danger/10 text-lma-danger font-bold text-xs">💰 Collect Due (₹{balance})</button>;
   return (
     <div className="mt-1.5 rounded-lg border border-lma-danger/30 bg-lma-danger/5 p-2.5 space-y-2">
+      <input type="date" value={date} onChange={e=>setDate(e.target.value)} className="w-full px-2 py-1.5 rounded-md border border-lma-slate-300 text-sm bg-white"/>
       <div className="flex gap-2">
         <input type="number" inputMode="decimal" value={amt} onChange={e=>setAmt(e.target.value)} placeholder="Amount" className="flex-1 min-w-0 px-2 py-1.5 rounded-md border border-lma-slate-300 text-sm"/>
         <select value={mode} onChange={e=>setMode(e.target.value)} className="px-2 py-1.5 rounded-md border border-lma-slate-300 text-sm bg-white"><option value="">Mode…</option>{modes.map(m=><option key={m} value={m}>{m}</option>)}</select>
@@ -570,6 +573,7 @@ function RefundInline({ receiptNo, post, showToast, onChanged }:{ receiptNo:stri
   const [amt,setAmt]=useState("");
   const [mode,setMode]=useState("");
   const [reason,setReason]=useState("");
+  const [date,setDate]=useState(new Date().toISOString().slice(0,10));
   const [busy,setBusy]=useState(false);
   const [err,setErr]=useState("");
   const submit=async()=>{
@@ -577,13 +581,14 @@ function RefundInline({ receiptNo, post, showToast, onChanged }:{ receiptNo:stri
     if(!n||n<=0){ setErr("Enter a valid amount"); return; }
     if(!mode){ setErr("Select a refund mode"); return; }
     setBusy(true); setErr("");
-    const r=await post("issueRefund",{ original_receipt_no:receiptNo, amount:n, refund_mode:mode, refund_reason:reason, linked_to_cancellation:false });
+    const r=await post("issueRefund",{ original_receipt_no:receiptNo, amount:n, refund_mode:mode, refund_reason:reason, linked_to_cancellation:false, refund_date:date });  
     setBusy(false);
     if(r&&r.ok!==false){ showToast("Refund issued"); setOpen(false); onChanged(); } else setErr((r&&r.error)||"Could not issue refund");
   };
   if(!open) return <button onClick={()=>setOpen(true)} className="mt-2 w-full py-1.5 rounded-lg bg-lma-slate-100 text-lma-slate-600 font-bold text-[11px]">↩ Issue Refund</button>;
   return (
     <div className="mt-2 rounded-lg border border-lma-slate-300 bg-lma-slate-50 p-2.5 space-y-2">
+      <input type="date" value={date} onChange={e=>setDate(e.target.value)} className="w-full px-2 py-1.5 rounded-md border border-lma-slate-300 text-sm bg-white"/>
       <div className="flex gap-2">
         <input type="number" inputMode="decimal" value={amt} onChange={e=>setAmt(e.target.value)} placeholder="Refund amount" className="flex-1 min-w-0 px-2 py-1.5 rounded-md border border-lma-slate-300 text-sm"/>
         <select value={mode} onChange={e=>setMode(e.target.value)} className="px-2 py-1.5 rounded-md border border-lma-slate-300 text-sm bg-white"><option value="">Mode…</option>{modes.map(m=><option key={m} value={m}>{m}</option>)}</select>
@@ -686,6 +691,8 @@ function DetailSheet({ cell, panel, onClose, router, scope, lib, branch, post, s
   const [confirmVacate,setConfirmVacate]=useState<Occupant|null>(null);
   const [chooseMode,setChooseMode]=useState<""|"ADD"|"BLOCK">(""); // fully-vacant: ask shift before booking/blocking
   const L = branch||lib;
+  const { init }=useLMA();
+  const libName=((init?.libraries||[]).find(l=>l.library_code===lib)?.display_name)||lib;
 
   const goBook=(shift?:string)=>{ onAddBooking(cell.display_label, shift||""); };
 
@@ -705,6 +712,7 @@ function DetailSheet({ cell, panel, onClose, router, scope, lib, branch, post, s
     if(r&&r.ok!==false){ showToast("Removed"); onChanged(); } else showToast((r&&r.error)||"Failed","error");
   };
 
+  const remind=(o:Occupant)=>{ const ph=parsePhone10(o.phone||""); if(!ph){ showToast("No phone number on file","error"); return; } const expired=o.color==="EXPIRED"; const msg=`Hi ${o.name}, your seat at ${libName} ${expired?"expired on":"is expiring on"} ${fmtDMY(o.booking_to)}. Please deposit the fees to renew, or reply here if you're not continuing. Thank you!`; window.open(`https://wa.me/91${ph}?text=${encodeURIComponent(msg)}`,"_blank"); };
   const doNotRenew=async(o:Occupant)=>{
     if(busy) return;
     if(!confirm(`Flag receipt ${o.receipt_no} as Do-Not-Renew? It will stop appearing in renewal lists.`)) return;
@@ -746,6 +754,7 @@ function DetailSheet({ cell, panel, onClose, router, scope, lib, branch, post, s
             : <button disabled={busy} onClick={()=>setConfirmVacate(o)} className="py-2 rounded-lg bg-lma-warn/10 text-lma-warn font-bold text-xs disabled:opacity-50">Temp-Vacate</button>}
           <button disabled={busy} onClick={()=>onReAllot(o)} className="py-2 rounded-lg bg-lma-slate-100 text-lma-slate-600 font-bold text-xs disabled:opacity-50">{o.temporary_seat?"Re-Allot (restore)":"Re-Allot"}</button>
         </div>
+        {(o.color==="EXPIRED"||o.color==="EXPIRING")&&<button onClick={()=>remind(o)} className="w-full mt-2 py-2 rounded-lg bg-lma-accent/10 text-lma-accent font-bold text-xs">💬 Remind to Renew</button>}
         <MoneyTrailInline receiptNo={o.receipt_no}/>
         <RefundInline receiptNo={o.receipt_no} post={post} showToast={showToast} onChanged={onChanged}/>
         <DetailCopyRow occupant={o} lib={lib} branch={branch} showToast={showToast}/>

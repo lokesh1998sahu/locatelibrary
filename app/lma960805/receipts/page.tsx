@@ -24,6 +24,7 @@ interface Receipt {
   receipt_text:string; registration_text:string;
 }
 
+function homeLib(r:Receipt){ return (r.is_cross_library && r.is_cross_library!=="NO") ? String(r.is_cross_library) : (r.branch||r.library); }
 function lifecycleBadge(r:Receipt, alertDays:number, hasSuccessor:boolean):{label:string;cls:string}{
   const st=(r.status||"").toUpperCase();
   if(st==="RENEWED")       return {label:"Renewed",      cls:"bg-lma-slate-200 text-lma-slate-600"};
@@ -53,14 +54,14 @@ export default function ReceiptsPage(){
   const load=useCallback(async()=>{
     setLoading(true);
     const params=new URLSearchParams({action:"getReceiptLog",all:"1"});
-    if(scope) params.set("library",scope);
+    // scope filtered client-side for B4 counts
     const r=await fetch(`${API}?${params}`).then(r=>r.json());
     setLoading(false);
     if(r.receipts){ setReceipts(r.receipts); setPage(1); }
-  },[scope]);
+  },[]);
 
-  useEffect(()=>{ load(); },[scope,load]);
-  useEffect(()=>{ setPage(1); },[search,dFrom,dTo]);
+  useEffect(()=>{ load(); },[load]);
+  useEffect(()=>{ setPage(1); },[search,dFrom,dTo,scope]);
 
   const chips = useScopeChips();
 
@@ -93,17 +94,19 @@ export default function ReceiptsPage(){
     return String(r.name||"").toUpperCase().includes(Q);
   },[]);
 
-  const filtered=useMemo(
+  const base=useMemo(
     ()=>receipts.filter(r=>matchesReceipt(r,search)&&inDateRange(r.receipt_date,dFrom,dTo)),
     [receipts,search,dFrom,dTo,matchesReceipt]
   );
+  const counts=useMemo(()=>{ const m:Record<string,number>={}; base.forEach(r=>{ const k=homeLib(r); if(k) m[k]=(m[k]||0)+1; }); return m; },[base]);
+  const filtered=useMemo(()=>scope?base.filter(r=>homeLib(r)===scope):base,[base,scope]);
   const totalPages=Math.max(1,Math.ceil(filtered.length/PAGE_SIZE));
   const paged=filtered.slice((page-1)*PAGE_SIZE,page*PAGE_SIZE);
 
   return (
     <div className="lma-page-body max-w-md mx-auto px-4 pt-4">
       <header className="flex items-center gap-3 mb-3">
-        <Link href="/lma" className="text-xl text-lma-slate-600 hover:text-lma-slate-900">←</Link>
+        <Link href="/lma960805" className="text-xl text-lma-slate-600 hover:text-lma-slate-900">←</Link>
         <div className="flex-1"><h1 className="text-xl font-extrabold tracking-tight text-lma-slate-900">Receipts</h1><p className="text-[11px] text-lma-slate-500 font-medium">{filtered.length} total</p></div>
         <button onClick={()=>load()} disabled={loading} className="text-xs font-bold px-3 py-2 rounded-lg bg-lma-slate-100 text-lma-slate-600 disabled:opacity-50">{loading?"...":"↻"}</button>
       </header>
@@ -111,7 +114,7 @@ export default function ReceiptsPage(){
       {/* scope chips */}
       <div className="flex gap-1.5 mb-3 overflow-x-auto -mx-4 px-4 pb-1">
         {chips.map(c=>(
-          <button key={c.code||"all"} onClick={()=>setScope(c.code)} style={scope===c.code&&c.color?{background:c.color,color:"#fff"}:undefined} className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-bold whitespace-nowrap ${scope===c.code&&!c.color?"bg-lma-slate-900 text-white":scope===c.code?"":"bg-white text-lma-slate-600"} shadow-sm`}>{c.emoji} {c.label}</button>
+          <button key={c.code||"all"} onClick={()=>setScope(c.code)} style={scope===c.code&&c.color?{background:c.color,color:"#fff"}:undefined} className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-bold whitespace-nowrap ${scope===c.code&&!c.color?"bg-lma-slate-900 text-white":scope===c.code?"":"bg-white text-lma-slate-600"} shadow-sm`}>{c.emoji} {c.label} <span className={`ml-1 px-1.5 py-0.5 rounded-full text-[10px] font-bold ${scope===c.code?"bg-white/25 text-white":"bg-lma-slate-100 text-lma-slate-500"}`}>{c.code?(counts[c.code]||0):base.length}</span></button>
         ))}
       </div>
 

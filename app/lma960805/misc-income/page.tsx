@@ -33,7 +33,7 @@ export default function MiscIncomePage(){
 
   const load=useCallback(async()=>{
     setLoading(true);
-    const p=new URLSearchParams(); if(scope) p.set("library",scope);
+    const p=new URLSearchParams(); p.set("all","1"); // B4: load all scopes; filter client-side
     const r=await fetch(`${API}?action=getMiscIncome&${p}&page=1&limit=100`).then(r=>r.json());
     setLoading(false);
     // backend returns rows under r.income (per 07_MiscIncome.gs getMiscIncome)
@@ -53,13 +53,15 @@ export default function MiscIncomePage(){
     }));
     setRows(list);
     setSum(typeof r.sum==="number"?r.sum:list.reduce((s,d)=>s+d.amount,0));
-  },[scope]);
+  },[]);
 
-  useEffect(()=>{ load(); },[scope,load]);
+  useEffect(()=>{ load(); },[load]);
 
 
   const chips = useScopeChips();
-  const rowsF=rows.filter(r=>{ const iso=toIsoInput(r.date); if(fromDate&&iso<fromDate) return false; if(toDate&&iso>toDate) return false; return true; });
+  const base=rows.filter(r=>{ const iso=toIsoInput(r.date); if(fromDate&&iso<fromDate) return false; if(toDate&&iso>toDate) return false; return true; });
+  const miscCounts:Record<string,number>={}; base.forEach(r=>{ const k=(r.branch||r.library); if(k) miscCounts[k]=(miscCounts[k]||0)+1; });
+  const rowsF=scope?base.filter(r=>(r.branch||r.library)===scope):base;
   const sumF=rowsF.reduce((s,r)=>s+(Number(r.amount)||0),0);
 
   return (
@@ -72,7 +74,7 @@ export default function MiscIncomePage(){
 
       <div className="flex gap-1.5 mb-3 overflow-x-auto -mx-4 px-4 pb-1">
         {chips.map(c=>(
-          <button key={c.code||"all"} onClick={()=>setScope(c.code)} style={scope===c.code&&c.color?{background:c.color,color:"#fff"}:undefined} className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-bold whitespace-nowrap ${scope===c.code&&!c.color?"bg-lma-slate-900 text-white":scope===c.code?"":"bg-white text-lma-slate-600"} shadow-sm`}>{c.emoji} {c.label}</button>
+          <button key={c.code||"all"} onClick={()=>setScope(c.code)} style={scope===c.code&&c.color?{background:c.color,color:"#fff"}:undefined} className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-bold whitespace-nowrap ${scope===c.code&&!c.color?"bg-lma-slate-900 text-white":scope===c.code?"":"bg-white text-lma-slate-600"} shadow-sm`}>{c.emoji} {c.label} <span className={`ml-1 px-1.5 py-0.5 rounded-full text-[10px] font-bold ${scope===c.code?"bg-white/25 text-white":"bg-lma-slate-100 text-lma-slate-500"}`}>{c.code?(miscCounts[c.code]||0):base.length}</span></button>
         ))}
       </div>
 

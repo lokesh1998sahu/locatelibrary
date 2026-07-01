@@ -435,6 +435,7 @@ function CollectDueInline({ receiptNo, balance, post, showToast, onChanged }:{ r
   const modes=(init?.paymentTags||[]).filter(t=>t.active).map(t=>t.tag_name);
   const [open,setOpen]=useState(false);
   const [amt,setAmt]=useState(String(balance||""));
+  const [date,setDate]=useState(new Date().toISOString().slice(0,10));
   const [mode,setMode]=useState("");
   const [busy,setBusy]=useState(false);
   const [err,setErr]=useState("");
@@ -443,13 +444,14 @@ function CollectDueInline({ receiptNo, balance, post, showToast, onChanged }:{ r
     if(!n||n<=0){ setErr("Enter a valid amount"); return; }
     if(!mode){ setErr("Select a payment mode"); return; }
     setBusy(true); setErr("");
-    const r=await post("logFeePayment",{ receipt_no:receiptNo, payment_mode:mode, amount_received:n, notes:"" });
+    const r=await post("logFeePayment",{ receipt_no:receiptNo, payment_mode:mode, amount_received:n, notes:"", receipt_date:date });
     setBusy(false);
     if(r&&r.ok!==false){ showToast("Due collected"); setOpen(false); onChanged(); } else setErr((r&&r.error)||"Could not collect due");
   };
   if(!open) return <button onClick={()=>setOpen(true)} className="mt-2 w-full py-2 rounded-xl bg-lma-danger/10 text-lma-danger font-bold text-xs">💰 Collect Due (₹{balance})</button>;
   return (
     <div className="mt-2 rounded-xl border border-lma-danger/30 bg-lma-danger/5 p-3 space-y-2">
+      <input type="date" value={date} onChange={e=>setDate(e.target.value)} className="w-full px-3 py-2 rounded-lg border border-lma-slate-300 text-sm bg-white"/>
       <div className="flex gap-2">
         <input type="number" inputMode="decimal" value={amt} onChange={e=>setAmt(e.target.value)} placeholder="Amount" className="flex-1 min-w-0 px-3 py-2 rounded-lg border border-lma-slate-300 text-sm"/>
         <select value={mode} onChange={e=>setMode(e.target.value)} className="px-2 py-2 rounded-lg border border-lma-slate-300 text-sm bg-white"><option value="">Mode…</option>{modes.map(m=><option key={m} value={m}>{m}</option>)}</select>
@@ -470,6 +472,7 @@ function RefundInline({ receiptNo, post, showToast, onChanged }:{ receiptNo:stri
   const [amt,setAmt]=useState("");
   const [mode,setMode]=useState("");
   const [reason,setReason]=useState("");
+  const [date,setDate]=useState(new Date().toISOString().slice(0,10));
   const [busy,setBusy]=useState(false);
   const [err,setErr]=useState("");
   const submit=async()=>{
@@ -477,13 +480,14 @@ function RefundInline({ receiptNo, post, showToast, onChanged }:{ receiptNo:stri
     if(!n||n<=0){ setErr("Enter a valid amount"); return; }
     if(!mode){ setErr("Select a refund mode"); return; }
     setBusy(true); setErr("");
-    const r=await post("issueRefund",{ original_receipt_no:receiptNo, amount:n, refund_mode:mode, refund_reason:reason, linked_to_cancellation:false });
+    const r=await post("issueRefund",{ original_receipt_no:receiptNo, amount:n, refund_mode:mode, refund_reason:reason, linked_to_cancellation:false, refund_date:date });
     setBusy(false);
     if(r&&r.ok!==false){ showToast("Refund issued"); setOpen(false); onChanged(); } else setErr((r&&r.error)||"Could not issue refund");
   };
   if(!open) return <button onClick={()=>setOpen(true)} className="mt-2 w-full py-2 rounded-xl bg-lma-slate-100 text-lma-slate-600 font-bold text-xs">↩ Issue Refund (standalone)</button>;
   return (
     <div className="mt-2 rounded-xl border border-lma-slate-300 bg-lma-slate-50 p-3 space-y-2">
+      <input type="date" value={date} onChange={e=>setDate(e.target.value)} className="w-full px-3 py-2 rounded-lg border border-lma-slate-300 text-sm bg-white"/>
       <div className="flex gap-2">
         <input type="number" inputMode="decimal" value={amt} onChange={e=>setAmt(e.target.value)} placeholder="Refund amount" className="flex-1 min-w-0 px-3 py-2 rounded-lg border border-lma-slate-300 text-sm"/>
         <select value={mode} onChange={e=>setMode(e.target.value)} className="px-2 py-2 rounded-lg border border-lma-slate-300 text-sm bg-white"><option value="">Mode…</option>{modes.map(m=><option key={m} value={m}>{m}</option>)}</select>

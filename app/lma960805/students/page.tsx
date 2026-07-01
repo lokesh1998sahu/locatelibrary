@@ -68,17 +68,17 @@ export default function LmaStudentsPage() {
     setLoading(true);
     try {
       const params = new URLSearchParams({ action:"getAllStudents", all:"1", is_past:"ANY" });
-      if (libFilter) params.set("library", libFilter);
+      // B4: load all scopes; filter client-side
       const res = await fetch(`${API}?${params}`).then(r => r.json());
       if (!res.ok) { showToast(res.error || "Load failed", "error"); return; }
       setStudents(res.students || []); setPage(1);
     } catch (e) {
       showToast(e instanceof Error ? e.message : String(e), "error");
     } finally { setLoading(false); }
-  }, [libFilter, showToast]);
+  }, [showToast]);
 
-  useEffect(() => { load(); }, [libFilter, load]);
-  useEffect(() => { setPage(1); }, [pastFilter, search, dFrom, dTo]);
+  useEffect(() => { load(); }, [load]);
+  useEffect(() => { setPage(1); }, [pastFilter, search, dFrom, dTo, libFilter]);
 
   // After save/delete: refetch + refresh counts
   const refreshAll = useCallback(async () => {
@@ -96,12 +96,14 @@ export default function LmaStudentsPage() {
     return String(s.name||"").toUpperCase().includes(Q);
   }, []);
 
-  const filtered = useMemo(() => students.filter(s => {
+  const base = useMemo(() => students.filter(s => {
     if (pastFilter === "TRUE"  && !s.is_past) return false;
     if (pastFilter === "FALSE" &&  s.is_past) return false;
     return matchesStudent(s, search) && inDateRange(s.added_on, dFrom, dTo);
   }), [students, pastFilter, search, dFrom, dTo, matchesStudent]);
 
+  const studentCounts = useMemo(()=>{ const m:Record<string,number>={}; base.forEach(s=>{ if(s.library) m[s.library]=(m[s.library]||0)+1; if(s.branch && s.branch!==s.library) m[s.branch]=(m[s.branch]||0)+1; }); return m; }, [base]);
+  const filtered = useMemo(()=> libFilter ? base.filter(s=>s.library===libFilter || s.branch===libFilter) : base, [base, libFilter]);
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const shown = filtered.slice((page-1)*PAGE_SIZE, page*PAGE_SIZE);
 
@@ -129,7 +131,7 @@ export default function LmaStudentsPage() {
       {/* Library + Branch chip row (LOCKED RULE: branches appear alongside parent libraries) */}
       {init && (
         <div className="flex gap-1.5 mb-3 overflow-x-auto -mx-4 px-4 pb-1">
-          <Chip active={libFilter===""} onClick={()=>setLibFilter("")}>All Libraries</Chip>
+          <Chip active={libFilter===""} onClick={()=>setLibFilter("")}>All Libraries <span className={`ml-1 px-1.5 py-0.5 rounded-full text-[10px] font-bold ${libFilter===""?"bg-white/25 text-white":"bg-lma-slate-100 text-lma-slate-500"}`}>{base.length}</span></Chip>
           {init.libraries.map(lib => (
             <span key={lib.library_code} className="contents">
               <Chip
@@ -137,7 +139,7 @@ export default function LmaStudentsPage() {
                 onClick={()=>setLibFilter(libFilter===lib.library_code?"":lib.library_code)}
                 color={lib.color}
               >
-                {lib.emoji} {lib.library_code}
+                {lib.emoji} {lib.library_code} <span className={`ml-1 px-1.5 py-0.5 rounded-full text-[10px] font-bold ${libFilter===lib.library_code?"bg-white/25 text-white":"bg-lma-slate-100 text-lma-slate-500"}`}>{studentCounts[lib.library_code]||0}</span>
               </Chip>
               {lib.has_branches && init.branches
                 .filter(b => b.library_code === lib.library_code && b.active)
@@ -148,7 +150,7 @@ export default function LmaStudentsPage() {
                     onClick={()=>setLibFilter(libFilter===br.branch_code?"":br.branch_code)}
                     color={br.color || lib.color}
                   >
-                    {br.emoji || "·"} {br.branch_code}
+                    {br.emoji || "·"} {br.branch_code} <span className={`ml-1 px-1.5 py-0.5 rounded-full text-[10px] font-bold ${libFilter===br.branch_code?"bg-white/25 text-white":"bg-lma-slate-100 text-lma-slate-500"}`}>{studentCounts[br.branch_code]||0}</span>
                   </Chip>
                 ))
               }
