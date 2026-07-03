@@ -1,6 +1,7 @@
 "use client";
 
-import { buildContactText } from "../_lib/contact";
+import ContactCopyButton from "../_components/ContactCopyButton";
+import WhatsAppButton from "../_components/WhatsAppButton";
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -18,7 +19,7 @@ interface Library { library_code:string; display_name:string; active:boolean; ha
 interface Branch  { library_code:string; branch_code:string; branch_display:string; active:boolean; emoji?:string; color?:string; }
 interface Occupant {
   receipt_no:string; student_id:string; name:string; shift:string; shift_name:string;
-  booking_to:string; fees_due_balance:number; dues_status:string; is_cross_library:string; phone?:string;
+  booking_to:string; fees_due_balance:number; dues_status:string; is_cross_library:string; phones?:{number:string;tag:string}[]; phone?:string;
   color:"OK"|"EXPIRING"|"EXPIRED";
   urgent?:boolean;   // B1: within PRIMARY window → darkest-red text
   has_dues?:boolean;
@@ -661,12 +662,12 @@ function DetailCopyRow({ occupant, lib, branch, showToast }:{ occupant:Occupant;
   };
   const copyStudent=async()=>{ setLoading("student"); const rec=await fetchReceipt(); setLoading(""); if(rec&&rec.receipt_text){ navigator.clipboard.writeText(rec.receipt_text); showToast("Student copy"); } else showToast("No receipt text","error"); };
   const copyGroup=async()=>{ setLoading("group"); const rec=await fetchReceipt(); setLoading(""); if(rec&&rec.registration_text){ navigator.clipboard.writeText(rec.registration_text); showToast("Group copy"); } else showToast("No group text (renewal?)","error"); };
-  const copyContact=async()=>{ setLoading("contact"); const rec=await fetchReceipt(); setLoading(""); const L=rec?(rec.branch||rec.library):(branch||lib); navigator.clipboard.writeText(buildContactText(occupant.name, L, occupant.student_id, rec?.phones)); showToast("Contact copy"); };
+  
   return (
-    <div className={`grid ${occupant.receipt_type==="RENEWAL"?"grid-cols-2":"grid-cols-3"} gap-2 mt-3`}>
+    <div className={`grid ${occupant.receipt_type==="RENEWAL"?"grid-cols-3":"grid-cols-4"} gap-2 mt-3`}>
       <button disabled={!!loading} onClick={copyStudent} className="py-2 rounded-lg bg-lma-accent/10 text-lma-accent font-bold text-xs disabled:opacity-50">{loading==="student"?"…":"📋 Student"}</button>
       {occupant.receipt_type!=="RENEWAL"&&<button disabled={!!loading} onClick={copyGroup} className="py-2 rounded-lg bg-lma-primary/10 text-lma-primary font-bold text-xs disabled:opacity-50">{loading==="group"?"…":"📢 Group"}</button>}
-      <button disabled={!!loading} onClick={copyContact} className="py-2 rounded-lg bg-lma-warn/10 text-lma-warn font-bold text-xs disabled:opacity-50">{loading==="contact"?"…":"📇 Contact"}</button>
+      <ContactCopyButton name={occupant.name} library={branch||lib} studentId={occupant.student_id} phones={occupant.phones} onCopied={showToast} className="w-full py-2 rounded-lg bg-lma-warn/10 text-lma-warn font-bold text-xs whitespace-nowrap"/><WhatsAppButton phones={occupant.phones} className="w-full py-2 rounded-lg bg-lma-accent/10 text-lma-accent font-bold text-xs disabled:opacity-40"/>
     </div>
   );
 }

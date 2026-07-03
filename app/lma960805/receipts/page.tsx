@@ -1,5 +1,6 @@
 "use client";
 
+import WhatsAppButton from "../_components/WhatsAppButton";
 import { useState, useEffect, useCallback, useMemo } from "react";
 import Link from "next/link";
 import { useLMA, useScopeChips } from "../_components/LMAProvider";
@@ -132,21 +133,24 @@ export default function ReceiptsPage(){
           {paged.map(r=>{
             const badge=lifecycleBadge(r, alertDaysFor(r), successorOf.has(String(r.receipt_no).toUpperCase()));
             return (
-              <button key={r.receipt_no} onClick={()=>setOpenRno(r.receipt_no)} className="w-full text-left bg-white rounded-xl p-3 shadow-sm hover:shadow-md active:scale-[0.99]">
-                <div className="flex items-center gap-2 mb-1">
-                  <span className="text-sm font-extrabold text-lma-slate-900">{r.receipt_no}</span>
-                  <span className="text-[10px] font-bold text-lma-slate-400">{r.student_id}</span>
-                  <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded ml-auto ${badge.cls}`}>{badge.label}</span>
-                </div>
-                <div className="text-sm font-semibold text-lma-slate-800 truncate">{r.name}</div>
-                <div className="text-[11px] text-lma-slate-500 flex items-center gap-2 flex-wrap mt-0.5">
-                  <CodePill code={r.branch||r.library}/>
-                  <span>· Seat {r.seat_no||"—"}</span>
-                  <span>· {r.shift_name||r.shift}</span>
-                  <span>· till {fmtDMY(r.booking_to)}</span>
-                  {r.fees_due_balance>0&&<span className="font-bold text-lma-danger">· Due ₹{r.fees_due_balance}</span>}
-                </div>
-              </button>
+              <div key={r.receipt_no} className="flex items-stretch gap-1 bg-white rounded-xl shadow-sm hover:shadow-md">
+                <button onClick={()=>setOpenRno(r.receipt_no)} className="flex-1 min-w-0 text-left p-3 active:scale-[0.99]">
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="text-sm font-extrabold text-lma-slate-900">{r.receipt_no}</span>
+                    <span className="text-[10px] font-bold text-lma-slate-400">{r.student_id}</span>
+                    <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded ml-auto ${badge.cls}`}>{badge.label}</span>
+                  </div>
+                  <div className="text-sm font-semibold text-lma-slate-800 truncate">{r.name}</div>
+                  <div className="text-[11px] text-lma-slate-500 flex items-center gap-2 flex-wrap mt-0.5">
+                    <CodePill code={r.branch||r.library}/>
+                    <span>· Seat {r.seat_no||"—"}</span>
+                    <span>· {r.shift_name||r.shift}</span>
+                    <span>· till {fmtDMY(r.booking_to)}</span>
+                    {r.fees_due_balance>0&&<span className="font-bold text-lma-danger">· Due ₹{r.fees_due_balance}</span>}
+                  </div>
+                </button>
+                <div className="flex items-center pr-2 shrink-0"><WhatsAppButton phones={r.phones} className="px-2.5 py-2 rounded-lg bg-lma-accent/10 text-lma-accent font-bold text-xs disabled:opacity-40"/></div>
+              </div>
             );
           })}
           <Pager page={page} totalPages={totalPages} onPage={setPage}/>

@@ -1,5 +1,6 @@
 "use client";
 
+import WhatsAppButton from "../_components/WhatsAppButton";
 import { useState, useEffect, useCallback, useMemo } from "react";
 import Link from "next/link";
 import { useLMA } from "../_components/LMAProvider";
@@ -256,27 +257,27 @@ function StudentCard({ student, librariesMap, onTap }:{ student:Student; librari
   const lib = librariesMap.find(l => l.library_code === student.library);
   const primaryPhone = student.phones[0];
   return (
-    <button
-      onClick={onTap}
-      className="w-full text-left bg-white rounded-2xl p-3 shadow-sm hover:shadow-md transition active:scale-[0.99]"
-    >
-      <div className="flex items-start gap-2.5">
-        <div className="w-10 h-10 rounded-xl flex items-center justify-center text-base shrink-0 font-extrabold" style={lib?.color ? { background: lib.color+"22", color: lib.color } : { background:"#e2e8f0" }}>
-          {lib?.emoji || "📚"}
-        </div>
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-1.5">
-            <span className="text-sm font-extrabold text-lma-slate-900">{student.student_id}</span>
-            {student.is_past && <span className="text-[9px] font-bold text-lma-warn bg-lma-warn/10 px-1.5 py-0.5 rounded">PAST</span>}
-            <span className="text-[10px] font-bold text-lma-slate-400 ml-auto"><CodePill code={student.branch||student.library}/></span>
+    <div className="flex items-stretch gap-1 bg-white rounded-2xl shadow-sm hover:shadow-md transition">
+      <button onClick={onTap} className="flex-1 min-w-0 text-left p-3 active:scale-[0.99]">
+        <div className="flex items-start gap-2.5">
+          <div className="w-10 h-10 rounded-xl flex items-center justify-center text-base shrink-0 font-extrabold" style={lib?.color ? { background: lib.color+"22", color: lib.color } : { background:"#e2e8f0" }}>
+            {lib?.emoji || "📚"}
           </div>
-          <div className="text-sm font-semibold text-lma-slate-800 truncate">{student.name}</div>
-          {primaryPhone && (
-            <div className="text-[11px] text-lma-slate-500 font-mono mt-0.5">📱 {primaryPhone.number}{primaryPhone.tag && primaryPhone.tag !== "SELF" ? ` (${primaryPhone.tag})` : ""}</div>
-          )}
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-1.5">
+              <span className="text-sm font-extrabold text-lma-slate-900">{student.student_id}</span>
+              {student.is_past && <span className="text-[9px] font-bold text-lma-warn bg-lma-warn/10 px-1.5 py-0.5 rounded">PAST</span>}
+              <span className="text-[10px] font-bold text-lma-slate-400 ml-auto"><CodePill code={student.branch||student.library}/></span>
+            </div>
+            <div className="text-sm font-semibold text-lma-slate-800 truncate">{student.name}</div>
+            {primaryPhone && (
+              <div className="text-[11px] text-lma-slate-500 font-mono mt-0.5">📱 {primaryPhone.number}{primaryPhone.tag && primaryPhone.tag !== "SELF" ? ` (${primaryPhone.tag})` : ""}</div>
+            )}
+          </div>
         </div>
-      </div>
-    </button>
+      </button>
+      <div className="flex items-center pr-2 shrink-0"><WhatsAppButton phones={student.phones} className="px-2.5 py-2 rounded-lg bg-lma-accent/10 text-lma-accent font-bold text-xs disabled:opacity-40"/></div>
+    </div>
   );
 }
 

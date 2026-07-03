@@ -10,6 +10,7 @@ import StudentModal from "../_components/StudentModal";
 import SearchBar, { matchesSearch } from "../_components/SearchBar";
 import DateRangeFilter from "../_components/DateRangeFilter";
 import { parsePhone10 } from "../_lib/phone";
+import WhatsAppButton from "../_components/WhatsAppButton";
 import Pager, { PAGE_SIZE } from "../_components/Pager";
 import BookingFlow from "../_components/BookingFlow";
  
@@ -20,7 +21,7 @@ interface QueueItem {
   seat_no:string; shift:string; shift_name:string; booking_from:string; booking_to:string;
   fee:number; fees_due_balance:number; dues_status:string; is_cross_library:string;
   status:string; renewed_from:string; lifecycle:string; days_until_expiry:number;
-  receipt_text:string; cancel_whatsapp_text?:string; phone?:string;
+  receipt_text:string; cancel_whatsapp_text?:string; phone?:string; phones?:{number:string;tag:string}[];
 }
  
 type Tab = "EXPIRING"|"EXPIRED"|"CANCELLED";
@@ -251,7 +252,7 @@ function ReviewCard({ it, kind, onRenew, onSecondary, onRno, onStu, onRemind }:{
         {isExpired
           ? <button onClick={onSecondary} className="py-2 rounded-lg bg-lma-slate-100 text-lma-slate-600 font-bold text-xs">Don&apos;t Renew</button>
           : <button onClick={onSecondary} className="py-2 rounded-lg bg-lma-danger/10 text-lma-danger font-bold text-xs">Cancel</button>}
-        {onRemind&&<button onClick={onRemind} className="py-2 rounded-lg bg-lma-accent/10 text-lma-accent font-bold text-xs">💬 Remind</button>}
+        {onRemind&&<div className="flex gap-1"><button onClick={onRemind} className="flex-1 min-w-0 py-2 rounded-lg bg-lma-accent/10 text-lma-accent font-bold text-xs">💬 Remind</button><WhatsAppButton phones={it.phones} className="px-2.5 py-2 rounded-lg bg-lma-primary/10 text-lma-primary font-bold text-xs disabled:opacity-40"/></div>}
       </div>
     </div>
   );

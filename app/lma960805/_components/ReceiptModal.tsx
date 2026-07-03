@@ -12,7 +12,8 @@
 //   ...onClick={()=>setRno(r.receipt_no)}   // card / receipt-no click
 //   {rno && <ReceiptModal receiptNo={rno} onClose={()=>setRno(null)} onSaved={reload}/>}
 
-import { buildContactText } from "../_lib/contact";
+import ContactCopyButton from "./ContactCopyButton";
+import WhatsAppButton from "./WhatsAppButton";
 import { useState, useEffect } from "react";
 import { useLMA } from "./LMAProvider";
 import { fmtDMY, fmtDMYT, toIsoInput, toDmy } from "../_lib/dates";
@@ -123,12 +124,12 @@ export default function ReceiptModal({ receiptNo, onClose, onSaved, context }:{
             <MoneyTrail receiptNo={receipt.receipt_no}/>
             {context!=="refunds"&&receipt.fees_due_balance>0&&<CollectDueInline receiptNo={receipt.receipt_no} balance={receipt.fees_due_balance} post={post} showToast={showToast} onChanged={refresh}/>}
             {context!=="dues"&&<RefundInline receiptNo={receipt.receipt_no} post={post} showToast={showToast} onChanged={refresh}/>}
-            <div className={`grid gap-2 mt-3 ${receipt.type==="NEW"&&receipt.registration_text?"grid-cols-3":"grid-cols-2"}`}>
+            <div className={`grid gap-2 mt-3 ${receipt.type==="NEW"&&receipt.registration_text?"grid-cols-4":"grid-cols-3"}`}>
               <button onClick={()=>{ navigator.clipboard.writeText(receipt.receipt_text); showToast("Student copy"); }} className="py-2.5 rounded-xl bg-lma-accent/10 text-lma-accent font-bold text-xs">📋 Student</button>
               {receipt.type==="NEW"&&receipt.registration_text&&(
                 <button onClick={()=>{ navigator.clipboard.writeText(receipt.registration_text); showToast("Group copy"); }} className="py-2.5 rounded-xl bg-lma-primary/10 text-lma-primary font-bold text-xs">📢 Group</button>
               )}
-              <button onClick={()=>{ navigator.clipboard.writeText(buildContactText(receipt.name, receipt.branch||receipt.library, receipt.student_id, receipt.phones)); showToast("Contact copy"); }} className="py-2.5 rounded-xl bg-lma-warn/10 text-lma-warn font-bold text-xs">📇 Contact</button>
+              <ContactCopyButton name={receipt.name} library={receipt.branch||receipt.library} studentId={receipt.student_id} phones={receipt.phones} onCopied={showToast} className="w-full py-2.5 rounded-xl bg-lma-warn/10 text-lma-warn font-bold text-xs whitespace-nowrap"/><WhatsAppButton phones={receipt.phones} className="w-full py-2.5 rounded-xl bg-lma-accent/10 text-lma-accent font-bold text-xs disabled:opacity-40"/>
             </div>
             {(() => {
               const bookingActions = (<>

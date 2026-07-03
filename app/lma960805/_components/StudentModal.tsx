@@ -12,7 +12,8 @@
 //   {stuId && <StudentModal studentId={stuId} library={lib}
 //                onClose={()=>setStuId(null)} onSaved={reload}/>}
 
-import { buildContactText } from "../_lib/contact";
+import ContactCopyButton from "./ContactCopyButton";
+import WhatsAppButton from "./WhatsAppButton";
 import { useState, useEffect } from "react";
 import { useLMA } from "./LMAProvider";
 import { fmtDMY, fmtDMYT, toIsoInput } from "../_lib/dates";
@@ -158,7 +159,7 @@ export default function StudentModal({ studentId, library, crossOrigin, onClose,
             </div>
 
             <div className={`grid gap-2 mt-4 ${onDelete?"grid-cols-3":"grid-cols-2"}`}>
-              <button onClick={()=>{ navigator.clipboard.writeText(buildContactText(student.name, student.branch||student.library, student.student_id, student.phones)); showToast("Contact copied"); }} className="py-2.5 rounded-xl bg-lma-warn/10 text-lma-warn font-bold text-xs">📇 Copy</button>
+              <div className="flex gap-1"><ContactCopyButton name={student.name} library={student.branch||student.library} studentId={student.student_id} phones={student.phones} onCopied={showToast} label="📇 Copy" wrapperClassName="relative flex-1 min-w-0" className="w-full py-2.5 rounded-xl bg-lma-warn/10 text-lma-warn font-bold text-xs"/><WhatsAppButton phones={student.phones} className="px-3 py-2.5 rounded-xl bg-lma-accent/10 text-lma-accent font-bold text-xs disabled:opacity-40"/></div>
               {onDelete && <button onClick={onDelete} className="py-2.5 rounded-xl bg-lma-danger/10 text-lma-danger font-bold text-xs">🗑 Delete</button>}
               <button onClick={startEdit} className="py-2.5 rounded-xl bg-lma-primary text-white font-bold text-sm">✏️ Edit</button>
             </div>

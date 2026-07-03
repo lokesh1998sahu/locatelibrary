@@ -16,7 +16,7 @@
 //
 // onComplete() lets the host refresh its data.
 
-import { buildContactText } from "../_lib/contact";
+import ContactCopyButton from "./ContactCopyButton";
 import { useState, useEffect, useMemo, useRef } from "react";
 import { useLMA } from "./LMAProvider";
 import { toDmy, fmtDMY } from "../_lib/dates";
@@ -159,7 +159,7 @@ function DoneView({ result, onClose }:{ result:ResultData; onClose:()=>void }){
           </div>
         </>
       )}
-      <button onClick={()=>copy(buildContactText(result.name, result.library, result.student_id, result.phones),"c")} className="w-full mt-3 py-2.5 rounded-xl bg-lma-warn/10 text-lma-warn font-bold text-sm">{copied==="c"?"Copied":"📇 Copy Contact"}</button>
+      <div className="mt-3"><ContactCopyButton name={result.name} library={result.library} studentId={result.student_id} phones={result.phones} label="📇 Copy Contact" className="w-full py-2.5 rounded-xl bg-lma-warn/10 text-lma-warn font-bold text-sm"/></div>
       <button onClick={onClose} className="w-full mt-4 py-3 rounded-xl bg-gradient-to-br from-lma-primary to-lma-primary-2 text-white font-extrabold shadow-md">Done</button>
     </div>
   );
