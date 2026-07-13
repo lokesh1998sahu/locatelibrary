@@ -3,8 +3,8 @@ import { useState, useRef, useEffect } from "react";
 import { type ContactPhone } from "../_lib/contact";
 import { parsePhone10 } from "../_lib/phone";
 
-export default function WhatsAppButton({ phones, className, label }:{
-  phones?:ContactPhone[]; className?:string; label?:string;
+export default function WhatsAppButton({ phones, className, label, text }:{
+  phones?:ContactPhone[]; className?:string; label?:string; text?:string;
 }){
   const [open,setOpen]=useState(false);
   const wrap=useRef<HTMLDivElement>(null);
@@ -16,7 +16,7 @@ export default function WhatsAppButton({ phones, className, label }:{
     document.addEventListener("mousedown",h);
     return ()=>document.removeEventListener("mousedown",h);
   },[open]);
-  const openChat=(num:string)=>{ const p=parsePhone10(num||""); if(p) window.open(`https://wa.me/91${p}`,"_blank"); setOpen(false); };
+  const openChat=(num:string)=>{ const p=parsePhone10(num||""); if(p) window.open(text?`https://wa.me/91${p}?text=${encodeURIComponent(text)}`:`https://wa.me/91${p}`,"_blank"); setOpen(false); };
   const onClick=()=>{ if(list.length===0) return; if(!multi){ openChat(list[0].number); } else { setOpen(o=>!o); } };
   return (
     <div ref={wrap} className="relative shrink-0">

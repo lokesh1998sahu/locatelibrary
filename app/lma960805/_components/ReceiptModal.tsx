@@ -41,7 +41,7 @@ interface Receipt {
   pay_mode_1:string; pay_amount_1:number; pay_mode_2:string; pay_amount_2:number; pay_mode_3:string; pay_amount_3:number;
   fees_due:number; fees_due_balance:number; type:string; is_cross_library:string;
   status:string; dues_status:string; renewed_from:string; gender:string; cancelled_on:string;
-  receipt_text:string; registration_text:string; generated_at:string;
+  receipt_text:string; registration_text:string; generated_at:string; remark:string;
 }
 interface EditEvent { letter:string; edited_at:string; remark:string; changed_fields:string; before:string; after:string; whatsapp_text?:string; }
 
@@ -54,10 +54,12 @@ export default function ReceiptModal({ receiptNo, onClose, onSaved, context }:{
   const [mode,setMode]       = useState<"view"|"edit"|"history">("view");
   const [history,setHistory] = useState<EditEvent[]|null>(null);
   const [shareText,setShareText] = useState<string|null>(null);
+  const [shareLabel,setShareLabel] = useState("Receipt updated");
   const [showStudent,setShowStudent] = useState(false);
   const [showRenew,setShowRenew] = useState(false);
   const [showReAllot,setShowReAllot] = useState(false);
   const [showCancel,setShowCancel] = useState(false);
+  const [studentSend,setStudentSend] = useState(false);
 
   const fetchReceipt = async () => {
     const qs = new URLSearchParams({ action:"getReceiptLog", q:receiptNo, search_type:"RECEIPT_NO", limit:"5" });
@@ -91,7 +93,7 @@ export default function ReceiptModal({ receiptNo, onClose, onSaved, context }:{
     if(res && (res.ok!==false)){
       const rc = await fetchReceipt(); setReceipt(rc); setMode("view");
       setHistory(null);
-      if(res.whatsapp_text) setShareText(res.whatsapp_text); else showToast("Receipt updated");
+      if(res.whatsapp_text){ setShareLabel("Receipt updated"); setShareText(res.whatsapp_text); } else showToast("Receipt updated");
       onSaved && onSaved();
     } else {
       showToast((res && res.error) || "Update failed","error");
@@ -121,11 +123,12 @@ export default function ReceiptModal({ receiptNo, onClose, onSaved, context }:{
             </div>
             {receipt.generated_at&&<div className="text-[10px] text-lma-slate-400 mb-2">Created {fmtDMYT(receipt.generated_at)}</div>}
             <pre className="text-[11px] text-lma-slate-700 whitespace-pre-wrap font-mono bg-lma-slate-50 rounded-lg p-3 max-h-56 overflow-y-auto">{receipt.receipt_text}</pre>
+            {receipt.remark&&<div className="text-[11px] text-lma-slate-500 mt-1.5 italic">📝 {receipt.remark}</div>}
             <MoneyTrail receiptNo={receipt.receipt_no}/>
-            {context!=="refunds"&&receipt.fees_due_balance>0&&<CollectDueInline receiptNo={receipt.receipt_no} balance={receipt.fees_due_balance} post={post} showToast={showToast} onChanged={refresh}/>}
-            {context!=="dues"&&<RefundInline receiptNo={receipt.receipt_no} post={post} showToast={showToast} onChanged={refresh}/>}
+            {context!=="refunds"&&receipt.fees_due_balance>0&&<CollectDueInline receiptNo={receipt.receipt_no} balance={receipt.fees_due_balance} post={post} showToast={showToast} onChanged={refresh} onEvent={(t)=>{setShareLabel("Due collected");setShareText(t);}}/>}
+            {context!=="dues"&&<RefundInline receiptNo={receipt.receipt_no} post={post} showToast={showToast} onChanged={refresh} onEvent={(t)=>{setShareLabel("Refund issued");setShareText(t);}}/>}
             <div className={`grid gap-2 mt-3 ${receipt.type==="NEW"&&receipt.registration_text?"grid-cols-4":"grid-cols-3"}`}>
-              <button onClick={()=>{ navigator.clipboard.writeText(receipt.receipt_text); showToast("Student copy"); }} className="py-2.5 rounded-xl bg-lma-accent/10 text-lma-accent font-bold text-xs">📋 Student</button>
+              <button onClick={()=>setStudentSend(true)} className="py-2.5 rounded-xl bg-lma-accent/10 text-lma-accent font-bold text-xs">📋 Student</button>
               {receipt.type==="NEW"&&receipt.registration_text&&(
                 <button onClick={()=>{ navigator.clipboard.writeText(receipt.registration_text); showToast("Group copy"); }} className="py-2.5 rounded-xl bg-lma-primary/10 text-lma-primary font-bold text-xs">📢 Group</button>
               )}
@@ -146,8 +149,8 @@ export default function ReceiptModal({ receiptNo, onClose, onSaved, context }:{
                 })()}
               </>);
               const opposite = context==="dues"
-                ? <RefundInline receiptNo={receipt.receipt_no} post={post} showToast={showToast} onChanged={refresh}/>
-                : (context==="refunds" && receipt.fees_due_balance>0 ? <CollectDueInline receiptNo={receipt.receipt_no} balance={receipt.fees_due_balance} post={post} showToast={showToast} onChanged={refresh}/> : null);
+                ? <RefundInline receiptNo={receipt.receipt_no} post={post} showToast={showToast} onChanged={refresh} onEvent={(t)=>{setShareLabel("Refund issued");setShareText(t);}}/>
+                : (context==="refunds" && receipt.fees_due_balance>0 ? <CollectDueInline receiptNo={receipt.receipt_no} balance={receipt.fees_due_balance} post={post} showToast={showToast} onChanged={refresh} onEvent={(t)=>{setShareLabel("Due collected");setShareText(t);}}/> : null);
               return context ? <MoreActions>{opposite}{bookingActions}</MoreActions> : bookingActions;
             })()}
             <div className="grid grid-cols-2 gap-2 mt-2">
@@ -166,7 +169,7 @@ export default function ReceiptModal({ receiptNo, onClose, onSaved, context }:{
             ) : history.length===0 ? (
               <p className="text-sm text-lma-slate-500">No edits recorded yet.</p>
             ) : (
-              <div className="space-y-2">{history.map(ev=><EditEventCard key={ev.letter} ev={ev}/>)}</div>
+              <div className="space-y-2">{history.map(ev=><EditEventCard key={ev.letter} ev={ev} phones={receipt.phones}/>)}</div>
             )}
           </>
         ) : (
@@ -178,17 +181,31 @@ export default function ReceiptModal({ receiptNo, onClose, onSaved, context }:{
       {showReAllot && receipt && <EditSeatPicker library={receipt.library} branch={receipt.branch} shift={receipt.shift} currentSeat={receipt.seat_no} ignoreReceiptNo={receipt.receipt_no} onClose={()=>setShowReAllot(false)} onPick={async(label:string)=>{ const r=await post("reAllotSeat",{receipt_no:receipt.receipt_no,seat_no:label,editor_remark:"",flush:true}); if(r&&r.ok!==false){ showToast("Seat re-allotted"); setShowReAllot(false); refresh(); } else showToast((r&&r.error)||"Re-allot failed","error"); }}/>}
       {showCancel && receipt && init && <CancelPanel receipt={receipt} init={init} post={post} showToast={showToast} onClose={()=>setShowCancel(false)} onDone={()=>{ setShowCancel(false); refresh(); }}/>}
 
+      {studentSend && receipt && (
+        <div className="fixed inset-0 z-[10002] flex items-center justify-center px-6" onClick={()=>setStudentSend(false)}>
+          <div className="absolute inset-0 bg-black/40"/>
+          <div className="relative w-full max-w-xs bg-white rounded-2xl p-5 lma-slide-up" onClick={e=>e.stopPropagation()}>
+            <h4 className="text-sm font-extrabold text-lma-slate-900 mb-1">Student receipt</h4>
+            <p className="text-[12px] text-lma-slate-500 mb-3">Copy the text, or send it on WhatsApp.</p>
+            <div className="grid grid-cols-3 gap-2">
+              <button onClick={()=>setStudentSend(false)} className="py-2.5 rounded-xl bg-lma-slate-100 text-lma-slate-600 font-bold text-xs">Cancel</button>
+              <button onClick={()=>{ navigator.clipboard.writeText(receipt.receipt_text); showToast("Student copy"); setStudentSend(false); }} className="py-2.5 rounded-xl bg-lma-slate-100 text-lma-slate-600 font-bold text-xs">Copy</button>
+              <WhatsAppButton phones={receipt.phones} text={receipt.receipt_text} label="Send" className="py-2.5 rounded-xl bg-lma-accent text-white font-bold text-xs text-center disabled:opacity-40"/>
+            </div>
+          </div>
+        </div>
+      )}
       {shareText && (
         <div className="fixed inset-0 z-[10001] flex items-center justify-center px-6" onClick={()=>setShareText(null)}>
           <div className="absolute inset-0 bg-black/40"/>
           <div className="relative w-full max-w-xs bg-white rounded-2xl p-5 lma-slide-up" onClick={e=>e.stopPropagation()}>
-            <h4 className="text-sm font-extrabold text-lma-slate-900 mb-1">Receipt updated</h4>
+            <h4 className="text-sm font-extrabold text-lma-slate-900 mb-1">{shareLabel}</h4>
             <p className="text-[12px] text-lma-slate-500 mb-3">Send the student a WhatsApp update?</p>
             <pre className="text-[10px] text-lma-slate-600 whitespace-pre-wrap font-mono bg-lma-slate-50 rounded-lg p-2.5 max-h-40 overflow-y-auto mb-3">{shareText}</pre>
             <div className="grid grid-cols-3 gap-2">
               <button onClick={()=>setShareText(null)} className="py-2.5 rounded-xl bg-lma-slate-100 text-lma-slate-600 font-bold text-xs">Skip</button>
               <button onClick={()=>{ navigator.clipboard.writeText(shareText); showToast("Copied"); }} className="py-2.5 rounded-xl bg-lma-slate-100 text-lma-slate-600 font-bold text-xs">Copy</button>
-              <a href={`https://wa.me/?text=${encodeURIComponent(shareText)}`} target="_blank" rel="noopener noreferrer" onClick={()=>setShareText(null)} className="py-2.5 rounded-xl bg-lma-accent text-white font-bold text-xs text-center">Share</a>
+              <WhatsAppButton phones={receipt?.phones} text={shareText} label="Send" className="py-2.5 rounded-xl bg-lma-accent text-white font-bold text-xs text-center disabled:opacity-40"/>
             </div>
           </div>
         </div>
@@ -202,6 +219,7 @@ function EditForm({ receipt, init, onCancel, onSave }:{ receipt:Receipt; init:an
   const [name,setName]=useState(receipt.name);
   const [seat,setSeat]=useState(receipt.seat_no);
   const [shift,setShift]=useState(receipt.shift);
+  const [shiftTime,setShiftTime]=useState(receipt.shift_time||"");
   const [bookingFrom,setBookingFrom]=useState(normDateR(receipt.booking_from));
   const [bookingTo,setBookingTo]=useState(normDateR(receipt.booking_to));
   const [receiptDate,setReceiptDate]=useState(normDateR(receipt.receipt_date));
@@ -224,6 +242,7 @@ function EditForm({ receipt, init, onCancel, onSave }:{ receipt:Receipt; init:an
   const [showAdvanced,setShowAdvanced]=useState(false);
   const [editCount,setEditCount]=useState<number|null>(null);
   const [seatPickerOpen,setSeatPickerOpen]=useState(false);
+  const [bookRemark,setBookRemark]=useState(receipt.remark||"");
   const [remark,setRemark]=useState("");
 
   useEffect(()=>{
@@ -239,7 +258,7 @@ function EditForm({ receipt, init, onCancel, onSave }:{ receipt:Receipt; init:an
   const shiftChanged = shift.toUpperCase() !== (receipt.shift||"").toUpperCase();
   const feeMismatch = shiftChanged && typeof stdFee==="number" && stdFee !== Number(fee);
   const isOther = !["MORNING","EVENING","FULL DAY","FULLDAY","FD"].includes(shift.toUpperCase());
-  const onShiftChange=(v:string)=>{ setShift(v); if(!["MORNING","EVENING","FULL DAY","FULLDAY","FD"].includes(v.toUpperCase())) setSeat(""); };
+  const onShiftChange=(v:string)=>{ setShift(v); if(!["MORNING","EVENING","FULL DAY","FULLDAY","FD"].includes(v.toUpperCase())) setSeat(""); const so=activeShifts.find((s:any)=>s.shift_key.toUpperCase()===v.toUpperCase()); setShiftTime(so?.shift_time||""); };
 
   const activeShifts=init.shifts.filter((s:any)=>s.active);
   const setPay=(i:number,f:"mode"|"amount",v:string)=>{const n=[...pays];n[i]={...n[i],[f]:v};setPays(n);};
@@ -258,7 +277,7 @@ function EditForm({ receipt, init, onCancel, onSave }:{ receipt:Receipt; init:an
     onSave({
       receipt_no:receipt.receipt_no,
       name, seat_no:seat, shift,
-      shift_name:shiftObj?.shift_name||receipt.shift_name, shift_time:shiftObj?.shift_time||receipt.shift_time,
+      shift_name:shiftObj?.shift_name||receipt.shift_name, shift_time:shiftTime,
       booking_from:bookingFrom, booking_to:bookingTo, receipt_date:receiptDate,
       fee:Number(fee), pay_modes:validPays,
       fees_due:Number(feesDue),
@@ -266,6 +285,7 @@ function EditForm({ receipt, init, onCancel, onSave }:{ receipt:Receipt; init:an
       student_id:studentId, library, branch, is_cross_library:isCross,
       cascade_name_to_student:cascade,
       editor_remark:remark,
+      remark:bookRemark,
     });
   };
 
@@ -293,6 +313,7 @@ function EditForm({ receipt, init, onCancel, onSave }:{ receipt:Receipt; init:an
           </select>
         </div>
       </div>
+      <L>Time window</L><I value={shiftTime} onChange={e=>setShiftTime(e.target.value)} placeholder="e.g. 7AM to 2PM"/>
       <div className="grid grid-cols-2 gap-3">
         <div><L>From</L><I type="date" value={toIsoInput(bookingFrom)} onChange={e=>setBookingFrom(normDateR(e.target.value))}/>{bookingFrom && <span className="block text-[10px] font-bold text-lma-slate-500 mt-1">{fmtDMY(bookingFrom)}</span>}</div>
         <div><L>To</L><I type="date" value={toIsoInput(bookingTo)} onChange={e=>setBookingTo(normDateR(e.target.value))}/>{bookingTo && <span className="block text-[10px] font-bold text-lma-slate-500 mt-1">{fmtDMY(bookingTo)}</span>}</div>
@@ -358,6 +379,7 @@ function EditForm({ receipt, init, onCancel, onSave }:{ receipt:Receipt; init:an
         </div>
       )}
 
+      <L>Remark on receipt (optional)</L><I value={bookRemark} onChange={e=>setBookRemark(e.target.value)} placeholder="shown at the bottom of the receipt"/>
       <L>Edit note (optional)</L><I value={remark} onChange={e=>setRemark(e.target.value)} placeholder="why this edit"/>
       {seatPickerOpen&&(
         <EditSeatPicker
@@ -433,7 +455,7 @@ function CancelPanel({ receipt, init, post, showToast, onClose, onDone }:{ recei
   );
 }
 
-function CollectDueInline({ receiptNo, balance, post, showToast, onChanged }:{ receiptNo:string; balance:number; post:(a:string,p:any)=>Promise<any>; showToast:(m:string,t?:"success"|"error")=>void; onChanged:()=>void }){
+function CollectDueInline({ receiptNo, balance, post, showToast, onChanged, onEvent }:{ receiptNo:string; balance:number; post:(a:string,p:any)=>Promise<any>; showToast:(m:string,t?:"success"|"error")=>void; onChanged:()=>void; onEvent?:(text:string)=>void }){
   const { init }=useLMA();
   const modes=(init?.paymentTags||[]).filter(t=>t.active).map(t=>t.tag_name);
   const [open,setOpen]=useState(false);
@@ -449,7 +471,7 @@ function CollectDueInline({ receiptNo, balance, post, showToast, onChanged }:{ r
     setBusy(true); setErr("");
     const r=await post("logFeePayment",{ receipt_no:receiptNo, payment_mode:mode, amount_received:n, notes:"", receipt_date:date });
     setBusy(false);
-    if(r&&r.ok!==false){ showToast("Due collected"); setOpen(false); onChanged(); } else setErr((r&&r.error)||"Could not collect due");
+    if(r&&r.ok!==false){ if(r.whatsapp_text&&onEvent) onEvent(String(r.whatsapp_text)); else showToast("Due collected"); setOpen(false); onChanged(); } else setErr((r&&r.error)||"Could not collect due");
   };
   if(!open) return <button onClick={()=>setOpen(true)} className="mt-2 w-full py-2 rounded-xl bg-lma-danger/10 text-lma-danger font-bold text-xs">💰 Collect Due (₹{balance})</button>;
   return (
@@ -468,7 +490,7 @@ function CollectDueInline({ receiptNo, balance, post, showToast, onChanged }:{ r
   );
 }
 
-function RefundInline({ receiptNo, post, showToast, onChanged }:{ receiptNo:string; post:(a:string,p:any)=>Promise<any>; showToast:(m:string,t?:"success"|"error")=>void; onChanged:()=>void }){
+function RefundInline({ receiptNo, post, showToast, onChanged, onEvent }:{ receiptNo:string; post:(a:string,p:any)=>Promise<any>; showToast:(m:string,t?:"success"|"error")=>void; onChanged:()=>void; onEvent?:(text:string)=>void }){
   const { init }=useLMA();
   const modes=(init?.paymentTags||[]).filter(t=>t.active).map(t=>t.tag_name);
   const [open,setOpen]=useState(false);
@@ -485,7 +507,7 @@ function RefundInline({ receiptNo, post, showToast, onChanged }:{ receiptNo:stri
     setBusy(true); setErr("");
     const r=await post("issueRefund",{ original_receipt_no:receiptNo, amount:n, refund_mode:mode, refund_reason:reason, linked_to_cancellation:false, refund_date:date });
     setBusy(false);
-    if(r&&r.ok!==false){ showToast("Refund issued"); setOpen(false); onChanged(); } else setErr((r&&r.error)||"Could not issue refund");
+    if(r&&r.ok!==false){ if(r.whatsapp_text&&onEvent) onEvent(String(r.whatsapp_text)); else showToast("Refund issued"); setOpen(false); onChanged(); } else setErr((r&&r.error)||"Could not issue refund");
   };
   if(!open) return <button onClick={()=>setOpen(true)} className="mt-2 w-full py-2 rounded-xl bg-lma-slate-100 text-lma-slate-600 font-bold text-xs">↩ Issue Refund (standalone)</button>;
   return (
@@ -541,7 +563,7 @@ function fieldLabel(k:string){ return FIELD_LABELS[k]||k; }
 function safeParse(j:string):Record<string,any>{ try{ return j?JSON.parse(j):{}; }catch{ return {}; } }
 function dispVal(v:any){ if(v===undefined||v===null||v==="")return "—"; return String(v); }
 
-function EditEventCard({ev}:{ev:EditEvent}){
+function EditEventCard({ev,phones}:{ev:EditEvent;phones?:PhoneEntry[]}){
   const before=safeParse(ev.before);
   const after=safeParse(ev.after);
   const fields=(ev.changed_fields||"").split(",").map(x=>x.trim()).filter(Boolean);
@@ -568,7 +590,7 @@ function EditEventCard({ev}:{ev:EditEvent}){
       {ev.remark&&<div className="text-[11px] text-lma-slate-500 mt-1.5 pt-1.5 border-t border-lma-slate-100">Note: {ev.remark}</div>}
       {ev.whatsapp_text&&(
         <div className="mt-2 flex gap-2">
-          <a href={`https://wa.me/?text=${encodeURIComponent(ev.whatsapp_text)}`} target="_blank" rel="noopener noreferrer" className="text-[10px] font-bold px-2.5 py-1 rounded-lg bg-lma-accent/10 text-lma-accent">Share update</a>
+          <WhatsAppButton phones={phones} text={ev.whatsapp_text} label="Send update" className="text-[10px] font-bold px-2.5 py-1 rounded-lg bg-lma-accent/10 text-lma-accent disabled:opacity-40"/>
           <button onClick={()=>{ navigator.clipboard.writeText(ev.whatsapp_text||""); }} className="text-[10px] font-bold px-2.5 py-1 rounded-lg bg-lma-slate-100 text-lma-slate-500">Copy</button>
         </div>
       )}

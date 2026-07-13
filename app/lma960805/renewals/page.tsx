@@ -9,7 +9,7 @@ import ReceiptModal from "../_components/ReceiptModal";
 import StudentModal from "../_components/StudentModal";
 import SearchBar, { matchesSearch } from "../_components/SearchBar";
 import DateRangeFilter from "../_components/DateRangeFilter";
-import { parsePhone10 } from "../_lib/phone";
+import { buildRenewReminder } from "../_lib/reminderText";
 import WhatsAppButton from "../_components/WhatsAppButton";
 import Pager, { PAGE_SIZE } from "../_components/Pager";
 import BookingFlow from "../_components/BookingFlow";
@@ -21,7 +21,7 @@ interface QueueItem {
   seat_no:string; shift:string; shift_name:string; booking_from:string; booking_to:string;
   fee:number; fees_due_balance:number; dues_status:string; is_cross_library:string;
   status:string; renewed_from:string; lifecycle:string; days_until_expiry:number;
-  receipt_text:string; cancel_whatsapp_text?:string; phone?:string; phones?:{number:string;tag:string}[];
+  receipt_text:string; cancel_whatsapp_text?:string; phone?:string; phones?:{number:string;tag:string}[]; remark?:string;
 }
  
 type Tab = "EXPIRING"|"EXPIRED"|"CANCELLED";
@@ -70,7 +70,7 @@ export default function RenewalsPage(){
  
   useEffect(()=>{ load(); },[load]);
  
-  const remind=(it:QueueItem, expired:boolean)=>{ const ph=parsePhone10(it.phone||""); if(!ph){ showToast("No phone number on file","error"); return; } const libName=(init?.libraries?.find(l=>l.library_code===it.library)?.display_name)||it.library; const msg=`Hi ${it.name}, your seat at ${libName} ${expired?"expired on":"is expiring on"} ${fmtDMY(it.booking_to)}. Please deposit the fees to renew, or reply here if you're not continuing. Thank you!`; window.open(`https://wa.me/91${ph}?text=${encodeURIComponent(msg)}`,"_blank"); };
+  const remind=(it:QueueItem, expired:boolean):string=>{ const libName=(init?.libraries?.find(l=>l.library_code===it.library)?.display_name)||it.library; return buildRenewReminder(it.name, libName, fmtDMY(it.booking_to), expired); };
   const doDoNotRenew=async(it:QueueItem)=>{
     const r=await post("markReceiptDoNotRenew",{receipt_no:it.receipt_no});
     if(r){ showToast("Marked Do Not Renew"); load(); }
@@ -96,10 +96,10 @@ export default function RenewalsPage(){
   const expiredBase=expired.filter(it=>matchesSearch(it,search) && inDateRange(it.booking_to,dFrom,dTo));
   const cancellationsBase=cancellations.filter(it=>matchesSearch(it,search) && inDateRange(it.booking_to,dFrom,dTo));
   const activeBase=tab==="EXPIRING"?expiringBase:tab==="EXPIRED"?expiredBase:cancellationsBase;
-  const renCounts:Record<string,number>={}; activeBase.forEach(it=>{ const k=homeLib(it); if(k) renCounts[k]=(renCounts[k]||0)+1; });
-  const expiringF=scope?expiringBase.filter(it=>homeLib(it)===scope):expiringBase;
-  const expiredF=scope?expiredBase.filter(it=>homeLib(it)===scope):expiredBase;
-  const cancellationsF=scope?cancellationsBase.filter(it=>homeLib(it)===scope):cancellationsBase;
+  const renCounts:Record<string,number>={}; activeBase.forEach(it=>{ const k=(it.branch||it.library); if(k) renCounts[k]=(renCounts[k]||0)+1; });
+  const expiringF=scope?expiringBase.filter(it=>(it.branch||it.library)===scope):expiringBase;
+  const expiredF=scope?expiredBase.filter(it=>(it.branch||it.library)===scope):expiredBase;
+  const cancellationsF=scope?cancellationsBase.filter(it=>(it.branch||it.library)===scope):cancellationsBase;
   const soonList=expiringF.filter(it=>tierOf(it)==="soon");
   const laterList=expiringF.filter(it=>tierOf(it)==="expiring");
   const expShown = expSub==="SOON"?soonList : expSub==="LATER"?laterList : expiringF;
@@ -154,7 +154,7 @@ export default function RenewalsPage(){
               <div className="space-y-2">
                 {expShown.slice((page-1)*PAGE_SIZE, page*PAGE_SIZE).map(it=>(
                   <ReviewCard key={it.receipt_no} it={it} kind={tierOf(it)}
-                    onRenew={()=>setRenew(it)} onSecondary={secondaryFor(it,"expiring")} onRemind={()=>remind(it,false)}
+                    onRenew={()=>setRenew(it)} onSecondary={secondaryFor(it,"expiring")} remindText={remind(it,false)}
                     onRno={()=>setOpenRno(it.receipt_no)} onStu={()=>setOpenStu({id:it.student_id,library:homeLib(it)})}/>
                 ))}
                 <Pager page={page} totalPages={Math.max(1,Math.ceil(expShown.length/PAGE_SIZE))} onPage={setPage}/>
@@ -169,7 +169,7 @@ export default function RenewalsPage(){
           <div className="space-y-2">
             {expiredF.slice((page-1)*PAGE_SIZE, page*PAGE_SIZE).map(it=>(
               <ReviewCard key={it.receipt_no} it={it} kind="expired"
-                onRenew={()=>setRenew(it)} onSecondary={secondaryFor(it,"expired")} onRemind={()=>remind(it,true)}
+                onRenew={()=>setRenew(it)} onSecondary={secondaryFor(it,"expired")} remindText={remind(it,true)}
                 onRno={()=>setOpenRno(it.receipt_no)} onStu={()=>setOpenStu({id:it.student_id,library:homeLib(it)})}/>
             ))}
             <Pager page={page} totalPages={Math.max(1,Math.ceil(expiredF.length/PAGE_SIZE))} onPage={setPage}/>
@@ -226,8 +226,8 @@ const LOOK:Record<"soon"|"expiring"|"expired",{accent:string;pillBg:string;pillF
 };
  
 // ── Review card (Soon + Expiring + Expired) ──
-function ReviewCard({ it, kind, onRenew, onSecondary, onRno, onStu, onRemind }:{
-  it:QueueItem; kind:"soon"|"expiring"|"expired"; onRenew:()=>void; onSecondary:()=>void; onRno:()=>void; onStu:()=>void; onRemind?:()=>void;
+function ReviewCard({ it, kind, onRenew, onSecondary, onRno, onStu, remindText }:{
+  it:QueueItem; kind:"soon"|"expiring"|"expired"; onRenew:()=>void; onSecondary:()=>void; onRno:()=>void; onStu:()=>void; remindText?:string;
 }){
   const lk = LOOK[kind];
   const isExpired = kind==="expired";
@@ -247,12 +247,13 @@ function ReviewCard({ it, kind, onRenew, onSecondary, onRno, onStu, onRemind }:{
         <span>· till {fmtDMY(it.booking_to)}</span>
         {it.fees_due_balance>0&&<span className="font-bold text-lma-danger">· Due ₹{it.fees_due_balance}</span>}
       </div>
-      <div className={`grid ${onRemind?"grid-cols-3":"grid-cols-2"} gap-2 mt-2.5`}>
+      {it.remark&&<div className="text-[11px] text-lma-slate-400 mt-0.5 italic truncate">📝 {it.remark}</div>}
+      <div className={`grid ${remindText?"grid-cols-3":"grid-cols-2"} gap-2 mt-2.5`}>
         <button onClick={onRenew} className="py-2 rounded-lg bg-gradient-to-br from-lma-primary to-lma-primary-2 text-white font-bold text-xs shadow-sm">Renew</button>
         {isExpired
           ? <button onClick={onSecondary} className="py-2 rounded-lg bg-lma-slate-100 text-lma-slate-600 font-bold text-xs">Don&apos;t Renew</button>
           : <button onClick={onSecondary} className="py-2 rounded-lg bg-lma-danger/10 text-lma-danger font-bold text-xs">Cancel</button>}
-        {onRemind&&<div className="flex gap-1"><button onClick={onRemind} className="flex-1 min-w-0 py-2 rounded-lg bg-lma-accent/10 text-lma-accent font-bold text-xs">💬 Remind</button><WhatsAppButton phones={it.phones} className="px-2.5 py-2 rounded-lg bg-lma-primary/10 text-lma-primary font-bold text-xs disabled:opacity-40"/></div>}
+        {remindText&&<div className="flex gap-1"><WhatsAppButton phones={it.phones} text={remindText} label="💬 Remind" className="flex-1 min-w-0 py-2 rounded-lg bg-lma-accent/10 text-lma-accent font-bold text-xs disabled:opacity-40"/><WhatsAppButton phones={it.phones} className="px-2.5 py-2 rounded-lg bg-lma-primary/10 text-lma-primary font-bold text-xs disabled:opacity-40"/></div>}
       </div>
     </div>
   );

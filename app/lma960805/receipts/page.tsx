@@ -25,7 +25,7 @@ interface Receipt {
   receipt_text:string; registration_text:string;
 }
 
-function homeLib(r:Receipt){ return (r.is_cross_library && r.is_cross_library!=="NO") ? String(r.is_cross_library) : (r.branch||r.library); }
+
 function lifecycleBadge(r:Receipt, alertDays:number, hasSuccessor:boolean):{label:string;cls:string}{
   const st=(r.status||"").toUpperCase();
   if(st==="RENEWED")       return {label:"Renewed",      cls:"bg-lma-slate-200 text-lma-slate-600"};
@@ -99,8 +99,8 @@ export default function ReceiptsPage(){
     ()=>receipts.filter(r=>matchesReceipt(r,search)&&inDateRange(r.receipt_date,dFrom,dTo)),
     [receipts,search,dFrom,dTo,matchesReceipt]
   );
-  const counts=useMemo(()=>{ const m:Record<string,number>={}; base.forEach(r=>{ const k=homeLib(r); if(k) m[k]=(m[k]||0)+1; }); return m; },[base]);
-  const filtered=useMemo(()=>scope?base.filter(r=>homeLib(r)===scope):base,[base,scope]);
+  const counts=useMemo(()=>{ const m:Record<string,number>={}; base.forEach(r=>{ const k=(r.branch||r.library); if(k) m[k]=(m[k]||0)+1; }); return m; },[base]);
+  const filtered=useMemo(()=>scope?base.filter(r=>(r.branch||r.library)===scope):base,[base,scope]);
   const totalPages=Math.max(1,Math.ceil(filtered.length/PAGE_SIZE));
   const paged=filtered.slice((page-1)*PAGE_SIZE,page*PAGE_SIZE);
 

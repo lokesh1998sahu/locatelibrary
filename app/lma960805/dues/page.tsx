@@ -10,6 +10,8 @@ import StudentModal from "../_components/StudentModal";
 import SearchBar, { matchesSearch } from "../_components/SearchBar";
 import DateRangeFilter from "../_components/DateRangeFilter";
 import Pager, { PAGE_SIZE } from "../_components/Pager";
+import WhatsAppButton from "../_components/WhatsAppButton";
+import { buildDuesReminder } from "../_lib/reminderText";
 
 const API = "/api/lma960805";
 
@@ -22,7 +24,7 @@ const API = "/api/lma960805";
 interface PendingDue {
   receipt_no:string; student_id:string; library:string; branch:string; name:string;
   seat_no:string; shift:string; shift_name:string; booking_to:string;
-  fees_due:number; fees_due_balance:number; dues_status:string;
+  fees_due:number; fees_due_balance:number; dues_status:string; phones?:{number:string;tag:string}[]; remark?:string;
 }
 interface DuePayment {
   payment_id:string; receipt_no:string; student_id:string; library:string; branch:string;
@@ -41,6 +43,7 @@ function homeLib(it:any){ return (it.is_cross_library && it.is_cross_library!=="
 
 export default function DuesPage(){
   const { init, showToast, post } = useLMA();
+  const duesReminder=(d:PendingDue):string=>{ const libName=(init?.libraries?.find(l=>l.library_code===d.library)?.display_name)||d.library; return buildDuesReminder(d.name, libName, d.fees_due_balance); };
   const [openRno, setOpenRno] = useState<string|null>(null);
   const [openStu, setOpenStu] = useState<{ id:string; library:string }|null>(null);
   const [confirmAction,setConfirmAction]=useState<{title:string;message:string;confirmLabel:string;danger?:boolean;onYes:()=>void}|null>(null);
@@ -59,7 +62,7 @@ export default function DuesPage(){
 
   const [payFor,setPayFor]=useState<PendingDue|null>(null);
   const [irrecFor,setIrrecFor]=useState<PendingDue|null>(null);
-  const [resultText,setResultText]=useState<{title:string;text:string}|null>(null);
+  const [resultText,setResultText]=useState<{title:string;text:string;phones?:{number:string;tag:string}[]}|null>(null);
 
 
 
@@ -81,6 +84,7 @@ export default function DuesPage(){
       seat_no:String(x.seat_no||""), shift:String(x.shift||""), shift_name:String(x.shift_name||""),
       booking_to:String(x.booking_to||""), fees_due:Number(x.fees_due||0),
       fees_due_balance:Number(x.fees_due_balance||0), dues_status:String(x.dues_status||""),
+      phones:Array.isArray(x.phones)?x.phones:[], remark:String(x.remark||""),
     }));
     setPending(pdList);
     setPendingSum(typeof pd.sum==="number"?pd.sum:pdList.reduce((s,d)=>s+d.fees_due_balance,0));
@@ -162,9 +166,11 @@ export default function DuesPage(){
                 </div>
                 <button onClick={()=>setOpenStu({id:d.student_id,library:homeLib(d)})} className="block w-full text-left text-sm font-semibold text-lma-slate-800 truncate hover:underline">{d.name}</button>
                 <div className="text-[11px] text-lma-slate-500 mt-0.5"><CodePill code={d.branch||d.library}/> · Seat {d.seat_no||"—"} · {d.shift_name||d.shift} · till {fmtDMY(d.booking_to)}</div>
-                <div className="grid grid-cols-2 gap-2 mt-2.5">
+                {d.remark&&<div className="text-[11px] text-lma-slate-400 mt-0.5 italic truncate">📝 {d.remark}</div>}
+                <div className="grid grid-cols-3 gap-2 mt-2.5">
                   <button onClick={()=>setPayFor(d)} className="py-2 rounded-lg bg-lma-accent/10 text-lma-accent font-bold text-xs">Log Payment</button>
                   <button onClick={()=>setIrrecFor(d)} className="py-2 rounded-lg bg-lma-slate-100 text-lma-slate-600 font-bold text-xs">Write Off</button>
+                  <WhatsAppButton phones={d.phones} text={duesReminder(d)} label="💬 Remind" className="py-2 rounded-lg bg-lma-primary/10 text-lma-primary font-bold text-xs disabled:opacity-40"/>
                 </div>
               </div>
             ))}
@@ -216,7 +222,7 @@ export default function DuesPage(){
 
       {payFor&&init&&(
         <PaymentSheet due={payFor} init={init} onClose={()=>setPayFor(null)} post={post}
-          onDone={(text)=>{ setPayFor(null); if(text)setResultText({title:"Payment Receipt",text}); showToast("Payment logged"); load(); }}/>
+          onDone={(text)=>{ const ph=payFor.phones; setPayFor(null); if(text)setResultText({title:"Payment Receipt",text,phones:ph}); showToast("Payment logged"); load(); }}/>
       )}
 
       {irrecFor&&(
@@ -233,6 +239,7 @@ export default function DuesPage(){
           <h3 className="text-base font-extrabold text-lma-slate-900 mb-3">{resultText.title}</h3>
           <pre className="text-[11px] text-lma-slate-700 whitespace-pre-wrap font-mono bg-lma-slate-50 rounded-lg p-3 max-h-60 overflow-y-auto">{resultText.text}</pre>
           <button onClick={()=>{navigator.clipboard.writeText(resultText.text);showToast("Copied");}} className="w-full mt-3 py-3 rounded-xl bg-gradient-to-br from-lma-primary to-lma-primary-2 text-white font-bold shadow-md">Copy message</button>
+          {resultText.phones&&<WhatsAppButton phones={resultText.phones} text={resultText.text} label="Send on WhatsApp" className="w-full mt-2 py-3 rounded-xl bg-lma-accent text-white font-bold shadow-md disabled:opacity-40"/>}
           <button onClick={()=>setResultText(null)} className="w-full mt-2 py-2.5 rounded-xl bg-lma-slate-100 text-lma-slate-600 font-bold">Close</button>
         </Sheet>
       )}

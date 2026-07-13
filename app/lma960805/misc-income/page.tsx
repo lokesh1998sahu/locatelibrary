@@ -14,6 +14,7 @@ interface MiscRow {
   s_no:number; timestamp:string; date:string; month:string;
   library:string; branch:string; amount:number;
   payment_tag:string; fees_mode:string; category:string; remark:string;
+  status:string; delete_reason:string; deleted_on:string;
 }
 
 
@@ -27,13 +28,14 @@ export default function MiscIncomePage(){
   const [toDate,setToDate]=useState("");
   const [loading,setLoading]=useState(false);
   const [modal,setModal]=useState<{mode:"add"|"edit";row?:MiscRow}|null>(null);
+  const [showDeleted,setShowDeleted]=useState(false);
 
 
 
 
   const load=useCallback(async()=>{
     setLoading(true);
-    const p=new URLSearchParams(); p.set("all","1"); // B4: load all scopes; filter client-side
+    const p=new URLSearchParams(); p.set("all","1"); if(showDeleted) p.set("deleted","1");
     const r=await fetch(`${API}?action=getMiscIncome&${p}&page=1&limit=100`).then(r=>r.json());
     setLoading(false);
     // backend returns rows under r.income (per 07_MiscIncome.gs getMiscIncome)
@@ -50,10 +52,13 @@ export default function MiscIncomePage(){
       fees_mode:String(x.fees_mode||""),
       category:String(x.category||""),
       remark:String(x.remark||""),
+      status:String(x.status||""),
+      delete_reason:String(x.delete_reason||""),
+      deleted_on:String(x.deleted_on||""),
     }));
     setRows(list);
     setSum(typeof r.sum==="number"?r.sum:list.reduce((s,d)=>s+d.amount,0));
-  },[]);
+  },[showDeleted]);
 
   useEffect(()=>{ load(); },[load]);
 
@@ -78,7 +83,12 @@ export default function MiscIncomePage(){
         ))}
       </div>
 
-      <button onClick={()=>setModal({mode:"add"})} className="w-full mb-3 py-2.5 rounded-xl border-[1.5px] border-dashed border-lma-primary/40 text-lma-primary font-bold text-sm hover:bg-lma-primary/5 active:scale-[0.99]">+ Add Income Entry</button>
+      <div className="bg-white rounded-2xl p-1 flex gap-1 mb-3 shadow-sm">
+        <button onClick={()=>{setShowDeleted(false);}} className={`flex-1 py-2 rounded-xl text-xs font-bold ${!showDeleted?"bg-lma-slate-900 text-white":"text-lma-slate-600"}`}>Active</button>
+        <button onClick={()=>{setShowDeleted(true);}} className={`flex-1 py-2 rounded-xl text-xs font-bold ${showDeleted?"bg-lma-slate-900 text-white":"text-lma-slate-600"}`}>Deleted</button>
+      </div>
+
+      {!showDeleted&&<button onClick={()=>setModal({mode:"add"})} className="w-full mb-3 py-2.5 rounded-xl border-[1.5px] border-dashed border-lma-primary/40 text-lma-primary font-bold text-sm hover:bg-lma-primary/5 active:scale-[0.99]">+ Add Income Entry</button>}
 
       <div className="flex gap-2 mb-3 items-end">
         <div className="flex-1"><label className="block text-[10px] font-bold text-lma-slate-400 mb-0.5">From</label><input type="date" value={fromDate} onChange={e=>setFromDate(e.target.value)} className="w-full px-3 py-2 rounded-xl border-[1.5px] border-lma-slate-200 bg-white focus:border-lma-primary outline-none text-sm"/>{fromDate && <span className="block text-[10px] font-bold text-lma-slate-500 mt-1">{fmtDMY(fromDate)}</span>}</div>
@@ -91,8 +101,22 @@ export default function MiscIncomePage(){
         <div className="text-center text-sm text-lma-slate-500 py-8">No income entries yet.</div>
       ):(
         <div className="space-y-2">
-          {rowsF.map(r=>(
-            <button key={r.s_no} onClick={()=>setModal({mode:"edit",row:r})} className="w-full text-left bg-white rounded-xl p-3 shadow-sm hover:shadow-md active:scale-[0.99]">
+          {rowsF.map((r,i)=>(showDeleted?(
+            <div key={`${r.s_no}-${i}`} className="w-full text-left bg-lma-slate-50 border border-lma-slate-200 rounded-xl p-3 opacity-70">
+              <div className="flex items-center gap-2 mb-1">
+                <span className="text-sm font-bold text-lma-slate-500 truncate flex-1 line-through">{r.category||"Income"}</span>
+                <span className="text-sm font-extrabold text-lma-slate-400 line-through">+₹{r.amount}</span>
+              </div>
+              <div className="text-[11px] text-lma-slate-500 flex items-center gap-2 flex-wrap">
+                <CodePill code={r.branch||r.library}/>
+                <span>· {r.payment_tag}</span>
+                <span>· {fmtDMY(r.date)}</span>
+              </div>
+              <div className="text-[11px] text-lma-danger font-semibold mt-1">Deleted{r.deleted_on?` on ${fmtDMY(r.deleted_on)}`:""}{r.delete_reason?` — ${r.delete_reason}`:""}</div>
+              <button onClick={async()=>{ const res=await post("restoreMiscIncome",{s_no:r.s_no}); if(res){ showToast("Entry restored"); load(); } }} className="w-full mt-2 py-2 rounded-lg bg-lma-accent/10 text-lma-accent font-bold text-xs">↩ Restore</button>
+            </div>
+          ):(
+            <button key={`${r.s_no}-${i}`} onClick={()=>setModal({mode:"edit",row:r})} className="w-full text-left bg-white rounded-xl p-3 shadow-sm hover:shadow-md active:scale-[0.99]">
               <div className="flex items-center gap-2 mb-1">
                 <span className="text-sm font-bold text-lma-slate-800 truncate flex-1">{r.category||"Income"}</span>
                 <span className="text-sm font-extrabold text-lma-accent">+₹{r.amount}</span>
@@ -104,7 +128,7 @@ export default function MiscIncomePage(){
               </div>
               {r.remark&&<div className="text-[11px] text-lma-slate-400 mt-0.5">{r.remark}</div>}
             </button>
-          ))}
+          )))}
         </div>
       )}
 
@@ -118,9 +142,9 @@ export default function MiscIncomePage(){
               const r=await post(action,body);
               if(r){ setModal(null); showToast(modal.mode==="add"?"Income added":"Updated"); load(); }
             }}
-            onDelete={modal.mode==="edit"?async()=>{
-              const r=await post("deleteMiscIncome",{s_no:modal.row!.s_no});
-              if(r){ setModal(null); showToast("Deleted"); load(); }
+            onDelete={modal.mode==="edit"?async(reason:string)=>{
+              const r=await post("deleteMiscIncome",{s_no:modal.row!.s_no,reason});
+              if(r){ setModal(null); showToast("Entry deleted"); load(); }
             }:undefined}
           />
         </Sheet>
@@ -130,7 +154,7 @@ export default function MiscIncomePage(){
   );
 }
 
-function MiscForm({ init, mode, row, onCancel, onSave, onDelete }:{ init:InitData; mode:"add"|"edit"; row?:MiscRow; onCancel:()=>void; onSave:(p:any)=>void; onDelete?:()=>void }){
+function MiscForm({ init, mode, row, onCancel, onSave, onDelete }:{ init:InitData; mode:"add"|"edit"; row?:MiscRow; onCancel:()=>void; onSave:(p:any)=>void; onDelete?:(reason:string)=>void }){
   const branchedFirst:{code:string;label:string}[]=[];
   init.libraries.filter(l=>l.active).forEach(l=>{
     if(l.has_branches) init.branches.filter(b=>b.library_code===l.library_code&&b.active).forEach(b=>branchedFirst.push({code:b.branch_code,label:`${l.library_code} / ${b.branch_code}`}));
@@ -146,6 +170,7 @@ function MiscForm({ init, mode, row, onCancel, onSave, onDelete }:{ init:InitDat
   const [tag,setTag]=useState(row?.payment_tag||"");
   const [remark,setRemark]=useState(row?.remark||"");
   const [confirmDel,setConfirmDel]=useState(false);
+  const [delReason,setDelReason]=useState("");  
 
   const save=()=>{
     if(!libSel||!category||!amount||!tag) return;
@@ -182,9 +207,14 @@ function MiscForm({ init, mode, row, onCancel, onSave, onDelete }:{ init:InitDat
       </div>
       {onDelete&&(
         confirmDel?(
-          <div className="mt-3 flex gap-2.5">
-            <button onClick={()=>setConfirmDel(false)} className="flex-1 py-2.5 rounded-xl bg-lma-slate-100 text-lma-slate-600 font-bold text-sm">Keep</button>
-            <button onClick={onDelete} className="flex-1 py-2.5 rounded-xl bg-lma-danger text-white font-bold text-sm">Confirm Delete</button>
+          <div className="mt-3">
+            <L>Reason for deletion</L>
+            <I value={delReason} onChange={e=>setDelReason(e.target.value)} placeholder="e.g. duplicate entry, wrong amount" autoFocus/>
+            <div className="mt-2.5 flex gap-2.5">
+              <button onClick={()=>{setConfirmDel(false);setDelReason("");}} className="flex-1 py-2.5 rounded-xl bg-lma-slate-100 text-lma-slate-600 font-bold text-sm">Keep</button>
+              <button onClick={()=>onDelete(delReason.trim())} disabled={!delReason.trim()} className="flex-1 py-2.5 rounded-xl bg-lma-danger text-white font-bold text-sm disabled:opacity-50">Confirm Delete</button>
+            </div>
+            <p className="text-[10px] text-lma-slate-400 mt-1.5 text-center">Entry is kept and can be restored later.</p>
           </div>
         ):(
           <button onClick={()=>setConfirmDel(true)} className="w-full mt-3 py-2.5 rounded-xl text-lma-danger font-bold text-sm">Delete this entry</button>

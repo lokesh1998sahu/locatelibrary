@@ -6,7 +6,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useLMA, useScopeChips } from "../_components/LMAProvider";
-import { parsePhone10 } from "../_lib/phone";
+import { buildRenewReminder, buildDuesReminder } from "../_lib/reminderText";
 import ReceiptModal from "../_components/ReceiptModal";
 import StudentModal from "../_components/StudentModal";
 import BookingFlow from "../_components/BookingFlow";
@@ -25,6 +25,7 @@ interface Occupant {
   has_dues?:boolean;
   gender?:string;
   receipt_type?:string;
+  remark?:string;
   temporary_seat?:string;
 }
 interface TempHeldInfo { receipt_no:string; student_id:string; name:string; }
@@ -36,6 +37,7 @@ interface BlockInfo {
   block_from?:string; // formatted d-MMM-yyyy (blank if column absent)
   block_to?:string;
   expired?:boolean;   // A3: block_to has passed — block stays active, show hint
+  gender?:string;     // O5: optional block gender → M/F border
 }
 interface BoardCell {
   row_in_section:number; col_in_section:number; seat_no:number; display_label:string; notes:string; cell_type:string;
@@ -51,6 +53,7 @@ interface SidePanelItem {
   receipt_no:string; student_id:string; name:string; shift:string; shift_name:string;
   booking_to:string; fees_due_balance:number; dues_status:string; seat_label:string; temporary_seat:string;
   color?:"OK"|"EXPIRING"|"EXPIRED"; has_dues?:boolean; is_cross_library?:string;
+  phones?:{number:string;tag:string}[]; gender?:string;
 }
 interface BoardResp {
   ok:boolean; library_code:string; branch_code:string;
@@ -89,6 +92,7 @@ function panelItemToCell(it:SidePanelItem):BoardCell{
     fees_due_balance:it.fees_due_balance, dues_status:it.dues_status,
     is_cross_library:it.is_cross_library||"", color:(it.color||"OK"), has_dues:it.has_dues,
     temporary_seat:it.temporary_seat||"",
+    phones:it.phones, gender:it.gender,
   };
   const su=(it.shift||"").toUpperCase();
   return {
@@ -116,11 +120,11 @@ export default function BoardPage(){
   const [addBk,setAddBk]=useState<{libCode:string;seat:string;shift?:string}|null>(null);
   const [zoomPx,setZoomPx]=useState(0); // 0 = fit-to-width; >0 = fixed px per seat (on-screen zoom)
   // Block form + block-detail sheets
-  const [blockFormSeat,setBlockFormSeat]=useState<{label:string;suggestedShift:string;blockId?:string;reason?:string;from?:string;to?:string}|null>(null);
+  const [blockFormSeat,setBlockFormSeat]=useState<{label:string;suggestedShift:string;blockId?:string;reason?:string;from?:string;to?:string;gender?:string}|null>(null);
   const [blockDetail,setBlockDetail]=useState<{info:BlockInfo;seatLabel:string}|null>(null);
   // re-allot picker (from floating panel OR from DetailSheet "move"): receipt + context
   const [reAllot,setReAllot]=useState<{receipt_no:string;name:string;student_id:string;shift:string;original?:string}|null>(null);
-  const [shareEvent,setShareEvent]=useState<{text:string;label:string}|null>(null);
+  const [shareEvent,setShareEvent]=useState<{text:string;label:string;phones?:{number:string;tag:string}[]}|null>(null);
   const [exporting,setExporting]=useState(false);
   const [showPngMenu,setShowPngMenu]=useState(false);
   const [customScale,setCustomScale]=useState("2.5");
@@ -305,7 +309,7 @@ export default function BoardPage(){
         cell={detail.cell}
         panel={detail.panel}
         onBlock={(label,shift)=>{ setBlockFormSeat({label,suggestedShift:shift}); setDetail(null); }}
-        onEdit={(label,blk)=>{ setBlockFormSeat({label,suggestedShift:blk.shift,blockId:blk.block_id,reason:blk.reason,from:blk.block_from||"",to:blk.block_to||""}); setDetail(null); }}
+        onEdit={(label,blk)=>{ setBlockFormSeat({label,suggestedShift:blk.shift,blockId:blk.block_id,reason:blk.reason,from:blk.block_from||"",to:blk.block_to||"",gender:blk.gender||""}); setDetail(null); }}
         onClose={()=>setDetail(null)}
        router={router}
         onViewReceipt={(rno:string)=>{ setDetail(null); setOpenRno(rno); }}
@@ -319,11 +323,11 @@ export default function BoardPage(){
         showToast={showToast}
         onChanged={()=>{ setDetail(null); loadBoard(); }}
         onReAllot={(o)=>{ setDetail(null); setReAllot({receipt_no:o.receipt_no,name:o.name,student_id:o.student_id,shift:o.shift,original:o.temporary_seat||undefined}); }}
-        onShare={(text,label)=>setShareEvent({text,label})}
+        onShare={(text,label,phones)=>setShareEvent({text,label,phones})}
       />}
 
       {/* block-create form */}
-      {blockFormSeat&&<BlockForm seat={blockFormSeat.label} suggestedShift={blockFormSeat.suggestedShift} blockId={blockFormSeat.blockId} initReason={blockFormSeat.reason} initFrom={blockFormSeat.from} initTo={blockFormSeat.to} lib={resolved.lib} branch={resolved.branch} post={post} onClose={()=>setBlockFormSeat(null)} onSaved={()=>{ const wasEdit=!!blockFormSeat.blockId; setBlockFormSeat(null); showToast(wasEdit?"Block updated":"Seat blocked"); loadBoard(); }} showToast={showToast}/>}
+      {blockFormSeat&&<BlockForm seat={blockFormSeat.label} suggestedShift={blockFormSeat.suggestedShift} blockId={blockFormSeat.blockId} initReason={blockFormSeat.reason} initFrom={blockFormSeat.from} initTo={blockFormSeat.to} initGender={blockFormSeat.gender} lib={resolved.lib} branch={resolved.branch} post={post} onClose={()=>setBlockFormSeat(null)} onSaved={()=>{ const wasEdit=!!blockFormSeat.blockId; setBlockFormSeat(null); showToast(wasEdit?"Block updated":"Seat blocked"); loadBoard(); }} showToast={showToast}/>}
 
       {/* tap on a BLOCK tile → detail + actions */}
       {blockDetail&&<BlockDetailSheet info={blockDetail.info} seatLabel={blockDetail.seatLabel} lib={resolved.lib} branch={resolved.branch} post={post} onClose={()=>setBlockDetail(null)} onRemoved={()=>{ setBlockDetail(null); showToast("Removed"); loadBoard(); }} showToast={showToast}/>}
@@ -351,7 +355,7 @@ export default function BoardPage(){
             <div className="grid grid-cols-3 gap-2">
               <button onClick={()=>setShareEvent(null)} className="py-2.5 rounded-xl bg-lma-slate-100 text-lma-slate-600 font-bold text-xs">Skip</button>
               <button onClick={()=>{ navigator.clipboard.writeText(shareEvent.text); showToast("Copied"); }} className="py-2.5 rounded-xl bg-lma-slate-100 text-lma-slate-600 font-bold text-xs">Copy</button>
-              <a href={`https://wa.me/?text=${encodeURIComponent(shareEvent.text)}`} target="_blank" rel="noopener noreferrer" onClick={()=>setShareEvent(null)} className="py-2.5 rounded-xl bg-lma-accent text-white font-bold text-xs text-center">Share</a>
+              <WhatsAppButton phones={shareEvent.phones} text={shareEvent.text} label="Send" className="py-2.5 rounded-xl bg-lma-accent text-white font-bold text-xs text-center disabled:opacity-40"/>
             </div>
           </div>
         </div>
@@ -533,7 +537,7 @@ function SidePanel({ title, items, emoji, onReAllot, onTap }:{ title:string; ite
 // #26: on-demand copy row for a board occupant. Board occupancy doesn't carry
 // receipt_text/registration_text, so fetch the receipt by receipt_no when a copy
 // button is tapped. Group copy only for NEW receipts that have registration_text.
-function CollectDueInline({ receiptNo, balance, post, showToast, onChanged }:{ receiptNo:string; balance:number; post:(a:string,p:any)=>Promise<any>; showToast:(m:string,t?:"success"|"error")=>void; onChanged:()=>void }){
+function CollectDueInline({ receiptNo, balance, post, showToast, onChanged, onEvent }:{ receiptNo:string; balance:number; post:(a:string,p:any)=>Promise<any>; showToast:(m:string,t?:"success"|"error")=>void; onChanged:()=>void; onEvent?:(text:string)=>void }){
   const { init }=useLMA();
   const modes=(init?.paymentTags||[]).filter(t=>t.active).map(t=>t.tag_name);
   const [open,setOpen]=useState(false);
@@ -549,7 +553,7 @@ function CollectDueInline({ receiptNo, balance, post, showToast, onChanged }:{ r
     setBusy(true); setErr("");
     const r=await post("logFeePayment",{ receipt_no:receiptNo, payment_mode:mode, amount_received:n, notes:"", receipt_date:date });
     setBusy(false);
-    if(r&&r.ok!==false){ showToast("Due collected"); setOpen(false); onChanged(); } else setErr((r&&r.error)||"Could not collect due");
+    if(r&&r.ok!==false){ if(r.whatsapp_text&&onEvent) onEvent(String(r.whatsapp_text)); else showToast("Due collected"); setOpen(false); onChanged(); } else setErr((r&&r.error)||"Could not collect due");
   };
   if(!open) return <button onClick={()=>setOpen(true)} className="mt-1.5 w-full py-2 rounded-lg bg-lma-danger/10 text-lma-danger font-bold text-xs">💰 Collect Due (₹{balance})</button>;
   return (
@@ -568,7 +572,7 @@ function CollectDueInline({ receiptNo, balance, post, showToast, onChanged }:{ r
   );
 }
 
-function RefundInline({ receiptNo, post, showToast, onChanged }:{ receiptNo:string; post:(a:string,p:any)=>Promise<any>; showToast:(m:string,t?:"success"|"error")=>void; onChanged:()=>void }){
+function RefundInline({ receiptNo, post, showToast, onChanged, onEvent }:{ receiptNo:string; post:(a:string,p:any)=>Promise<any>; showToast:(m:string,t?:"success"|"error")=>void; onChanged:()=>void; onEvent?:(text:string)=>void }){
   const { init }=useLMA();
   const modes=(init?.paymentTags||[]).filter(t=>t.active).map(t=>t.tag_name);
   const [open,setOpen]=useState(false);
@@ -585,7 +589,7 @@ function RefundInline({ receiptNo, post, showToast, onChanged }:{ receiptNo:stri
     setBusy(true); setErr("");
     const r=await post("issueRefund",{ original_receipt_no:receiptNo, amount:n, refund_mode:mode, refund_reason:reason, linked_to_cancellation:false, refund_date:date });  
     setBusy(false);
-    if(r&&r.ok!==false){ showToast("Refund issued"); setOpen(false); onChanged(); } else setErr((r&&r.error)||"Could not issue refund");
+    if(r&&r.ok!==false){ if(r.whatsapp_text&&onEvent) onEvent(String(r.whatsapp_text)); else showToast("Refund issued"); setOpen(false); onChanged(); } else setErr((r&&r.error)||"Could not issue refund");
   };
   if(!open) return <button onClick={()=>setOpen(true)} className="mt-2 w-full py-1.5 rounded-lg bg-lma-slate-100 text-lma-slate-600 font-bold text-[11px]">↩ Issue Refund</button>;
   return (
@@ -649,6 +653,7 @@ function MoneyTrailInline({ receiptNo }:{ receiptNo:string }){
 
 function DetailCopyRow({ occupant, lib, branch, showToast }:{ occupant:Occupant; lib:string; branch:string; showToast:(m:string,t?:"success"|"error")=>void }){
   const [loading,setLoading]=useState<""|"student"|"group"|"contact">("");
+  const [sendText,setSendText]=useState("");
   const fetchReceipt=async()=>{
     const scope=branch||lib;
     const params=new URLSearchParams({action:"getReceiptLog",q:occupant.receipt_no,search_type:"RECEIPT_NO",limit:"5"});
@@ -660,7 +665,7 @@ function DetailCopyRow({ occupant, lib, branch, showToast }:{ occupant:Occupant;
     }
     return null;
   };
-  const copyStudent=async()=>{ setLoading("student"); const rec=await fetchReceipt(); setLoading(""); if(rec&&rec.receipt_text){ navigator.clipboard.writeText(rec.receipt_text); showToast("Student copy"); } else showToast("No receipt text","error"); };
+  const copyStudent=async()=>{ setLoading("student"); const rec=await fetchReceipt(); setLoading(""); if(rec&&rec.receipt_text){ setSendText(rec.receipt_text); } else showToast("No receipt text","error"); };
   const copyGroup=async()=>{ setLoading("group"); const rec=await fetchReceipt(); setLoading(""); if(rec&&rec.registration_text){ navigator.clipboard.writeText(rec.registration_text); showToast("Group copy"); } else showToast("No group text (renewal?)","error"); };
   
   return (
@@ -668,6 +673,20 @@ function DetailCopyRow({ occupant, lib, branch, showToast }:{ occupant:Occupant;
       <button disabled={!!loading} onClick={copyStudent} className="py-2 rounded-lg bg-lma-accent/10 text-lma-accent font-bold text-xs disabled:opacity-50">{loading==="student"?"…":"📋 Student"}</button>
       {occupant.receipt_type!=="RENEWAL"&&<button disabled={!!loading} onClick={copyGroup} className="py-2 rounded-lg bg-lma-primary/10 text-lma-primary font-bold text-xs disabled:opacity-50">{loading==="group"?"…":"📢 Group"}</button>}
       <ContactCopyButton name={occupant.name} library={branch||lib} studentId={occupant.student_id} phones={occupant.phones} onCopied={showToast} className="w-full py-2 rounded-lg bg-lma-warn/10 text-lma-warn font-bold text-xs whitespace-nowrap"/><WhatsAppButton phones={occupant.phones} className="w-full py-2 rounded-lg bg-lma-accent/10 text-lma-accent font-bold text-xs disabled:opacity-40"/>
+      {sendText&&(
+        <div className="fixed inset-0 z-[10002] flex items-center justify-center px-6" onClick={()=>setSendText("")}>
+          <div className="absolute inset-0 bg-black/40"/>
+          <div className="relative w-full max-w-xs bg-white rounded-2xl p-5 lma-slide-up" onClick={e=>e.stopPropagation()}>
+            <h4 className="text-sm font-extrabold text-lma-slate-900 mb-1">Student receipt</h4>
+            <p className="text-[12px] text-lma-slate-500 mb-3">Copy the text, or send it on WhatsApp.</p>
+            <div className="grid grid-cols-3 gap-2">
+              <button onClick={()=>setSendText("")} className="py-2.5 rounded-xl bg-lma-slate-100 text-lma-slate-600 font-bold text-xs">Cancel</button>
+              <button onClick={()=>{ navigator.clipboard.writeText(sendText); showToast("Student copy"); setSendText(""); }} className="py-2.5 rounded-xl bg-lma-slate-100 text-lma-slate-600 font-bold text-xs">Copy</button>
+              <WhatsAppButton phones={occupant.phones} text={sendText} label="Send" className="py-2.5 rounded-xl bg-lma-accent text-white font-bold text-xs text-center disabled:opacity-40"/>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -688,7 +707,7 @@ function Lane({ emoji, label, tone, children }:{ emoji:string; label:string; ton
 // Every seat tap opens this. A seat has up to 3 lanes (FULL DAY, or
 // MORNING + EVENING). Each lane is independently BOOKED / BLOCKED / VACANT,
 // rendered with the SAME architecture so blocks read like bookings.
-function DetailSheet({ cell, panel, onClose, router, scope, lib, branch, post, showToast, onChanged, onReAllot, onShare,  onBlock, onEdit, onViewReceipt, onViewStudent, onRenew, onAddBooking }:{ cell:BoardCell; panel?:boolean; onClose:()=>void; router:any; scope:string; lib:string; branch:string; post:(a:string,p:any)=>Promise<any>; showToast:(m:string,t?:"success"|"error")=>void; onChanged:()=>void; onReAllot:(o:Occupant)=>void; onShare:(text:string,label:string)=>void; onBlock:(seatLabel:string,shift:string)=>void; onEdit:(seatLabel:string,blk:BlockInfo)=>void; onViewReceipt:(rno:string)=>void; onViewStudent:(sid:string,cross?:string)=>void; onRenew:(rno:string,seat:string,shift:string)=>void; onAddBooking:(seat:string,shift:string)=>void }){
+function DetailSheet({ cell, panel, onClose, router, scope, lib, branch, post, showToast, onChanged, onReAllot, onShare,  onBlock, onEdit, onViewReceipt, onViewStudent, onRenew, onAddBooking }:{ cell:BoardCell; panel?:boolean; onClose:()=>void; router:any; scope:string; lib:string; branch:string; post:(a:string,p:any)=>Promise<any>; showToast:(m:string,t?:"success"|"error")=>void; onChanged:()=>void; onReAllot:(o:Occupant)=>void; onShare:(text:string,label:string,phones?:{number:string;tag:string}[])=>void; onBlock:(seatLabel:string,shift:string)=>void; onEdit:(seatLabel:string,blk:BlockInfo)=>void; onViewReceipt:(rno:string)=>void; onViewStudent:(sid:string,cross?:string)=>void; onRenew:(rno:string,seat:string,shift:string)=>void; onAddBooking:(seat:string,shift:string)=>void }){
   const [busy,setBusy]=useState(false);
   const [confirmVacate,setConfirmVacate]=useState<Occupant|null>(null);
   const [chooseMode,setChooseMode]=useState<""|"ADD"|"BLOCK">(""); // fully-vacant: ask shift before booking/blocking
@@ -714,7 +733,8 @@ function DetailSheet({ cell, panel, onClose, router, scope, lib, branch, post, s
     if(r&&r.ok!==false){ showToast("Removed"); onChanged(); } else showToast((r&&r.error)||"Failed","error");
   };
 
-  const remind=(o:Occupant)=>{ const ph=parsePhone10(o.phone||""); if(!ph){ showToast("No phone number on file","error"); return; } const expired=o.color==="EXPIRED"; const msg=`Hi ${o.name}, your seat at ${libName} ${expired?"expired on":"is expiring on"} ${fmtDMY(o.booking_to)}. Please deposit the fees to renew, or reply here if you're not continuing. Thank you!`; window.open(`https://wa.me/91${ph}?text=${encodeURIComponent(msg)}`,"_blank"); };
+  const remind=(o:Occupant):string=>buildRenewReminder(o.name, libName, fmtDMY(o.booking_to), o.color==="EXPIRED");
+  const duesReminder=(o:Occupant):string=>buildDuesReminder(o.name, libName, o.fees_due_balance);
   const doNotRenew=async(o:Occupant)=>{
     if(busy) return;
     if(!confirm(`Flag receipt ${o.receipt_no} as Do-Not-Renew? It will stop appearing in renewal lists.`)) return;
@@ -745,7 +765,8 @@ function DetailSheet({ cell, panel, onClose, router, scope, lib, branch, post, s
         <button onClick={()=>onViewStudent(o.student_id, o.is_cross_library)} className="block text-left text-sm font-extrabold text-lma-primary hover:underline">{o.student_id} · {o.name}</button>
         <div className="text-[11px] text-lma-slate-600 mt-0.5">Receipt <button onClick={()=>onViewReceipt(o.receipt_no)} className="text-lma-primary underline decoration-dotted font-bold">{o.receipt_no}</button> · until {fmtDMY(o.booking_to)}</div>
         {o.fees_due_balance>0&&<div className="text-[11px] font-bold text-lma-danger mt-0.5">Dues: ₹{o.fees_due_balance} ({o.dues_status})</div>}
-        {o.fees_due_balance>0&&<CollectDueInline receiptNo={o.receipt_no} balance={o.fees_due_balance} post={post} showToast={showToast} onChanged={onChanged}/>}
+        {o.remark&&<div className="text-[11px] text-lma-slate-500 mt-1 italic">📝 {o.remark}</div>}
+        {o.fees_due_balance>0&&<CollectDueInline receiptNo={o.receipt_no} balance={o.fees_due_balance} post={post} showToast={showToast} onChanged={onChanged} onEvent={(t)=>onShare(t,"Due collected",o.phones)}/>}
         <div className="grid grid-cols-2 gap-2 mt-2">
           <button onClick={()=>onRenew(o.receipt_no, cell.display_label, o.shift)} className="py-2 rounded-lg bg-lma-primary/10 text-lma-primary font-bold text-xs">Renew</button>
           {o.color==="EXPIRED"
@@ -756,9 +777,10 @@ function DetailSheet({ cell, panel, onClose, router, scope, lib, branch, post, s
             : <button disabled={busy} onClick={()=>setConfirmVacate(o)} className="py-2 rounded-lg bg-lma-warn/10 text-lma-warn font-bold text-xs disabled:opacity-50">Temp-Vacate</button>}
           <button disabled={busy} onClick={()=>onReAllot(o)} className="py-2 rounded-lg bg-lma-slate-100 text-lma-slate-600 font-bold text-xs disabled:opacity-50">{o.temporary_seat?"Re-Allot (restore)":"Re-Allot"}</button>
         </div>
-        {(o.color==="EXPIRED"||o.color==="EXPIRING")&&<button onClick={()=>remind(o)} className="w-full mt-2 py-2 rounded-lg bg-lma-accent/10 text-lma-accent font-bold text-xs">💬 Remind to Renew</button>}
+        {(o.color==="EXPIRED"||o.color==="EXPIRING")&&<WhatsAppButton phones={o.phones} text={remind(o)} label="💬 Remind to Renew" className="w-full mt-2 py-2 rounded-lg bg-lma-accent/10 text-lma-accent font-bold text-xs disabled:opacity-40"/>}
+        {(o.fees_due_balance>0&&o.dues_status==="PENDING")&&<WhatsAppButton phones={o.phones} text={duesReminder(o)} label="💬 Dues Reminder" className="w-full mt-2 py-2 rounded-lg bg-lma-warn/10 text-lma-warn font-bold text-xs disabled:opacity-40"/>}
         <MoneyTrailInline receiptNo={o.receipt_no}/>
-        <RefundInline receiptNo={o.receipt_no} post={post} showToast={showToast} onChanged={onChanged}/>
+        <RefundInline receiptNo={o.receipt_no} post={post} showToast={showToast} onChanged={onChanged} onEvent={(t)=>onShare(t,"Refund issued",o.phones)}/>
         <DetailCopyRow occupant={o} lib={lib} branch={branch} showToast={showToast}/>
       </div>
     );
@@ -1222,19 +1244,20 @@ function ShiftPicker({ value, onChange }:{ value:string; onChange:(v:string)=>vo
   );
 }
 
-function BlockForm({ seat, suggestedShift, blockId, initReason, initFrom, initTo, lib, branch, post, onClose, onSaved, showToast }:{ seat:string; suggestedShift:string; blockId?:string; initReason?:string; initFrom?:string; initTo?:string; lib:string; branch:string; post:(a:string,p:any)=>Promise<any>; onClose:()=>void; onSaved:()=>void; showToast:(m:string,t?:"success"|"error")=>void }){
+function BlockForm({ seat, suggestedShift, blockId, initReason, initFrom, initTo, initGender, lib, branch, post, onClose, onSaved, showToast }:{ seat:string; suggestedShift:string; blockId?:string; initReason?:string; initFrom?:string; initTo?:string; initGender?:string; lib:string; branch:string; post:(a:string,p:any)=>Promise<any>; onClose:()=>void; onSaved:()=>void; showToast:(m:string,t?:"success"|"error")=>void }){
   const isEdit=!!blockId;
   const [shift,setShift]=useState(suggestedShift||"FULL DAY");
   const [reason,setReason]=useState(initReason||"");
   const [from,setFrom]=useState(toIsoInput(initFrom||""));
   const [to,setTo]=useState(toIsoInput(initTo||""));
+  const [gender,setGender]=useState((initGender||"").toUpperCase());
   const [busy,setBusy]=useState(false);
   const submit=async()=>{
     if(busy) return;
     setBusy(true);
     const r=isEdit
-      ? await post("updateSeatBlock",{ block_id:blockId, shift_blocked:shift, reason, block_from:from, block_to:to })
-      : await post("addSeatBlock",{ library_code:lib, branch_code:branch, seat_display_label:seat, shift_blocked:shift, reason, block_from:from, block_to:to });
+      ? await post("updateSeatBlock",{ block_id:blockId, shift_blocked:shift, reason, block_from:from, block_to:to, gender })
+      : await post("addSeatBlock",{ library_code:lib, branch_code:branch, seat_display_label:seat, shift_blocked:shift, reason, block_from:from, block_to:to, gender });
     setBusy(false);
     if(r&&r.ok!==false){ onSaved(); }
     else { showToast((r&&r.error)||"Failed","error"); }
@@ -1248,6 +1271,12 @@ function BlockForm({ seat, suggestedShift, blockId, initReason, initFrom, initTo
         <p className="text-[11px] text-lma-slate-500 mb-3">{isEdit?"Update this block's shift, dates or reason.":"Walls off the seat for the chosen shift(s). No student attached."}</p>
         <Lbl>Shift</Lbl>
         <ShiftPicker value={shift} onChange={setShift}/>
+        <Lbl>Gender (optional)</Lbl>
+        <div className="grid grid-cols-3 gap-1.5">
+          {[["","Any"],["M","Male"],["F","Female"]].map(([v,lab])=>(
+            <button key={v} onClick={()=>setGender(v)} className={`py-2 rounded-lg text-[11px] font-bold border ${gender===v?"bg-lma-primary text-white border-lma-primary":"bg-lma-slate-50 text-lma-slate-700 border-lma-slate-200"}`}>{lab}</button>
+          ))}
+        </div>
         <Lbl>Reason (optional)</Lbl>
         <Txt value={reason} onChange={e=>setReason(e.target.value)} placeholder="Repair, reserved, etc."/>
         <div className="grid grid-cols-2 gap-2">

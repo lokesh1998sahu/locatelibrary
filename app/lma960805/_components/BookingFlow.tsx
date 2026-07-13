@@ -17,6 +17,7 @@
 // onComplete() lets the host refresh its data.
 
 import ContactCopyButton from "./ContactCopyButton";
+import WhatsAppButton from "./WhatsAppButton";
 import { useState, useEffect, useMemo, useRef } from "react";
 import { useLMA } from "./LMAProvider";
 import { toDmy, fmtDMY } from "../_lib/dates";
@@ -42,7 +43,7 @@ interface Receipt  { receipt_no:string; student_id:string; library:string; branc
 interface SeatCell { row_in_section:number; col_in_section:number; seat_no:number; display_label:string; notes:string; cell_type:string; state?:string; occupant?:{receipt_no:string;student_id:string;name:string;shift:string}|null; share_note?:string|null; }
 interface VacantResp { ok:boolean; needs_seat:boolean; sections:{section_name:string;section_order:number;rows:number;cols:number;seats:SeatCell[]}[]; }
 interface ResultData { receipt_no:string; student_id:string; receipt_text:string; registration_text:string; name:string; library:string; phones:PhoneEntry[]; }
-type PayMode = { mode:string; amount:string };
+type PayMode = { mode:string; amount:string; date?:string };
 interface BookingPreload { seat?:string; shift?:string; fee?:string; from?:string; to?:string; }
 interface BookingCtx { admitType:"NEW"|"RENEWAL"; student:Student|null; isCross:boolean; crossOrigin:string; renewFrom?:Receipt|null; preload?:BookingPreload; }
 
@@ -146,7 +147,7 @@ function DoneView({ result, onClose }:{ result:ResultData; onClose:()=>void }){
       <div className="text-[11px] font-bold text-lma-slate-500 uppercase tracking-wide mb-1.5">Receipt</div>
       <pre className="text-[11px] text-lma-slate-700 whitespace-pre-wrap font-mono bg-lma-slate-50 rounded-lg p-3 max-h-44 overflow-y-auto">{result.receipt_text}</pre>
       <div className="flex gap-2 mt-2">
-        <a href={wa(result.receipt_text)} target="_blank" rel="noopener noreferrer" className="flex-1 py-2.5 rounded-xl bg-lma-accent text-white font-bold text-sm text-center">Share on WhatsApp</a>
+        <WhatsAppButton phones={result.phones} text={result.receipt_text} label="Share on WhatsApp" className="flex-1 py-2.5 rounded-xl bg-lma-accent text-white font-bold text-sm text-center disabled:opacity-40"/>
         <button onClick={()=>copy(result.receipt_text,"r")} className="px-4 py-2.5 rounded-xl bg-lma-slate-100 text-lma-slate-600 font-bold text-sm">{copied==="r"?"Copied":"Copy"}</button>
       </div>
       {result.registration_text&&(
@@ -209,6 +210,20 @@ function StepStudent({ init, resolvedLib, resolvedBranch, admitType, post, showT
   const [crossOrigin,setCrossOrigin]=useState("");
 
   const searchScope = isCross ? crossOrigin : resolvedBranch || resolvedLib;
+
+  // O11(b): in RENEWAL search only, show just the LATEST receipt per student.
+  // getReceiptLog returns newest-first, so the first hit per student_id is the latest.
+  const receiptsShown = useMemo(()=>{
+    if(admitType!=="RENEWAL") return receiptResults;
+    const seen=new Set<string>(); const out:Receipt[]=[];
+    receiptResults.forEach(r=>{
+      const k=String(r.student_id||"").toUpperCase();
+      if(!k){ out.push(r); return; }
+      if(seen.has(k)) return;
+      seen.add(k); out.push(r);
+    });
+    return out;
+  },[receiptResults,admitType]);
 
   const doSearch=async()=>{
     const q=search.trim();
@@ -335,14 +350,14 @@ function StepStudent({ init, resolvedLib, resolvedBranch, admitType, post, showT
 
           {searching&&<div className="text-center text-sm text-lma-slate-500 py-3">Searching…</div>}
 
-          {hasSearched&&!searching&&receiptResults.length>0&&(
+          {hasSearched&&!searching&&receiptsShown.length>0&&(
             <div className="mb-3">
               <div className="flex items-center justify-between mb-1.5">
-                <p className="text-[10px] font-bold text-lma-slate-500 uppercase tracking-wider">🧾 Receipts ({receiptResults.length})</p>
-                {receiptResults.length>5&&(<div className="flex items-center gap-2 text-[11px] font-bold text-lma-slate-600"><button type="button" onClick={()=>setRcptPage(p=>Math.max(0,p-1))} disabled={rcptPage===0} className="px-2 py-0.5 rounded bg-lma-slate-100 disabled:opacity-40">‹</button><span>{rcptPage+1}/{Math.ceil(receiptResults.length/5)}</span><button type="button" onClick={()=>setRcptPage(p=>Math.min(Math.ceil(receiptResults.length/5)-1,p+1))} disabled={rcptPage>=Math.ceil(receiptResults.length/5)-1} className="px-2 py-0.5 rounded bg-lma-slate-100 disabled:opacity-40">›</button></div>)}
+                <p className="text-[10px] font-bold text-lma-slate-500 uppercase tracking-wider">🧾 Receipts ({receiptsShown.length})</p>
+                {receiptsShown.length>5&&(<div className="flex items-center gap-2 text-[11px] font-bold text-lma-slate-600"><button type="button" onClick={()=>setRcptPage(p=>Math.max(0,p-1))} disabled={rcptPage===0} className="px-2 py-0.5 rounded bg-lma-slate-100 disabled:opacity-40">‹</button><span>{rcptPage+1}/{Math.ceil(receiptsShown.length/5)}</span><button type="button" onClick={()=>setRcptPage(p=>Math.min(Math.ceil(receiptsShown.length/5)-1,p+1))} disabled={rcptPage>=Math.ceil(receiptsShown.length/5)-1} className="px-2 py-0.5 rounded bg-lma-slate-100 disabled:opacity-40">›</button></div>)}
               </div>
               <div className="space-y-2">
-                {receiptResults.slice(rcptPage*5,rcptPage*5+5).map(r=>(
+                {receiptsShown.slice(rcptPage*5,rcptPage*5+5).map(r=>(
                   <button key={r.receipt_no} onClick={()=>pickRenewalReceipt(r)} className="w-full text-left bg-white rounded-xl p-3 shadow-sm hover:shadow-md active:scale-[0.99] flex items-center gap-3 border-l-4 border-lma-primary">
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-1.5 flex-wrap">
@@ -381,7 +396,7 @@ function StepStudent({ init, resolvedLib, resolvedBranch, admitType, post, showT
             </div>
           )}
 
-          {hasSearched&&!searching&&studentResults.length===0&&receiptResults.length===0&&(
+          {hasSearched&&!searching&&studentResults.length===0&&receiptsShown.length===0&&(
             <div className="text-center text-sm text-lma-slate-500 py-3">No matches.</div>
           )}
         </div>
@@ -408,6 +423,8 @@ function StepBooking({ init, resolvedLib, resolvedBranch, ctx, post, showToast, 
   const [feesDue,setFeesDue]=useState("0");
   const [submitting,setSubmitting]=useState(false);
   const [showSeatPicker,setShowSeatPicker]=useState(false);
+  const [shiftTime,setShiftTime]=useState("");
+  const [remark,setRemark]=useState("");
 
   const shiftKey=normShiftKey(shift);
   const needsSeat=shift!==""&&shiftKey!=="OTHER";
@@ -430,6 +447,12 @@ function StepBooking({ init, resolvedLib, resolvedBranch, ctx, post, showToast, 
 
   useEffect(()=>{ if(!toEdited&&bookingFrom) setBookingTo(addOneMonth(bookingFrom)); },[bookingFrom,toEdited]);
 
+  useEffect(()=>{
+    if(!shift) return;
+    const s=init.shifts.find((x:any)=>normShiftKey(x.shift_key)===shiftKey);
+    setShiftTime(s?.shift_time||"");
+  },[shift]);   // eslint-disable-line
+
   const preloadFeeRef = useRef<string>("");
   useEffect(()=>{ preloadFeeRef.current = ctx.preload?.fee || ""; },[ctx]);
 
@@ -449,7 +472,7 @@ function StepBooking({ init, resolvedLib, resolvedBranch, ctx, post, showToast, 
   const activeShifts=init.shifts.filter((s:any)=>s.active);
   const shiftObj=activeShifts.find((s:any)=>normShiftKey(s.shift_key)===shiftKey);
 
-  const setPay=(i:number,field:"mode"|"amount",val:string)=>{ const n=[...pays]; n[i]={...n[i],[field]:val}; setPays(n); };
+  const setPay=(i:number,field:"mode"|"amount"|"date",val:string)=>{ const n=[...pays]; n[i]={...n[i],[field]:val}; setPays(n); };
   const addSplit=()=>{ if(pays.length<3) setPays([...pays,{mode:"",amount:""}]); };
   const removeSplit=(i:number)=>{ setPays(pays.filter((_,j)=>j!==i)); };
 
@@ -479,14 +502,15 @@ function StepBooking({ init, resolvedLib, resolvedBranch, ctx, post, showToast, 
     const payload:any={
       library:resolvedLib, branch:resolvedBranch,
       name:ctx.student?.name,
-      shift:shiftKey, shift_name:shiftObj?.shift_name||"", shift_time:shiftObj?.shift_time||"",
+      shift:shiftKey, shift_name:shiftObj?.shift_name||"", shift_time:(shiftTime||shiftObj?.shift_time||""),
       seat_no: needsSeat?seat:"",
       booking_from:bookingFrom, booking_to:bookingTo,
       receipt_date:receiptDate,
       fee:Number(fee),
-      pay_modes:validPays.map(p=>({mode:p.mode,amount:Number(p.amount)})),
+      pay_modes:validPays.map(p=>({mode:p.mode,amount:Number(p.amount),date:p.date||receiptDate})),
       fees_due:Number(feesDue),
       type:ctx.admitType,
+      remark:remark.trim(),
     };
     if(ctx.admitType==="NEW"){
       payload.phones=ctx.student?.phones||[];
@@ -531,6 +555,11 @@ function StepBooking({ init, resolvedLib, resolvedBranch, ctx, post, showToast, 
           </div>
         </div>
 
+        {shift&&<div>
+          <FieldLabel>Time window</FieldLabel>
+          <Inp value={shiftTime} onChange={e=>setShiftTime(e.target.value)} placeholder="e.g. 7AM to 2PM"/>
+        </div>}
+
         {needsSeat&&(
           <div>
             <FieldLabel>Seat</FieldLabel>
@@ -554,13 +583,19 @@ function StepBooking({ init, resolvedLib, resolvedBranch, ctx, post, showToast, 
         <div>
           <FieldLabel>Payment</FieldLabel>
           {pays.map((p,i)=>(
-            <div key={i} className="flex gap-2 mb-2">
-              <select value={p.mode} onChange={e=>setPay(i,"mode",e.target.value)} className="flex-1 px-2.5 py-2.5 rounded-xl border-[1.5px] border-lma-slate-200 bg-lma-slate-50 text-sm font-medium">
-                <option value="">Mode…</option>
-                {init.paymentTags.filter((t:any)=>t.active).map((t:any)=><option key={t.tag_name} value={t.tag_name}>{t.tag_name}</option>)}
-              </select>
-              <input type="number" inputMode="numeric" value={p.amount} onChange={e=>setPay(i,"amount",e.target.value)} placeholder="₹" className="w-24 px-3 py-2.5 rounded-xl border-[1.5px] border-lma-slate-200 bg-lma-slate-50 text-sm font-medium"/>
-              {pays.length>1&&<button onClick={()=>removeSplit(i)} className="px-2 text-lma-danger font-bold">✕</button>}
+            <div key={i} className="mb-2">
+              <div className="flex gap-2">
+                <select value={p.mode} onChange={e=>setPay(i,"mode",e.target.value)} className="flex-1 px-2.5 py-2.5 rounded-xl border-[1.5px] border-lma-slate-200 bg-lma-slate-50 text-sm font-medium">
+                  <option value="">Mode…</option>
+                  {init.paymentTags.filter((t:any)=>t.active).map((t:any)=><option key={t.tag_name} value={t.tag_name}>{t.tag_name}</option>)}
+                </select>
+                <input type="number" inputMode="numeric" value={p.amount} onChange={e=>setPay(i,"amount",e.target.value)} placeholder="₹" className="w-24 px-3 py-2.5 rounded-xl border-[1.5px] border-lma-slate-200 bg-lma-slate-50 text-sm font-medium"/>
+                {pays.length>1&&<button onClick={()=>removeSplit(i)} className="px-2 text-lma-danger font-bold">✕</button>}
+              </div>
+              {p.mode&&<div className="flex items-center gap-2 mt-1.5">
+                <span className="text-[10px] font-bold text-lma-slate-400 shrink-0">Paid on</span>
+                <input type="date" value={dmyToIso(p.date||receiptDate)} onChange={e=>setPay(i,"date",isoToDmy(e.target.value))} className="flex-1 px-2.5 py-2 rounded-lg border-[1.5px] border-lma-slate-200 bg-lma-slate-50 text-xs font-medium"/>
+              </div>}
             </div>
           ))}
           {pays.length<3&&<button onClick={addSplit} className="text-xs font-bold text-lma-primary">+ Split payment</button>}
@@ -569,6 +604,8 @@ function StepBooking({ init, resolvedLib, resolvedBranch, ctx, post, showToast, 
         <div><FieldLabel>Fees Due (auto)</FieldLabel><Inp type="number" inputMode="numeric" value={feesDue} onChange={e=>setFeesDue(e.target.value)}/>
           {Number(feesDue)>0&&<p className="text-[10px] text-lma-warn font-bold mt-1">Due will be logged as PENDING.</p>}
         </div>
+
+        <div><FieldLabel>Remark (optional)</FieldLabel><Inp value={remark} onChange={e=>setRemark(e.target.value)} placeholder="appears at the bottom of the receipt"/></div>
 
         <button onClick={handleSubmit} disabled={submitting} className="w-full mt-2 py-3.5 rounded-xl bg-gradient-to-br from-lma-primary to-lma-primary-2 text-white font-extrabold shadow-md disabled:opacity-50">
           {submitting?"Creating…":(ctx.admitType==="RENEWAL"?"Renew →":"Create Receipt")}
