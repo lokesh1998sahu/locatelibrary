@@ -155,8 +155,9 @@ export default function BoardPage(){
   const [showExport,setShowExport]=useState(false);
   const [genderM,setGenderM]=useState(false);
   const [genderF,setGenderF]=useState(false);
+  const [colorFilter,setColorFilter]=useState<string>("");
 
-  const downloadPng=async(scale:number=2.5)=>{
+  const downloadPng=async(scale:number=2.5, nodeId:string="board-detailed-export")=>{
     if(!board) return;
     setExporting(true);
     setShowExport(true);
@@ -171,12 +172,12 @@ export default function BoardPage(){
       }
       // wait a tick for the export layout to render
       await new Promise(r=>setTimeout(r,150));
-      const node=document.getElementById("board-detailed-export");
+      const node=document.getElementById(nodeId);
       if(!node){ alert("Export layout not found."); return; }
       const h2c=(window as any).html2canvas;
       const canvas=await h2c(node,{ backgroundColor:"#ffffff", scale:scale, logging:false, useCORS:true, width:node.scrollWidth, height:node.scrollHeight, windowWidth:node.scrollWidth, windowHeight:node.scrollHeight });
       const link=document.createElement("a");
-      link.download=`${resolved.label.replace(/[^a-z0-9]/gi,"_")}_${new Date().toISOString().slice(0,10)}.png`;
+      link.download=`${resolved.label.replace(/[^a-z0-9]/gi,"_")}_${nodeId==="board-vacancy-export"?"vacancy_":""}${new Date().toISOString().slice(0,10)}.png`;
       link.href=canvas.toDataURL("image/png");
       document.body.appendChild(link); link.click(); document.body.removeChild(link);
     }catch(e){
@@ -209,9 +210,18 @@ export default function BoardPage(){
   </button>
   {showPngMenu&&(
     <div className="absolute right-0 top-10 z-50 bg-white rounded-xl shadow-lg border border-lma-slate-200 p-2 flex flex-col gap-1 min-w-[120px]" onClick={e=>e.stopPropagation()}>
+      <div className="text-[10px] font-bold text-lma-slate-400 px-1 pb-0.5">Detailed · with names</div>
       {([{label:"⬇ HD",scale:2.5},{label:"⬇ MD",scale:1.8},{label:"⬇ SD",scale:1.2}]).map(o=>(
         <button key={o.scale} onClick={()=>{ setShowPngMenu(false); downloadPng(o.scale); }}
           className="text-xs font-bold px-3 py-2 rounded-lg bg-lma-primary/10 text-lma-primary hover:bg-lma-primary hover:text-white text-center w-full">
+          {o.label} · {o.scale}x
+        </button>
+      ))}
+      <div className="h-px bg-lma-slate-200 my-1"/>
+      <div className="text-[10px] font-bold text-lma-slate-400 px-1 pb-0.5">Vacancy chart · no names</div>
+      {([{label:"⬇ HD",scale:2.5},{label:"⬇ MD",scale:1.8},{label:"⬇ SD",scale:1.2}]).map(o=>(
+        <button key={"v"+o.scale} onClick={()=>{ setShowPngMenu(false); downloadPng(o.scale,"board-vacancy-export"); }}
+          className="text-xs font-bold px-3 py-2 rounded-lg bg-lma-accent/10 text-lma-accent hover:bg-lma-accent hover:text-white text-center w-full">
           {o.label} · {o.scale}x
         </button>
       ))}
@@ -257,7 +267,7 @@ export default function BoardPage(){
 
       {/* legend */}
       <div className="flex gap-3 mb-3 text-[10px] text-lma-slate-500 overflow-x-auto whitespace-nowrap pb-1">
-        {(["OK","EXPIRING_PRIMARY","EXPIRING","EXPIRED","DUES"] as const).map((k)=>{const v=COLOR[k];return (<span key={k} className="flex items-center gap-1"><span className="w-3 h-3 rounded inline-block" style={{background:v.bg,border:`1px solid ${v.border}`}}></span>{v.label}</span>);})}
+        {(["OK","EXPIRING_PRIMARY","EXPIRING","EXPIRED","DUES"] as const).map((k)=>{const v=COLOR[k];const on=colorFilter===k;return (<button key={k} onClick={()=>setColorFilter(f=>f===k?"":k)} className={`flex items-center gap-1 shrink-0 px-1.5 py-0.5 rounded-lg transition ${on?"bg-lma-slate-900 text-white font-bold":""}`}><span className="w-3 h-3 rounded inline-block" style={{background:v.bg,border:`1px solid ${v.border}`}}></span>{v.label}</button>);})}
         <span className="flex items-center gap-1 shrink-0"><span className="w-3 h-3 rounded inline-block" style={{background:"repeating-linear-gradient(45deg,#fecaca,#fecaca 2px,#fee2e2 2px,#fee2e2 4px)",border:"1px solid #b91c1c"}}></span>Blocked</span><span className="flex items-center gap-1 shrink-0"><span className="w-3 h-3 rounded inline-block bg-lma-slate-100 border border-lma-slate-200"></span>Vacant</span>
       </div>
 
@@ -290,7 +300,7 @@ export default function BoardPage(){
                     const r=Math.floor(idx/sec.cols)+1,c=(idx%sec.cols)+1;
                     const cell=sec.seats.find(s=>s.row_in_section===r&&s.col_in_section===c);
                     if(!cell) return <div key={idx} className="aspect-square"/>;
-                    return <SeatTile key={idx} cell={cell} shiftView={shiftView} genderM={genderM} genderF={genderF} onOpen={()=>setDetail({cell})}/>;
+                    return <SeatTile key={idx} cell={cell} shiftView={shiftView} genderM={genderM} genderF={genderF} colorFilter={colorFilter} onOpen={()=>setDetail({cell})}/>;
                   })}
                 </div>
               </div>
@@ -298,9 +308,9 @@ export default function BoardPage(){
           ))}
 
           {/* side panels */}
-          <SidePanel title="Unassigned (booked, no seat)" items={board.unassigned} emoji="📋" onTap={(it)=>setDetail({cell:panelItemToCell(it),panel:true})}/>
-          <SidePanel title="Floating (temp-vacated)" items={board.floating} emoji="🌀" onTap={(it)=>setDetail({cell:panelItemToCell(it),panel:true})} onReAllot={(it)=>setReAllot({receipt_no:it.receipt_no,name:it.name,student_id:it.student_id,shift:it.shift,original:it.temporary_seat})}/>
-          <SidePanel title="Other shift (no fixed seat)" items={board.otherShift} emoji="🔄" onTap={(it)=>setDetail({cell:panelItemToCell(it),panel:true})}/>
+          <SidePanel title="Unassigned (booked, no seat)" items={board.unassigned} emoji="📋" colorFilter={colorFilter} onTap={(it)=>setDetail({cell:panelItemToCell(it),panel:true})}/>
+          <SidePanel title="Floating (temp-vacated)" items={board.floating} emoji="🌀" colorFilter={colorFilter} onTap={(it)=>setDetail({cell:panelItemToCell(it),panel:true})} onReAllot={(it)=>setReAllot({receipt_no:it.receipt_no,name:it.name,student_id:it.student_id,shift:it.shift,original:it.temporary_seat})}/>
+          <SidePanel title="Other shift (no fixed seat)" items={board.otherShift} emoji="🔄" colorFilter={colorFilter} onTap={(it)=>setDetail({cell:panelItemToCell(it),panel:true})}/>
         </div>
       )}
 
@@ -355,7 +365,7 @@ export default function BoardPage(){
             <div className="grid grid-cols-3 gap-2">
               <button onClick={()=>setShareEvent(null)} className="py-2.5 rounded-xl bg-lma-slate-100 text-lma-slate-600 font-bold text-xs">Skip</button>
               <button onClick={()=>{ navigator.clipboard.writeText(shareEvent.text); showToast("Copied"); }} className="py-2.5 rounded-xl bg-lma-slate-100 text-lma-slate-600 font-bold text-xs">Copy</button>
-              <WhatsAppButton phones={shareEvent.phones} text={shareEvent.text} label="Send" className="py-2.5 rounded-xl bg-lma-accent text-white font-bold text-xs text-center disabled:opacity-40"/>
+              <WhatsAppButton phones={shareEvent.phones} text={shareEvent.text} label="Send" className="w-full py-2.5 rounded-xl bg-lma-accent text-white font-bold text-xs text-center disabled:opacity-40"/>
             </div>
           </div>
         </div>
@@ -363,6 +373,7 @@ export default function BoardPage(){
 
        {/* off-screen detailed export layout */}
       {showExport&&board&&<DetailedExport board={board} label={resolved.label} shiftView={shiftView} genderM={genderM} genderF={genderF}/>}
+      {showExport&&board&&<VacancyExport board={board} label={resolved.label} shiftView={shiftView} genderM={genderM} genderF={genderF}/>}
     </div>
   );
 }
@@ -389,7 +400,7 @@ function FitText({ text, color="currentColor", maxPx=11 }:{ text:string; color?:
 }
 
 // ── SEAT TILE ────────────────────────────────────────────────────
-function SeatTile({ cell, shiftView, onOpen, genderM, genderF }:{ cell:BoardCell; shiftView:ShiftView; onOpen:()=>void; genderM:boolean; genderF:boolean }){
+function SeatTile({ cell, shiftView, onOpen, genderM, genderF, colorFilter }:{ cell:BoardCell; shiftView:ShiftView; onOpen:()=>void; genderM:boolean; genderF:boolean; colorFilter?:string }){
   if(cell.cell_type==="DEAD") return <div className="aspect-square rounded" style={{background:"#f8fafc",border:"1px solid #e2e8f0"}}/>;
 
   // TRUE occupancy — NEVER hidden by the shift view (the toggle bug: occupants
@@ -417,7 +428,9 @@ function SeatTile({ cell, shiftView, onOpen, genderM, genderF }:{ cell:BoardCell
       shiftView==="EVENING"  ? eveningFree :
       shiftView==="FULL DAY" ? (morningFree && eveningFree) :
       true; // ALL → no filtering
-  const dim = shiftView!=="ALL" && !bookableForView;
+  const matchColor=(o:Occupant|null)=>{ if(!o) return false; if(colorFilter==="DUES") return !!o.has_dues||o.fees_due_balance>0; const key=(o.color==="EXPIRING"&&o.urgent)?"EXPIRING_PRIMARY":o.color; return key===colorFilter; };
+  const colorDim = !!colorFilter && !(matchColor(fd)||matchColor(m)||matchColor(e));
+  const dim = (shiftView!=="ALL" && !bookableForView) || colorDim;
   const dimStyle = dim ? { opacity:0.32 } : null;
 
   // FULL DAY occupant fills whole tile
@@ -435,11 +448,12 @@ function SeatTile({ cell, shiftView, onOpen, genderM, genderF }:{ cell:BoardCell
   // FULL-DAY BLOCK fills whole tile too
   if(bF){
     return (
-      <button onClick={onOpen} className="aspect-square rounded flex flex-col items-center justify-center overflow-hidden px-0.5" style={{
+      <button onClick={onOpen} className="aspect-square rounded flex flex-col items-center justify-center overflow-hidden px-0.5 relative" style={{
         background: bF.expired?"repeating-linear-gradient(45deg,#6b0a0a,#6b0a0a 4px,#8a1a1a 4px,#8a1a1a 8px)":"repeating-linear-gradient(45deg,#fecaca,#fecaca 4px,#fee2e2 4px,#fee2e2 8px)",
         border: bF.expired?"1.5px solid #6b0a0a":"1.5px solid #b91c1c",
         color: bF.expired?"#ffffff":"#7f1d1d", ...dimStyle
       }}>
+        {ovl(bF.gender)&&<><span style={{position:"absolute",inset:0,border:`1.5px solid ${ovl(bF.gender)}`,borderRadius:"4px",pointerEvents:"none"}}/><span style={{position:"absolute",inset:"1.5px",border:"1px solid #ffffff",borderRadius:"2px",pointerEvents:"none"}}/></>}
         <span className="text-[10px] font-extrabold leading-none">{cell.display_label}</span>
         <div className="w-full px-0.5 mt-0.5"><FitText text={shortDate(bF.block_to||"")||"BLK"} color={bF.expired?"#fecaca":"#7f1d1d"} maxPx={11}/></div>
       </button>
@@ -479,19 +493,19 @@ function SeatTile({ cell, shiftView, onOpen, genderM, genderF }:{ cell:BoardCell
       ...dimStyle
     }}>
       <button onClick={onOpen} className="flex-1 flex items-center justify-center text-[7px] font-bold leading-none relative" style={halfStyle(mCol,bM,heldM)}>
-        {ovl(m?.gender)&&<><span style={{position:"absolute",inset:0,border:`1.5px solid ${ovl(m?.gender)}`,pointerEvents:"none"}}/><span style={{position:"absolute",inset:"1.5px",border:"1px solid #ffffff",pointerEvents:"none"}}/></>}
+        {(ovl(m?.gender)||ovl(bM?.gender))&&<><span style={{position:"absolute",inset:0,border:`1.5px solid ${ovl(m?.gender)||ovl(bM?.gender)}`,pointerEvents:"none"}}/><span style={{position:"absolute",inset:"1.5px",border:"1px solid #ffffff",pointerEvents:"none"}}/></>}
         {halfText(m,bM,heldM,(shiftView==="ALL"||shiftView==="MORNING")?"·":"") }
       </button>
       <button onClick={onOpen} className="text-[9px] font-extrabold text-lma-slate-700 leading-none py-0.5">{cell.display_label}</button>
       <button onClick={onOpen} className="flex-1 flex items-center justify-center text-[7px] font-bold leading-none relative" style={halfStyle(eCol,bE,heldE)}>
-        {ovl(e?.gender)&&<><span style={{position:"absolute",inset:0,border:`1.5px solid ${ovl(e?.gender)}`,pointerEvents:"none"}}/><span style={{position:"absolute",inset:"1.5px",border:"1px solid #ffffff",pointerEvents:"none"}}/></>}
+        {(ovl(e?.gender)||ovl(bE?.gender))&&<><span style={{position:"absolute",inset:0,border:`1.5px solid ${ovl(e?.gender)||ovl(bE?.gender)}`,pointerEvents:"none"}}/><span style={{position:"absolute",inset:"1.5px",border:"1px solid #ffffff",pointerEvents:"none"}}/></>}
         {halfText(e,bE,heldE,(shiftView==="ALL"||shiftView==="EVENING")?"·":"") }
       </button>
     </div>
   );
 }
 // ── SIDE PANEL ───────────────────────────────────────────────────
-function SidePanel({ title, items, emoji, onReAllot, onTap }:{ title:string; items:SidePanelItem[]; emoji:string; onReAllot?:(it:SidePanelItem)=>void; onTap?:(it:SidePanelItem)=>void }){
+  function SidePanel({ title, items, emoji, onReAllot, onTap, colorFilter }:{ title:string; items:SidePanelItem[]; emoji:string; onReAllot?:(it:SidePanelItem)=>void; onTap?:(it:SidePanelItem)=>void; colorFilter?:string }){
   const [open,setOpen]=useState((items?.length||0)<=6);   // collapsed by default when long (>6)
   if(!items||items.length===0) return null;
   // Full-tile color scheme (matches seat tiles), with legible text per state.
@@ -513,9 +527,10 @@ function SidePanel({ title, items, emoji, onReAllot, onTap }:{ title:string; ite
       <div className="space-y-1.5">
         {items.map(it=>{
           const L=look(it);
+          const itMatch = !colorFilter ? true : (colorFilter==="DUES" ? (!!it.has_dues||it.fees_due_balance>0) : ((it.color==="EXPIRING"&&(it as any).urgent)?"EXPIRING_PRIMARY":(it.color||"OK"))===colorFilter);
           return (
           <div key={it.receipt_no} className="rounded-lg px-2.5 py-1.5 flex items-center gap-2 text-[11px]"
-               style={{background:L.bg, boxShadow:L.ring?`inset 0 0 0 2px ${L.ring}`:undefined}}>
+               style={{background:L.bg, boxShadow:L.ring?`inset 0 0 0 2px ${L.ring}`:undefined, opacity:itMatch?1:0.32}}>
             <button onClick={()=>onTap&&onTap(it)} className="flex items-center gap-2 flex-1 min-w-0 text-left">
               <span className="font-extrabold shrink-0" style={{color:L.fg}}>{it.student_id}</span>
               <span className="truncate flex-1 font-medium" style={{color:L.fg}}>{it.name}</span>
@@ -682,7 +697,7 @@ function DetailCopyRow({ occupant, lib, branch, showToast }:{ occupant:Occupant;
             <div className="grid grid-cols-3 gap-2">
               <button onClick={()=>setSendText("")} className="py-2.5 rounded-xl bg-lma-slate-100 text-lma-slate-600 font-bold text-xs">Cancel</button>
               <button onClick={()=>{ navigator.clipboard.writeText(sendText); showToast("Student copy"); setSendText(""); }} className="py-2.5 rounded-xl bg-lma-slate-100 text-lma-slate-600 font-bold text-xs">Copy</button>
-              <WhatsAppButton phones={occupant.phones} text={sendText} label="Send" className="py-2.5 rounded-xl bg-lma-accent text-white font-bold text-xs text-center disabled:opacity-40"/>
+              <WhatsAppButton phones={occupant.phones} text={sendText} label="Send" className="w-full py-2.5 rounded-xl bg-lma-accent text-white font-bold text-xs text-center disabled:opacity-40"/>
             </div>
           </div>
         </div>
@@ -707,9 +722,10 @@ function Lane({ emoji, label, tone, children }:{ emoji:string; label:string; ton
 // Every seat tap opens this. A seat has up to 3 lanes (FULL DAY, or
 // MORNING + EVENING). Each lane is independently BOOKED / BLOCKED / VACANT,
 // rendered with the SAME architecture so blocks read like bookings.
-function DetailSheet({ cell, panel, onClose, router, scope, lib, branch, post, showToast, onChanged, onReAllot, onShare,  onBlock, onEdit, onViewReceipt, onViewStudent, onRenew, onAddBooking }:{ cell:BoardCell; panel?:boolean; onClose:()=>void; router:any; scope:string; lib:string; branch:string; post:(a:string,p:any)=>Promise<any>; showToast:(m:string,t?:"success"|"error")=>void; onChanged:()=>void; onReAllot:(o:Occupant)=>void; onShare:(text:string,label:string,phones?:{number:string;tag:string}[])=>void; onBlock:(seatLabel:string,shift:string)=>void; onEdit:(seatLabel:string,blk:BlockInfo)=>void; onViewReceipt:(rno:string)=>void; onViewStudent:(sid:string,cross?:string)=>void; onRenew:(rno:string,seat:string,shift:string)=>void; onAddBooking:(seat:string,shift:string)=>void }){
+function DetailSheet({ cell, panel, onClose, scope, lib, branch, post, showToast, onChanged, onReAllot, onShare,  onBlock, onEdit, onViewReceipt, onViewStudent, onRenew, onAddBooking }:{ cell:BoardCell; panel?:boolean; onClose:()=>void; router:any; scope:string; lib:string; branch:string; post:(a:string,p:any)=>Promise<any>; showToast:(m:string,t?:"success"|"error")=>void; onChanged:()=>void; onReAllot:(o:Occupant)=>void; onShare:(text:string,label:string,phones?:{number:string;tag:string}[])=>void; onBlock:(seatLabel:string,shift:string)=>void; onEdit:(seatLabel:string,blk:BlockInfo)=>void; onViewReceipt:(rno:string)=>void; onViewStudent:(sid:string,cross?:string)=>void; onRenew:(rno:string,seat:string,shift:string)=>void; onAddBooking:(seat:string,shift:string)=>void }){
   const [busy,setBusy]=useState(false);
   const [confirmVacate,setConfirmVacate]=useState<Occupant|null>(null);
+  const [confirmCancel,setConfirmCancel]=useState<Occupant|null>(null);
   const [chooseMode,setChooseMode]=useState<""|"ADD"|"BLOCK">(""); // fully-vacant: ask shift before booking/blocking
   const L = branch||lib;
   const { init }=useLMA();
@@ -723,6 +739,13 @@ function DetailSheet({ cell, panel, onClose, router, scope, lib, branch, post, s
     setBusy(false);
     if(r&&r.vacated){ showToast(`${o.student_id} parked (seat ${r.original_seat} held)`); if(r.whatsapp_text) onShare(r.whatsapp_text,"Seat temporarily vacated"); onChanged(); }
     else showToast(r&&r.error?r.error:"Temp-vacate failed","error");
+  };
+  const doCancel=async(o:Occupant)=>{
+    setBusy(true);
+    const r=await post("markReceiptCancelled",{receipt_no:o.receipt_no});
+    setBusy(false);
+    if(r&&r.updated){ showToast(`Receipt ${o.receipt_no} cancelled — seat freed`); if(r.cancel_whatsapp_text) onShare(r.cancel_whatsapp_text,"Booking cancelled",o.phones); onChanged(); }
+    else showToast(r&&r.error?r.error:"Cancel failed","error");
   };
   const removeBlock=async(blk:BlockInfo)=>{
     if(busy) return;
@@ -771,7 +794,7 @@ function DetailSheet({ cell, panel, onClose, router, scope, lib, branch, post, s
           <button onClick={()=>onRenew(o.receipt_no, cell.display_label, o.shift)} className="py-2 rounded-lg bg-lma-primary/10 text-lma-primary font-bold text-xs">Renew</button>
           {o.color==="EXPIRED"
             ? <button disabled={busy} onClick={()=>doNotRenew(o)} className="py-2 rounded-lg bg-lma-slate-100 text-lma-slate-600 font-bold text-xs disabled:opacity-50">Do Not Renew</button>
-            : <button onClick={()=>router.push("/lma960805/renewals")} className="py-2 rounded-lg bg-lma-slate-100 text-lma-slate-600 font-bold text-xs">Cancel</button>}
+            : <button disabled={busy} onClick={()=>setConfirmCancel(o)} className="py-2 rounded-lg bg-lma-slate-100 text-lma-slate-600 font-bold text-xs disabled:opacity-50">Cancel</button>}
           {o.temporary_seat
             ? <div className="py-2 rounded-lg bg-lma-warn/10 text-lma-warn font-bold text-xs text-center">Floating · was {o.temporary_seat}</div>
             : <button disabled={busy} onClick={()=>setConfirmVacate(o)} className="py-2 rounded-lg bg-lma-warn/10 text-lma-warn font-bold text-xs disabled:opacity-50">Temp-Vacate</button>}
@@ -895,7 +918,46 @@ const BlockPanel=(blk:BlockInfo)=>{
             </div>
           </div>
         )}
+        {confirmCancel&&(
+          <div className="fixed inset-0 z-[9999] flex items-center justify-center px-6" onClick={()=>setConfirmCancel(null)}>
+            <div className="absolute inset-0 bg-black/40"/>
+            <div className="relative w-full max-w-xs bg-white rounded-2xl p-5 lma-slide-up" onClick={e=>e.stopPropagation()}>
+              <h4 className="text-sm font-extrabold text-lma-slate-900 mb-1">Cancel booking on seat {cell.display_label}?</h4>
+              <p className="text-[12px] text-lma-slate-500 mb-2">{confirmCancel.student_id} · {confirmCancel.name}&rsquo;s receipt {confirmCancel.receipt_no} will be marked CANCELLED and seat {cell.display_label} freed immediately. Nothing is carried forward.</p>
+              {confirmCancel.fees_due_balance>0&&<p className="text-[11px] font-bold text-lma-danger bg-lma-danger/10 rounded-lg p-2 mb-2">&#9888; &#8377;{confirmCancel.fees_due_balance} dues outstanding. Refunds are separate (use Issue Refund).</p>}
+              <div className="flex gap-2">
+                <button onClick={()=>setConfirmCancel(null)} className="flex-1 py-2.5 rounded-xl bg-lma-slate-100 text-lma-slate-600 font-bold text-sm">Keep</button>
+                <button disabled={busy} onClick={()=>{const o=confirmCancel;setConfirmCancel(null);doCancel(o);}} className="flex-1 py-2.5 rounded-xl bg-lma-danger text-white font-bold text-sm disabled:opacity-50">Cancel Booking</button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
+    </div>
+  );
+}
+
+// ── VACANCY EXPORT (O6): live seat chart 1:1 at normal scale, no names/ID ──
+function VacancyExport({ board, label, shiftView, genderM, genderF }:{ board:BoardResp; label:string; shiftView:ShiftView; genderM:boolean; genderF:boolean }){
+  return (
+    <div id="board-vacancy-export" style={{position:"fixed",left:"-99999px",top:0,background:"#fff",padding:"20px",width:"fit-content"}}>
+      <div style={{textAlign:"center",marginBottom:"14px"}}>
+        <div style={{fontSize:"22px",fontWeight:900,color:"#0f172a",lineHeight:1.1}}>{label}</div>
+        <div style={{fontSize:"12px",fontWeight:600,color:"#475569",marginTop:"4px"}}>{fmtDMY(new Date())} · {shiftView==="ALL"?"All shifts":shiftView}</div>
+      </div>
+      {board.sections.slice().sort((a,b)=>a.section_order-b.section_order).map(sec=>(
+        <div key={sec.section_name} style={{marginBottom:"14px"}}>
+          {board.sections.length>1&&<div style={{fontSize:"11px",fontWeight:700,color:"#64748b",marginBottom:"5px"}}>{sec.section_name}</div>}
+          <div style={{display:"grid",gridTemplateColumns:`repeat(${sec.cols}, 46px)`,gap:"4px"}}>
+            {Array.from({length:sec.rows*sec.cols}).map((_,idx)=>{
+              const r=Math.floor(idx/sec.cols)+1,c=(idx%sec.cols)+1;
+              const cell=sec.seats.find(s=>s.row_in_section===r&&s.col_in_section===c);
+              if(!cell) return <div key={idx} style={{width:"46px",height:"46px"}}/>;
+              return <div key={idx} style={{width:"46px",height:"46px"}}><SeatTile cell={cell} shiftView={shiftView} genderM={genderM} genderF={genderF} onOpen={()=>{}}/></div>;
+            })}
+          </div>
+        </div>
+      ))}
     </div>
   );
 }
@@ -999,7 +1061,8 @@ const halfNameSize=(name:string)=>{
       }
       if(blk){
         return (
-          <div style={{height:"100%",width:"100%",background: blk.expired?"#6b0a0a":"repeating-linear-gradient(45deg,#fecaca,#fecaca 6px,#fee2e2 6px,#fee2e2 12px)",borderRadius:"4px",padding:"5px 7px",display:"flex",flexDirection:"column",boxSizing:"border-box",overflow:"hidden",border: blk.expired?"2px solid #450a0a":"1px solid #f87171"}}>
+          <div style={{position:"relative",height:"100%",width:"100%",background: blk.expired?"#6b0a0a":"repeating-linear-gradient(45deg,#fecaca,#fecaca 6px,#fee2e2 6px,#fee2e2 12px)",borderRadius:"4px",padding:"5px 7px",display:"flex",flexDirection:"column",boxSizing:"border-box",overflow:"hidden",border: blk.expired?"2px solid #450a0a":"1px solid #f87171"}}>
+            {ovl(blk.gender)&&<><div style={{position:"absolute",inset:0,border:`3px solid ${ovl(blk.gender)}`,borderRadius:"4px",pointerEvents:"none"}}/><div style={{position:"absolute",inset:"3px",border:"1px solid #ffffff",borderRadius:"2px",pointerEvents:"none"}}/></>}
             {blockRows(blk)}
           </div>
         );
@@ -1095,8 +1158,9 @@ const halfNameSize=(name:string)=>{
                 <div style={{display:"flex",flexDirection:"column",gap:"6px"}}>
                 {items.map((it:SidePanelItem)=>{
                   const L=panelLook(it);
+                  const gb=(genderM&&normGender(it.gender||"")==="M")?"#2563eb":(genderF&&normGender(it.gender||"")==="F")?"#db2777":null;
                   return (
-                  <div key={it.receipt_no} style={{borderRadius:"6px",padding:"8px 10px",background:L.bg,boxShadow:L.ring?`inset 0 0 0 2px ${EXPORT_GOLD}`:undefined}}>
+                  <div key={it.receipt_no} style={{position:"relative",borderRadius:"6px",padding:"8px 10px",background:L.bg,boxShadow:L.ring?`inset 0 0 0 2px ${EXPORT_GOLD}`:undefined}}>{gb&&<><div style={{position:"absolute",inset:0,border:`2px solid ${gb}`,borderRadius:"6px",pointerEvents:"none"}}/><div style={{position:"absolute",inset:"2px",border:"1px solid #ffffff",borderRadius:"4px",pointerEvents:"none"}}/></>}
                     {/* Row 1 — id left, receipt_no right */}
                     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:"6px",marginBottom:"6px"}}>
                       <span style={{fontSize:"10px",fontWeight:900,color:L.fg,letterSpacing:"0.3px",lineHeight:1.4}}>{it.student_id}</span>

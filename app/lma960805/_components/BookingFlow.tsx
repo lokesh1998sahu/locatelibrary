@@ -57,6 +57,7 @@ export default function BookingFlow({ renewReceiptNo, addMode, libCode, presetSe
   const [admitType,setAdmitType] = useState<"NEW"|"RENEWAL"|null>(null);
   const [bookingCtx,setBookingCtx] = useState<BookingCtx|null>(null);
   const [result,setResult] = useState<ResultData|null>(null);
+  const bookingDraft = useRef<any>(null);
 
   // renewal mode: fetch the receipt by number (self-sufficient)
   useEffect(()=>{ if(!renewReceiptNo) return; let alive=true; (async()=>{
@@ -122,8 +123,9 @@ export default function BookingFlow({ renewReceiptNo, addMode, libCode, presetSe
             onReady={(ctx)=>{ setBookingCtx({ ...ctx, preload:{ seat:presetSeat||"", shift:presetShift||"", fee:"", from:"", to:"" } }); setStep("form"); }}/>
         ) : step==="form" && formCtx ? (
           <StepBooking init={init} resolvedLib={resolved.lib} resolvedBranch={resolved.branch} ctx={formCtx} post={post} showToast={showToast}
+            draft={bookingDraft}
             onBack={()=>setStep(renewReceiptNo?"confirm":"student")}
-            onDone={(r)=>{ setResult(r); setStep("done"); onComplete(); }}/>
+            onDone={(r)=>{ bookingDraft.current=null; setResult(r); setStep("done"); onComplete(); }}/>
         ) : step==="done" && result ? (
           <DoneView result={result} onClose={onClose}/>
         ) : null}
@@ -214,7 +216,7 @@ function StepStudent({ init, resolvedLib, resolvedBranch, admitType, post, showT
   // O11(b): in RENEWAL search only, show just the LATEST receipt per student.
   // getReceiptLog returns newest-first, so the first hit per student_id is the latest.
   const receiptsShown = useMemo(()=>{
-    if(admitType!=="RENEWAL") return receiptResults;
+    
     const seen=new Set<string>(); const out:Receipt[]=[];
     receiptResults.forEach(r=>{
       const k=String(r.student_id||"").toUpperCase();
@@ -223,7 +225,7 @@ function StepStudent({ init, resolvedLib, resolvedBranch, admitType, post, showT
       seen.add(k); out.push(r);
     });
     return out;
-  },[receiptResults,admitType]);
+  },[receiptResults]);
 
   const doSearch=async()=>{
     const q=search.trim();
@@ -406,10 +408,10 @@ function StepStudent({ init, resolvedLib, resolvedBranch, admitType, post, showT
 }
 
 // ── STEP BOOKING (copied verbatim from admissions; submit unchanged) ──
-function StepBooking({ init, resolvedLib, resolvedBranch, ctx, post, showToast, onBack, onDone }:{
+function StepBooking({ init, resolvedLib, resolvedBranch, ctx, post, showToast, onBack, onDone, draft }:{
   init:any; resolvedLib:string; resolvedBranch:string; ctx:BookingCtx;
   post:(a:string,p:any)=>Promise<any>; showToast:(m:string,t?:"success"|"error")=>void;
-  onBack:()=>void; onDone:(r:ResultData)=>void;
+  onBack:()=>void; onDone:(r:ResultData)=>void; draft?:{current:any};
 }){
   const feeKey = resolvedBranch || resolvedLib;
   const [shift,setShift]=useState("");
@@ -425,11 +427,20 @@ function StepBooking({ init, resolvedLib, resolvedBranch, ctx, post, showToast, 
   const [showSeatPicker,setShowSeatPicker]=useState(false);
   const [shiftTime,setShiftTime]=useState("");
   const [remark,setRemark]=useState("");
+  const [review,setReview]=useState(false);
 
   const shiftKey=normShiftKey(shift);
   const needsSeat=shift!==""&&shiftKey!=="OTHER";
 
+  const ctxSig=(ctx.student?.student_id||"")+"|"+(ctx.renewFrom?.receipt_no||"");
   useEffect(()=>{
+    if(draft?.current && draft.current.sig===ctxSig){
+      const d=draft.current;
+      setShift(d.shift); setSeat(d.seat); setBookingFrom(d.bookingFrom); setBookingTo(d.bookingTo);
+      setToEdited(d.toEdited); setReceiptDate(d.receiptDate); setFee(d.fee); setPays(d.pays);
+      setFeesDue(d.feesDue); setShiftTime(d.shiftTime); setRemark(d.remark);
+      return;
+    }
     const pl = ctx.preload;
     let from:string;
     if(pl?.from){ from = normDate(pl.from); }
@@ -493,11 +504,16 @@ function StepBooking({ init, resolvedLib, resolvedBranch, ctx, post, showToast, 
   // eslint-disable-next-line
   },[pays.map(p=>p.mode).join("|"),fee]);
 
-  const handleSubmit=async()=>{
+  const handleSubmit=()=>{
     if(!shift){ showToast("Pick a shift","error"); return; }
     if(!fee){ showToast("Fee required","error"); return; }
     const validPays=pays.filter(p=>p.mode&&p.amount);
     if(validPays.length===0){ showToast("Add at least one payment","error"); return; }
+    setReview(true);
+  };
+  const doSubmit=async()=>{
+    const validPays=pays.filter(p=>p.mode&&p.amount);
+    setReview(false);
     setSubmitting(true);
     const payload:any={
       library:resolvedLib, branch:resolvedBranch,
@@ -535,7 +551,7 @@ function StepBooking({ init, resolvedLib, resolvedBranch, ctx, post, showToast, 
 
   return (
     <div>
-      <button onClick={onBack} className="text-sm text-lma-slate-500 mb-3">← Back</button>
+      <button onClick={()=>{ if(draft) draft.current={ sig:ctxSig, shift, seat, bookingFrom, bookingTo, toEdited, receiptDate, fee, pays, feesDue, shiftTime, remark }; onBack(); }} className="text-sm text-lma-slate-500 mb-3">← Back</button>
       <div className="bg-white rounded-2xl space-y-3">
         <div className="bg-lma-slate-50 rounded-xl p-2.5 flex items-center gap-2">
           <span className="text-[10px] font-bold bg-lma-primary/10 text-lma-primary px-2 py-0.5 rounded">{ctx.admitType}</span>
@@ -607,6 +623,28 @@ function StepBooking({ init, resolvedLib, resolvedBranch, ctx, post, showToast, 
 
         <div><FieldLabel>Remark (optional)</FieldLabel><Inp value={remark} onChange={e=>setRemark(e.target.value)} placeholder="appears at the bottom of the receipt"/></div>
 
+        {review&&(
+          <div className="fixed inset-0 z-[10001] flex items-center justify-center px-6" onClick={()=>setReview(false)}>
+            <div className="absolute inset-0 bg-black/40"/>
+            <div className="relative w-full max-w-xs bg-white rounded-2xl p-5 lma-slide-up" onClick={e=>e.stopPropagation()}>
+              <h4 className="text-sm font-extrabold text-lma-slate-900 mb-1">{ctx.admitType==="RENEWAL"?"Confirm renewal":"Confirm booking"}</h4>
+              <p className="text-[12px] text-lma-slate-500 mb-3">Check the details before creating the receipt.</p>
+              <div className="bg-lma-slate-50 rounded-xl p-3 space-y-1 text-[12px] text-lma-slate-700">
+                <div className="font-extrabold text-sm text-lma-slate-900">{ctx.student?.name||ctx.renewFrom?.name||""}</div>
+                <div className="text-[11px] text-lma-slate-500">{ctx.student?.student_id||""}{ctx.student?.gender?` · ${ctx.student.gender}`:""}{ctx.student?.phones?.[0]?.number?` · ${ctx.student.phones[0].number}`:""}</div>
+                <div><span className="font-bold">Plan:</span> {shiftObj?.shift_name||shift}{shiftTime?` (${shiftTime})`:""}</div>
+                {needsSeat&&<div><span className="font-bold">Seat:</span> {seat||"—"}</div>}
+                <div><span className="font-bold">Period:</span> {fmtDMY(bookingFrom)} → {fmtDMY(bookingTo)}</div>
+                <div><span className="font-bold">Receipt date:</span> {fmtDMY(receiptDate)}</div>
+                <div><span className="font-bold">Fee:</span> ₹{fee}{Number(feesDue)>0?` · Due ₹${feesDue}`:""}</div>
+              </div>
+              <div className="flex gap-2 mt-3">
+                <button onClick={()=>setReview(false)} className="flex-1 py-2.5 rounded-xl bg-lma-slate-100 text-lma-slate-600 font-bold text-sm">← Edit</button>
+                <button disabled={submitting} onClick={doSubmit} className="flex-1 py-2.5 rounded-xl bg-gradient-to-br from-lma-primary to-lma-primary-2 text-white font-bold text-sm disabled:opacity-50">Confirm ✓</button>
+              </div>
+            </div>
+          </div>
+        )}
         <button onClick={handleSubmit} disabled={submitting} className="w-full mt-2 py-3.5 rounded-xl bg-gradient-to-br from-lma-primary to-lma-primary-2 text-white font-extrabold shadow-md disabled:opacity-50">
           {submitting?"Creating…":(ctx.admitType==="RENEWAL"?"Renew →":"Create Receipt")}
         </button>

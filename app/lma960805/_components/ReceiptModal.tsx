@@ -190,7 +190,7 @@ export default function ReceiptModal({ receiptNo, onClose, onSaved, context }:{
             <div className="grid grid-cols-3 gap-2">
               <button onClick={()=>setStudentSend(false)} className="py-2.5 rounded-xl bg-lma-slate-100 text-lma-slate-600 font-bold text-xs">Cancel</button>
               <button onClick={()=>{ navigator.clipboard.writeText(receipt.receipt_text); showToast("Student copy"); setStudentSend(false); }} className="py-2.5 rounded-xl bg-lma-slate-100 text-lma-slate-600 font-bold text-xs">Copy</button>
-              <WhatsAppButton phones={receipt.phones} text={receipt.receipt_text} label="Send" className="py-2.5 rounded-xl bg-lma-accent text-white font-bold text-xs text-center disabled:opacity-40"/>
+              <WhatsAppButton phones={receipt.phones} text={receipt.receipt_text} label="Send" className="w-full py-2.5 rounded-xl bg-lma-accent text-white font-bold text-xs text-center disabled:opacity-40"/>
             </div>
           </div>
         </div>
@@ -205,7 +205,7 @@ export default function ReceiptModal({ receiptNo, onClose, onSaved, context }:{
             <div className="grid grid-cols-3 gap-2">
               <button onClick={()=>setShareText(null)} className="py-2.5 rounded-xl bg-lma-slate-100 text-lma-slate-600 font-bold text-xs">Skip</button>
               <button onClick={()=>{ navigator.clipboard.writeText(shareText); showToast("Copied"); }} className="py-2.5 rounded-xl bg-lma-slate-100 text-lma-slate-600 font-bold text-xs">Copy</button>
-              <WhatsAppButton phones={receipt?.phones} text={shareText} label="Send" className="py-2.5 rounded-xl bg-lma-accent text-white font-bold text-xs text-center disabled:opacity-40"/>
+              <WhatsAppButton phones={receipt?.phones} text={shareText} label="Send" className="w-full py-2.5 rounded-xl bg-lma-accent text-white font-bold text-xs text-center disabled:opacity-40"/>
             </div>
           </div>
         </div>
