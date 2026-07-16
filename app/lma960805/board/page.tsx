@@ -156,6 +156,23 @@ export default function BoardPage(){
   const [genderM,setGenderM]=useState(false);
   const [genderF,setGenderF]=useState(false);
   const [colorFilter,setColorFilter]=useState<string>("");
+  const legendCounts=useMemo(()=>{
+    const c:Record<string,number>={OK:0,EXPIRING_PRIMARY:0,EXPIRING:0,EXPIRED:0,DUES:0,BLOCKED:0,VACANT:0};
+    if(!board) return c;
+    const occs=(o:any)=>{ if(!o) return; const k=(o.color==="EXPIRING"&&o.urgent)?"EXPIRING_PRIMARY":o.color; if(c[k]!==undefined) c[k]++; if(o.has_dues||o.fees_due_balance>0) c.DUES++; };
+    board.sections.forEach(sec=>sec.seats.forEach(cell=>{
+      if(cell.cell_type==="DEAD") return;
+      const bi=cell.block_info||{morning:null,evening:null,fullday:null};
+      occs(cell.fullday); occs(cell.morning); occs(cell.evening);
+      if(bi.fullday||bi.morning||bi.evening) c.BLOCKED++;
+      const mF=!cell.fullday&&!bi.fullday&&!cell.morning&&!bi.morning;
+      const eF=!cell.fullday&&!bi.fullday&&!cell.evening&&!bi.evening;
+      const v=shiftView==="MORNING"?mF:shiftView==="EVENING"?eF:shiftView==="FULL DAY"?(mF&&eF):(mF||eF);
+      if(v) c.VACANT++;
+    }));
+    [...(board.unassigned||[]),...(board.floating||[]),...(board.otherShift||[])].forEach(occs);
+    return c;
+  },[board,shiftView]);
 
   const downloadPng=async(scale:number=2.5, nodeId:string="board-detailed-export")=>{
     if(!board) return;
@@ -267,8 +284,8 @@ export default function BoardPage(){
 
       {/* legend */}
       <div className="flex gap-3 mb-3 text-[10px] text-lma-slate-500 overflow-x-auto whitespace-nowrap pb-1">
-        {(["OK","EXPIRING_PRIMARY","EXPIRING","EXPIRED","DUES"] as const).map((k)=>{const v=COLOR[k];const on=colorFilter===k;return (<button key={k} onClick={()=>setColorFilter(f=>f===k?"":k)} className={`flex items-center gap-1 shrink-0 px-1.5 py-0.5 rounded-lg transition ${on?"bg-lma-slate-900 text-white font-bold":""}`}><span className="w-3 h-3 rounded inline-block" style={{background:v.bg,border:`1px solid ${v.border}`}}></span>{v.label}</button>);})}
-        <span className="flex items-center gap-1 shrink-0"><span className="w-3 h-3 rounded inline-block" style={{background:"repeating-linear-gradient(45deg,#fecaca,#fecaca 2px,#fee2e2 2px,#fee2e2 4px)",border:"1px solid #b91c1c"}}></span>Blocked</span><span className="flex items-center gap-1 shrink-0"><span className="w-3 h-3 rounded inline-block bg-lma-slate-100 border border-lma-slate-200"></span>Vacant</span>
+        {(["OK","EXPIRING_PRIMARY","EXPIRING","EXPIRED","DUES"] as const).map((k)=>{const v=COLOR[k];const on=colorFilter===k;return (<button key={k} onClick={()=>setColorFilter(f=>f===k?"":k)} className={`flex items-center gap-1 shrink-0 px-1.5 py-0.5 rounded-lg transition ${on?"bg-lma-slate-900 text-white font-bold":""}`}><span className="w-3 h-3 rounded inline-block" style={{background:v.bg,border:`1px solid ${v.border}`}}></span>{v.label} · {legendCounts[k]}</button>);})}
+        <button onClick={()=>setColorFilter(f=>f==="BLOCKED"?"":"BLOCKED")} className={`flex items-center gap-1 shrink-0 px-1.5 py-0.5 rounded-lg transition ${colorFilter==="BLOCKED"?"bg-lma-slate-900 text-white font-bold":""}`}><span className="w-3 h-3 rounded inline-block" style={{background:"repeating-linear-gradient(45deg,#fecaca,#fecaca 2px,#fee2e2 2px,#fee2e2 4px)",border:"1px solid #b91c1c"}}></span>Blocked · {legendCounts.BLOCKED}</button><button onClick={()=>setColorFilter(f=>f==="VACANT"?"":"VACANT")} className={`flex items-center gap-1 shrink-0 px-1.5 py-0.5 rounded-lg transition ${colorFilter==="VACANT"?"bg-lma-slate-900 text-white font-bold":""}`}><span className="w-3 h-3 rounded inline-block bg-lma-slate-100 border border-lma-slate-200"></span>Vacant · {legendCounts.VACANT}</button>
       </div>
 
       {loading&&!board?(
@@ -429,7 +446,9 @@ function SeatTile({ cell, shiftView, onOpen, genderM, genderF, colorFilter }:{ c
       shiftView==="FULL DAY" ? (morningFree && eveningFree) :
       true; // ALL → no filtering
   const matchColor=(o:Occupant|null)=>{ if(!o) return false; if(colorFilter==="DUES") return !!o.has_dues||o.fees_due_balance>0; const key=(o.color==="EXPIRING"&&o.urgent)?"EXPIRING_PRIMARY":o.color; return key===colorFilter; };
-  const colorDim = !!colorFilter && !(matchColor(fd)||matchColor(m)||matchColor(e));
+  const _anyBlk=!!(bF||bM||bE);
+  const _vac=shiftView==="MORNING"?morningFree:shiftView==="EVENING"?eveningFree:shiftView==="FULL DAY"?(morningFree&&eveningFree):(morningFree||eveningFree);
+  const colorDim = !!colorFilter && !(colorFilter==="BLOCKED"?_anyBlk:colorFilter==="VACANT"?_vac:(matchColor(fd)||matchColor(m)||matchColor(e)));
   const dim = (shiftView!=="ALL" && !bookableForView) || colorDim;
   const dimStyle = dim ? { opacity:0.32 } : null;
 
@@ -948,12 +967,27 @@ function VacancyExport({ board, label, shiftView, genderM, genderF }:{ board:Boa
       {board.sections.slice().sort((a,b)=>a.section_order-b.section_order).map(sec=>(
         <div key={sec.section_name} style={{marginBottom:"14px"}}>
           {board.sections.length>1&&<div style={{fontSize:"11px",fontWeight:700,color:"#64748b",marginBottom:"5px"}}>{sec.section_name}</div>}
-          <div style={{display:"grid",gridTemplateColumns:`repeat(${sec.cols}, 46px)`,gap:"4px"}}>
+          <div style={{display:"grid",gridTemplateColumns:`repeat(${sec.cols}, 52px)`,gap:"5px"}}>
             {Array.from({length:sec.rows*sec.cols}).map((_,idx)=>{
               const r=Math.floor(idx/sec.cols)+1,c=(idx%sec.cols)+1;
               const cell=sec.seats.find(s=>s.row_in_section===r&&s.col_in_section===c);
-              if(!cell) return <div key={idx} style={{width:"46px",height:"46px"}}/>;
-              return <div key={idx} style={{width:"46px",height:"46px"}}><SeatTile cell={cell} shiftView={shiftView} genderM={genderM} genderF={genderF} onOpen={()=>{}}/></div>;
+              if(!cell||cell.cell_type==="DEAD") return <div key={idx} style={{width:"52px",height:"52px",background:"#f8fafc",border:"1px solid #e2e8f0",borderRadius:"6px",boxSizing:"border-box"}}/>;
+              const bi=cell.block_info||{morning:null,evening:null,fullday:null};
+              const gline=(g?:string)=>{const n=normGender(g||"");if(genderM&&n==="M")return "#2563eb";if(genderF&&n==="F")return "#db2777";return null;};
+              const zone=(o:any,blk:any,h:string)=>{
+                if(o){const col=occLook(o);const gb=gline(o.gender);return <div style={{height:h,background:col.bg,color:col.text,border:gb?`2px solid ${gb}`:`1px solid ${col.border}`,boxShadow:col.ring?`inset 0 0 0 2px ${col.border}`:undefined,borderRadius:"4px",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",boxSizing:"border-box",overflow:"hidden"}}><div style={{fontSize:"9px",fontWeight:700,lineHeight:"10px"}}>{shortDate(o.booking_to)}</div></div>;}
+                if(blk){const gb=gline(blk.gender);return <div style={{height:h,background:blk.expired?"#6b0a0a":"repeating-linear-gradient(45deg,#fecaca,#fecaca 3px,#fee2e2 3px,#fee2e2 6px)",border:gb?`2px solid ${gb}`:"1px solid #b91c1c",borderRadius:"4px",display:"flex",alignItems:"center",justifyContent:"center",boxSizing:"border-box"}}><div style={{fontSize:"8px",fontWeight:800,color:blk.expired?"#fff":"#7f1d1d"}}>BLK</div></div>;}
+                return <div style={{height:h,background:"#ffffff",border:"1px dashed #cbd5e1",borderRadius:"4px",boxSizing:"border-box"}}/>;
+              };
+              const full=cell.fullday||bi.fullday;
+              return (
+                <div key={idx} style={{width:"52px",height:"52px",display:"flex",flexDirection:"column",boxSizing:"border-box"}}>
+                  <div style={{fontSize:"10px",fontWeight:800,color:"#0f172a",textAlign:"center",lineHeight:"12px",height:"12px"}}>{cell.display_label}</div>
+                  {full
+                    ? <div style={{flex:1}}>{zone(cell.fullday,bi.fullday,"100%")}</div>
+                    : <div style={{flex:1,display:"flex",flexDirection:"column",gap:"1px"}}>{zone(cell.morning,bi.morning,"50%")}{zone(cell.evening,bi.evening,"50%")}</div>}
+                </div>
+              );
             })}
           </div>
         </div>

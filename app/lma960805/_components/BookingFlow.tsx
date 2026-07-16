@@ -428,6 +428,7 @@ function StepBooking({ init, resolvedLib, resolvedBranch, ctx, post, showToast, 
   const [shiftTime,setShiftTime]=useState("");
   const [remark,setRemark]=useState("");
   const [review,setReview]=useState(false);
+  const restoredTime=useRef<string|null>(null);
 
   const shiftKey=normShiftKey(shift);
   const needsSeat=shift!==""&&shiftKey!=="OTHER";
@@ -438,7 +439,8 @@ function StepBooking({ init, resolvedLib, resolvedBranch, ctx, post, showToast, 
       const d=draft.current;
       setShift(d.shift); setSeat(d.seat); setBookingFrom(d.bookingFrom); setBookingTo(d.bookingTo);
       setToEdited(d.toEdited); setReceiptDate(d.receiptDate); setFee(d.fee); setPays(d.pays);
-      setFeesDue(d.feesDue); setShiftTime(d.shiftTime); setRemark(d.remark);
+      setFeesDue(d.feesDue); setRemark(d.remark);
+      restoredTime.current=d.shiftTime; setShiftTime(d.shiftTime);
       return;
     }
     const pl = ctx.preload;
@@ -460,6 +462,7 @@ function StepBooking({ init, resolvedLib, resolvedBranch, ctx, post, showToast, 
 
   useEffect(()=>{
     if(!shift) return;
+    if(restoredTime.current!==null){ restoredTime.current=null; return; }
     const s=init.shifts.find((x:any)=>normShiftKey(x.shift_key)===shiftKey);
     setShiftTime(s?.shift_time||"");
   },[shift]);   // eslint-disable-line
