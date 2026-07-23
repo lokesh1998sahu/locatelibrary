@@ -10,12 +10,13 @@ export function autoDetectSearchType(q:string):SearchType{
   return"NAME";
 }
 
-const DEFAULT_HINT = "Auto-detects type. Tip: R12 = receipt, F45 = student ID, digits = phone.";
+const DEFAULT_HINT = "Auto-detects type. Tip: R12 = receipt, F45 = student ID, digits = phone, exact seat no. (e.g. 5A).";
 
 // Shared client-side matcher for already-loaded lists (Renewals/Dues/Refunds), honoring auto-detect.
 export function matchesSearch(item:any, query:string):boolean{
   const q=query.trim(); if(!q) return true;
   const typ=autoDetectSearchType(q); const Q=q.toUpperCase();
+  const seat=String(item.seat_no||"").trim().toUpperCase(); if(seat&&seat===Q) return true; // B2: exact seat-label match (alphanumeric labels like 5A supported)
   if(typ==="RECEIPT_NO") return String(item.receipt_no||"").toUpperCase().includes(Q);
   if(typ==="STUDENT_ID") return String(item.student_id||"").toUpperCase().includes(Q);
   if(typ==="PHONE"){ const d=parsePhone10(Q); if(!d) return false; const nums:string[]=[]; if(item.phone)nums.push(item.phone); if(item.mobile)nums.push(item.mobile); if(Array.isArray(item.phones))item.phones.forEach((p:any)=>{if(p&&p.number)nums.push(p.number);}); return nums.some((n)=>parsePhone10(String(n)).includes(d)); }

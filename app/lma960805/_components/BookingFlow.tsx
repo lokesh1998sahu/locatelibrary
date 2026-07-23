@@ -265,15 +265,15 @@ function StepStudent({ init, resolvedLib, resolvedBranch, admitType, post, showT
     onReady({ admitType:"NEW", student, isCross:false, crossOrigin:"" });
   };
 
-  const pickRenewalStudent=async(st:Student)=>{
-    const params=new URLSearchParams({action:"getReceiptLog",q:st.student_id,search_type:"STUDENT_ID",library:resolvedBranch||resolvedLib,limit:"50"});
-    const r=await fetch(`${API}?${params}`).then(r=>r.json());
-    let renewFrom:Receipt|null=null;
-    if(r.ok&&r.receipts&&r.receipts.length){ renewFrom=r.receipts[0]; }
+  const pickRenewalStudent=(st:Student)=>{ // A1: student tile = FRESH booking from today (pick a RECEIPT tile to continue a booking)
+    
+    
+    
+    
     const scope=(resolvedBranch||resolvedLib).toUpperCase();
     const autoCross = (st.library||"").toUpperCase()!==scope && (st.branch||"").toUpperCase()!==scope;
     const autoOrigin = autoCross ? (st.branch||st.library) : "";
-    onReady({ admitType:"RENEWAL", student:st, isCross: autoCross||isCross, crossOrigin: autoCross?autoOrigin:(isCross?crossOrigin:""), renewFrom });
+    onReady({ admitType:"RENEWAL", student:st, isCross: autoCross||isCross, crossOrigin: autoCross?autoOrigin:(isCross?crossOrigin:""), renewFrom:null });
   };
 
   const pickRenewalReceipt=(r:Receipt)=>{

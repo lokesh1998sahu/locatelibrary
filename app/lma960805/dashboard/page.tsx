@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { useLMA, useScopeChips } from "../_components/LMAProvider";
+import { buildVacancyText, type VacPlan } from "../_lib/vacancy";
 
 const API = "/api/lma960805";
 
@@ -93,6 +94,8 @@ export default function DashboardPage(){
           <button key={c.code||"all"} onClick={()=>setScope(c.code)} style={scope===c.code&&c.color?{background:c.color,color:"#fff"}:undefined} className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-bold whitespace-nowrap ${scope===c.code&&!c.color?"bg-lma-slate-900 text-white":scope===c.code?"":"bg-white text-lma-slate-600"} shadow-sm`}>{c.emoji} {c.label}</button>
         ))}
       </div>
+
+      <VacantSeatsCard scope={scope}/>
 
       {/* preset pills */}
       <div className="flex gap-1.5 mb-2 overflow-x-auto -mx-4 px-4 pb-1">
@@ -307,6 +310,55 @@ function SourceBars({bs}:{bs:{RECEIPTS:number;DUES:number;MISC:number;REFUNDS:nu
           <span className={`text-[11px] font-extrabold w-16 text-right shrink-0 ${it.neg?"text-lma-danger":"text-lma-slate-800"}`}>{it.neg&&it.v>0?"−":""}{fmtShort(it.v)}</span>
         </div>
       ))}
+    </div>
+  );
+}
+
+// ── B1: VACANT-SEATS CARD (dashboard) — same shared vacancy computer as the board ──
+function VacantSeatsCard({ scope }:{ scope:string }){
+  const { init, showToast }=useLMA();
+  const ORDER:VacPlan[]=["MORNING","EVENING","FULL DAY"];
+  const [sel,setSel]=useState<VacPlan[]>(ORDER);
+  const [busy,setBusy]=useState(false);
+  const [text,setText]=useState("");
+  const toggle=(p:VacPlan)=>{ setText(""); setSel(c=>c.includes(p)?c.filter(x=>x!==p):[...c,p]); };
+  const plans=ORDER.filter(p=>sel.includes(p));
+  const go=async()=>{
+    if(!scope){ showToast("Pick a library/branch chip above first","error"); return; }
+    if(!plans.length){ showToast("Select at least one time plan","error"); return; }
+    const b=(init?.branches||[]).find((x:any)=>x.branch_code===scope);
+    const lib=b?b.library_code:scope, br=b?scope:"";
+    setBusy(true); setText("");
+    try{
+      const params=new URLSearchParams({action:"getBoardOccupancy",library_code:lib});
+      if(br) params.set("branch_code",br);
+      const r=await fetch(`${API}?${params}`).then(x=>x.json());
+      if(r&&r.ok){ const d=new Date(); const iso=d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0"); setText(buildVacancyText(scope,fmtDMY(iso),r,plans)); }
+      else showToast((r&&r.error)||"Could not load board","error");
+    }catch{ showToast("Network error","error"); }
+    setBusy(false);
+  };
+  return (
+    <div className="bg-white rounded-2xl p-4 shadow-sm mb-3">
+      <div className="flex items-center justify-between mb-2">
+        <h3 className="text-sm font-extrabold text-lma-slate-900">📋 Vacant seats</h3>
+        <span className="text-[10px] font-bold text-lma-slate-400">{scope||"pick a chip above"}</span>
+      </div>
+      <div className="flex gap-1.5 mb-2 flex-wrap">
+        {ORDER.map(p=>(
+          <button key={p} onClick={()=>toggle(p)} className={`px-2.5 py-1.5 rounded-full text-[11px] font-bold ${sel.includes(p)?"bg-lma-primary text-white":"bg-lma-slate-100 text-lma-slate-500"}`}>{p}</button>
+        ))}
+        <button onClick={go} disabled={busy} className="ml-auto px-3 py-1.5 rounded-full text-[11px] font-bold bg-lma-slate-900 text-white disabled:opacity-50">{busy?"…":"Get list"}</button>
+      </div>
+      {text&&(
+        <>
+          <pre className="text-[11px] font-medium text-lma-slate-800 bg-lma-slate-50 rounded-xl p-3 mb-2 whitespace-pre-wrap break-words">{text}</pre>
+          <div className="flex gap-2">
+            <button onClick={()=>{ navigator.clipboard.writeText(text); showToast("Copied"); }} className="flex-1 py-2 rounded-xl bg-lma-slate-100 text-lma-slate-600 font-bold text-xs">Copy</button>
+            <button onClick={()=>window.open(`https://wa.me/?text=${encodeURIComponent(text)}`,"_blank")} className="flex-1 py-2 rounded-xl bg-lma-accent text-white font-bold text-xs">WhatsApp</button>
+          </div>
+        </>
+      )}
     </div>
   );
 }

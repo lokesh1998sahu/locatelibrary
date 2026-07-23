@@ -21,6 +21,7 @@ interface Refund {
   library:string; branch:string; name:string; phone:string;
   refund_mode:string; refund_fees_mode:string; amount:number; refund_date:string;
   refund_reason:string; linked_to_cancellation:boolean; timestamp:string; refund_whatsapp_text:string;
+  seat_no?:string; // B2: attached by getRefundLog from RECEIPT_LOG
 }
 
 type LinkFilter = "ANY"|"TRUE"|"FALSE";
@@ -64,6 +65,7 @@ export default function RefundsPage(){
       s_no:Number(x.s_no||0),
       refund_id:String(x.refund_id||""),
       original_receipt_no:String(x.original_receipt_no||""),
+      seat_no:String(x.seat_no||""),
       student_id:String(x.student_id||""),
       library:String(x.library||""),
       branch:String(x.branch||""),
@@ -135,7 +137,7 @@ export default function RefundsPage(){
                 <span className="text-sm font-extrabold text-lma-danger ml-auto">−₹{r.amount}</span>
               </div>
            <button onClick={()=>setOpenStu({id:r.student_id,library:homeLib(r)})} className="block w-full text-left text-sm font-semibold text-lma-slate-800 truncate hover:underline">{r.name} <span className="text-[10px] font-bold text-lma-slate-400">{r.student_id}</span></button>
-              <div className="text-[11px] text-lma-slate-500 mt-0.5"><CodePill code={r.branch||r.library}/> · vs <button onClick={()=>setOpenRno(r.original_receipt_no)} className="text-lma-primary underline decoration-dotted font-bold">{r.original_receipt_no}</button> · {r.refund_mode} · {fmtDMYT(r.refund_date)}</div>
+              <div className="text-[11px] text-lma-slate-500 mt-0.5"><CodePill code={r.branch||r.library}/> · vs <button onClick={()=>setOpenRno(r.original_receipt_no)} className="text-lma-primary underline decoration-dotted font-bold">{r.original_receipt_no}</button>{r.seat_no?` · Seat ${r.seat_no}`:""} · {r.refund_mode} · {fmtDMYT(r.refund_date)}</div>
               {r.refund_reason&&<div className="text-[11px] text-lma-slate-400 mt-0.5">{r.refund_reason}</div>}
               <div className="grid grid-cols-3 gap-2 mt-2.5">
                 <button onClick={()=>setViewFor(r)} className="py-2 rounded-lg bg-lma-slate-100 text-lma-slate-600 font-bold text-xs">View</button>

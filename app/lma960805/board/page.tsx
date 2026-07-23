@@ -6,7 +6,8 @@ import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useLMA, useScopeChips } from "../_components/LMAProvider";
-import { buildRenewReminder, buildDuesReminder } from "../_lib/reminderText";
+import { laneFree, buildVacancyText, occupancyStats, type VacPlan } from "../_lib/vacancy";
+import { buildRenewReminder, buildDuesReminder, buildRenewFollowUp } from "../_lib/reminderText";
 import ReceiptModal from "../_components/ReceiptModal";
 import StudentModal from "../_components/StudentModal";
 import BookingFlow from "../_components/BookingFlow";
@@ -123,7 +124,7 @@ export default function BoardPage(){
   const [blockFormSeat,setBlockFormSeat]=useState<{label:string;suggestedShift:string;blockId?:string;reason?:string;from?:string;to?:string;gender?:string}|null>(null);
   const [blockDetail,setBlockDetail]=useState<{info:BlockInfo;seatLabel:string}|null>(null);
   // re-allot picker (from floating panel OR from DetailSheet "move"): receipt + context
-  const [reAllot,setReAllot]=useState<{receipt_no:string;name:string;student_id:string;shift:string;original?:string}|null>(null);
+  const [reAllot,setReAllot]=useState<{receipt_no:string;name:string;student_id:string;shift:string;original?:string;phones?:{number:string;tag:string}[]}|null>(null);
   const [shareEvent,setShareEvent]=useState<{text:string;label:string;phones?:{number:string;tag:string}[]}|null>(null);
   const [exporting,setExporting]=useState(false);
   const [showPngMenu,setShowPngMenu]=useState(false);
@@ -153,9 +154,11 @@ export default function BoardPage(){
   useEffect(()=>{ if(resolved.lib) loadBoard(); },[resolved.lib,resolved.branch,loadBoard]);
 
   const [showExport,setShowExport]=useState(false);
+  const [showVacList,setShowVacList]=useState(false); // B1
   const [genderM,setGenderM]=useState(false);
   const [genderF,setGenderF]=useState(false);
   const [colorFilter,setColorFilter]=useState<string>("");
+  const occ=useMemo(()=>board?occupancyStats(board):null,[board]); // B4: same shared vacancy computer
   const legendCounts=useMemo(()=>{
     const c:Record<string,number>={OK:0,EXPIRING_PRIMARY:0,EXPIRING:0,EXPIRED:0,DUES:0,BLOCKED:0,VACANT:0};
     if(!board) return c;
@@ -165,8 +168,8 @@ export default function BoardPage(){
       const bi=cell.block_info||{morning:null,evening:null,fullday:null};
       occs(cell.fullday); occs(cell.morning); occs(cell.evening);
       if(bi.fullday||bi.morning||bi.evening) c.BLOCKED++;
-      const mF=!cell.fullday&&!bi.fullday&&!cell.morning&&!bi.morning;
-      const eF=!cell.fullday&&!bi.fullday&&!cell.evening&&!bi.evening;
+      const mF=laneFree(cell,"morning");   // B1: shared vacancy computer (now also respects temp-holds)
+      const eF=laneFree(cell,"evening");
       const v=shiftView==="MORNING"?mF:shiftView==="EVENING"?eF:shiftView==="FULL DAY"?(mF&&eF):(mF||eF);
       if(v) c.VACANT++;
     }));
@@ -220,6 +223,7 @@ export default function BoardPage(){
           <button onClick={()=>setZoomPx(z=> z===0?44:Math.min(z+14,100))} className="px-2.5 py-2 text-sm font-extrabold text-lma-primary">+</button>
         </div>
         <button onClick={loadBoard} disabled={loading} className="text-xs font-bold px-3 py-2 rounded-lg bg-lma-slate-100 text-lma-slate-600 disabled:opacity-50">{loading?"...":"↻"}</button>
+        <button onClick={()=>setShowVacList(true)} disabled={!board} title="Vacant seats" aria-label="Vacant seats" className="shrink-0 flex items-center gap-1 px-2.5 py-2 rounded-lg bg-lma-accent text-white leading-none shadow-sm active:scale-95 transition disabled:opacity-40"><span className="text-base leading-none">🪑</span>{board&&<span className="text-xs font-extrabold leading-none">{legendCounts.VACANT}</span>}</button>
         <div className="relative">
   <button onClick={()=>setShowPngMenu(v=>!v)} disabled={exporting||!board}
     className="text-xs font-bold px-3 py-2 rounded-lg bg-lma-primary text-white disabled:opacity-50">
@@ -260,6 +264,7 @@ export default function BoardPage(){
   {showPngMenu&&<div className="fixed inset-0 z-40" onClick={()=>setShowPngMenu(false)}/>}
 </div>
       </header>
+      {showVacList&&board&&<VacancyListDialog board={board} libLabel={resolved.branch||resolved.lib} onClose={()=>setShowVacList(false)}/>}
 
       {/* library chips */}
       <div className="flex gap-1.5 mb-3 overflow-x-auto -mx-4 px-4 pb-1">
@@ -305,7 +310,9 @@ export default function BoardPage(){
           {/* export header */}
           <div className="text-center mb-3">
             <div className="text-base font-extrabold text-lma-slate-900">{resolved.label}</div>
-            <div className="text-[10px] text-lma-slate-500">{fmtDMY(new Date())} · {shiftView==="ALL"?"All shifts":shiftView}</div>
+            <div className="text-[10px] text-lma-slate-500">{fmtDMY(new Date())} · {!occ?(shiftView==="ALL"?"All shifts":shiftView):shiftView==="ALL"
+              ?`${occ.occPct}% occupied · vac M ${occ.plan["MORNING"].vac} · E ${occ.plan["EVENING"].vac} · FD ${occ.plan["FULL DAY"].vac}`
+              :`${shiftView} · ${occ.plan[shiftView].occ} occ · ${occ.plan[shiftView].vac} vac · ${occ.plan[shiftView].pct}%`}</div>
           </div>
 
           {board.sections.sort((a,b)=>a.section_order-b.section_order).map(sec=>(
@@ -326,7 +333,7 @@ export default function BoardPage(){
 
           {/* side panels */}
           <SidePanel title="Unassigned (booked, no seat)" items={board.unassigned} emoji="📋" colorFilter={colorFilter} onTap={(it)=>setDetail({cell:panelItemToCell(it),panel:true})}/>
-          <SidePanel title="Floating (temp-vacated)" items={board.floating} emoji="🌀" colorFilter={colorFilter} onTap={(it)=>setDetail({cell:panelItemToCell(it),panel:true})} onReAllot={(it)=>setReAllot({receipt_no:it.receipt_no,name:it.name,student_id:it.student_id,shift:it.shift,original:it.temporary_seat})}/>
+          <SidePanel title="Floating (temp-vacated)" items={board.floating} emoji="🌀" colorFilter={colorFilter} onTap={(it)=>setDetail({cell:panelItemToCell(it),panel:true})} onReAllot={(it)=>setReAllot({receipt_no:it.receipt_no,name:it.name,student_id:it.student_id,shift:it.shift,original:it.temporary_seat,phones:it.phones})}/>
           <SidePanel title="Other shift (no fixed seat)" items={board.otherShift} emoji="🔄" colorFilter={colorFilter} onTap={(it)=>setDetail({cell:panelItemToCell(it),panel:true})}/>
         </div>
       )}
@@ -349,7 +356,7 @@ export default function BoardPage(){
         post={post}
         showToast={showToast}
         onChanged={()=>{ setDetail(null); loadBoard(); }}
-        onReAllot={(o)=>{ setDetail(null); setReAllot({receipt_no:o.receipt_no,name:o.name,student_id:o.student_id,shift:o.shift,original:o.temporary_seat||undefined}); }}
+        onReAllot={(o)=>{ setDetail(null); setReAllot({receipt_no:o.receipt_no,name:o.name,student_id:o.student_id,shift:o.shift,original:o.temporary_seat||undefined,phones:o.phones}); }}
         onShare={(text,label,phones)=>setShareEvent({text,label,phones})}
       />}
 
@@ -368,7 +375,7 @@ export default function BoardPage(){
         onClose={()=>setReAllot(null)}
         showToast={showToast}
         onDone={()=>{ setReAllot(null); setDetail(null); loadBoard(); }}
-        onShare={(text,label)=>setShareEvent({text,label})}
+        onShare={(text,label,phones)=>setShareEvent({text,label,phones})}
       />}
 
       {/* event share prompt */}
@@ -756,16 +763,10 @@ function DetailSheet({ cell, panel, onClose, scope, lib, branch, post, showToast
     setBusy(true);
     const r=await post("tempVacateSeat",{receipt_no:o.receipt_no});
     setBusy(false);
-    if(r&&r.vacated){ showToast(`${o.student_id} parked (seat ${r.original_seat} held)`); if(r.whatsapp_text) onShare(r.whatsapp_text,"Seat temporarily vacated"); onChanged(); }
+    if(r&&r.vacated){ showToast(`${o.student_id} parked (seat ${r.original_seat} held)`); if(r.whatsapp_text) onShare(r.whatsapp_text,"Seat temporarily vacated",o.phones); onChanged(); }
     else showToast(r&&r.error?r.error:"Temp-vacate failed","error");
   };
-  const doCancel=async(o:Occupant)=>{
-    setBusy(true);
-    const r=await post("markReceiptCancelled",{receipt_no:o.receipt_no});
-    setBusy(false);
-    if(r&&r.updated){ showToast(`Receipt ${o.receipt_no} cancelled — seat freed`); if(r.cancel_whatsapp_text) onShare(r.cancel_whatsapp_text,"Booking cancelled",o.phones); onChanged(); }
-    else showToast(r&&r.error?r.error:"Cancel failed","error");
-  };
+  // A5: cancel handled by BoardCancelSheet (full refund-capable flow)
   const removeBlock=async(blk:BlockInfo)=>{
     if(busy) return;
     if(!confirm("Remove this block?")) return;
@@ -776,6 +777,7 @@ function DetailSheet({ cell, panel, onClose, scope, lib, branch, post, showToast
   };
 
   const remind=(o:Occupant):string=>buildRenewReminder(o.name, libName, fmtDMY(o.booking_to), o.color==="EXPIRED");
+  const followUp=(o:Occupant):string=>buildRenewFollowUp(o.name, libName, fmtDMY(o.booking_to), o.color==="EXPIRED"); // B5
   const duesReminder=(o:Occupant):string=>buildDuesReminder(o.name, libName, o.fees_due_balance);
   const doNotRenew=async(o:Occupant)=>{
     if(busy) return;
@@ -819,14 +821,48 @@ function DetailSheet({ cell, panel, onClose, scope, lib, branch, post, showToast
             : <button disabled={busy} onClick={()=>setConfirmVacate(o)} className="py-2 rounded-lg bg-lma-warn/10 text-lma-warn font-bold text-xs disabled:opacity-50">Temp-Vacate</button>}
           <button disabled={busy} onClick={()=>onReAllot(o)} className="py-2 rounded-lg bg-lma-slate-100 text-lma-slate-600 font-bold text-xs disabled:opacity-50">{o.temporary_seat?"Re-Allot (restore)":"Re-Allot"}</button>
         </div>
-        {(o.color==="EXPIRED"||o.color==="EXPIRING")&&<WhatsAppButton phones={o.phones} text={remind(o)} label="💬 Remind to Renew" className="w-full mt-2 py-2 rounded-lg bg-lma-accent/10 text-lma-accent font-bold text-xs disabled:opacity-40"/>}
+        {(o.color==="EXPIRED"||o.color==="EXPIRING")&&<WhatsAppButton phones={o.phones} text={remind(o)} variants={[{label:"Initial reminder",text:remind(o)},{label:"Follow-up",text:followUp(o)}]} label="💬 Remind to Renew" className="w-full mt-2 py-2 rounded-lg bg-lma-accent/10 text-lma-accent font-bold text-xs disabled:opacity-40"/>}
         {(o.fees_due_balance>0&&o.dues_status==="PENDING")&&<WhatsAppButton phones={o.phones} text={duesReminder(o)} label="💬 Dues Reminder" className="w-full mt-2 py-2 rounded-lg bg-lma-warn/10 text-lma-warn font-bold text-xs disabled:opacity-40"/>}
         <MoneyTrailInline receiptNo={o.receipt_no}/>
         <RefundInline receiptNo={o.receipt_no} post={post} showToast={showToast} onChanged={onChanged} onEvent={(t)=>onShare(t,"Refund issued",o.phones)}/>
         <DetailCopyRow occupant={o} lib={lib} branch={branch} showToast={showToast}/>
+        <button onClick={()=>loadHist(o.shift)} className="w-full mt-2 py-2 rounded-lg bg-lma-slate-100 text-lma-slate-600 font-bold text-xs">{histBusy===shKey(o.shift)?"…":`🕘 Past 5 on this seat · ${shKey(o.shift)}`}</button>
+        {histBlock(o.shift)}
       </div>
     );
   };
+
+  // ── B3: seat history (last 5 past bookings, per time plan) ──
+  const [hist,setHist]=useState<{key:string;items:any[]}|null>(null);
+  const [histBusy,setHistBusy]=useState("");
+  const shKey=(s:string)=>{ const u=(s||"").toUpperCase(); return (u==="FULLDAY"||u==="FD")?"FULL DAY":u; };
+  const loadHist=async(shiftRaw:string)=>{
+    const k=shKey(shiftRaw);
+    if(hist&&hist.key===k){ setHist(null); return; }
+    setHistBusy(k);
+    try{
+      const p=new URLSearchParams({action:"getSeatHistory",library_code:lib,seat_no:cell.display_label,shift:k});
+      if(branch) p.set("branch_code",branch);
+      const r=await fetch(`${API}?${p}`).then(x=>x.json());
+      if(r&&r.ok) setHist({key:k,items:r.items||[]});
+      else showToast((r&&r.error)||"Could not load seat history","error");
+    }catch{ showToast("Network error","error"); }
+    setHistBusy("");
+  };
+  const histBlock=(kRaw:string)=>{ const k=shKey(kRaw); if(!hist||hist.key!==k) return null; return (
+    <div className="mt-1.5 bg-lma-slate-50 rounded-xl p-2.5 border border-lma-slate-200">
+      <div className="text-[10px] font-extrabold text-lma-slate-400 mb-1">PAST BOOKINGS · {k}</div>
+      {hist.items.length===0?<div className="text-[11px] text-lma-slate-400">No past bookings on this seat for {k}.</div>:
+        hist.items.map((h:any)=>(
+          <div key={h.receipt_no} className="flex items-center gap-1.5 text-[11px] py-0.5">
+            <button onClick={()=>onViewReceipt(h.receipt_no)} className="font-bold text-lma-primary underline decoration-dotted shrink-0">{h.receipt_no}</button>
+            <span className="font-semibold text-lma-slate-700 truncate">{h.name}</span>
+            <span className="text-lma-slate-400 ml-auto shrink-0">{h.booking_from} → {h.booking_to}</span>
+            {h.status==="CANCELLED"&&<span className="text-[9px] font-bold text-lma-danger shrink-0">CXL</span>}
+          </div>
+        ))}
+    </div>
+  ); };
 
   // ── BLOCKED lane: same architecture as a booking ──
 const BlockPanel=(blk:BlockInfo)=>{
@@ -873,6 +909,9 @@ const BlockPanel=(blk:BlockInfo)=>{
           <button onClick={()=>{ if(shift) goBook(shift); else setChooseMode("ADD"); }} className="py-2.5 rounded-lg bg-gradient-to-br from-lma-primary to-lma-primary-2 text-white font-bold text-xs shadow-md">＋ Add Booking</button>
           <button onClick={()=>{ if(shift) onBlock(cell.display_label,shift); else setChooseMode("BLOCK"); }} className="py-2.5 rounded-lg bg-lma-danger/10 text-lma-danger font-bold text-xs">🚫 Block Seat</button>
         </div>
+        {shift
+          ? <><button onClick={()=>loadHist(shift)} className="w-full mt-2 py-1.5 rounded-lg bg-white border border-lma-slate-200 text-lma-slate-500 font-bold text-[11px]">{histBusy===shift?"…":"🕘 Past bookings here"}</button>{histBlock(shift)}</>
+          : <><div className="flex gap-1.5 mt-2">{(["MORNING","EVENING","FULL DAY"] as const).map(s=>(<button key={s} onClick={()=>loadHist(s)} className="flex-1 py-1.5 rounded-lg bg-white border border-lma-slate-200 text-lma-slate-500 font-bold text-[10px]">{histBusy===s?"…":`🕘 ${s==="FULL DAY"?"Full Day":s.charAt(0)+s.slice(1).toLowerCase()}`}</button>))}</div>{hist&&histBlock(hist.key)}</>}
       </div>
     );
   };
@@ -937,20 +976,96 @@ const BlockPanel=(blk:BlockInfo)=>{
             </div>
           </div>
         )}
-        {confirmCancel&&(
-          <div className="fixed inset-0 z-[9999] flex items-center justify-center px-6" onClick={()=>setConfirmCancel(null)}>
-            <div className="absolute inset-0 bg-black/40"/>
-            <div className="relative w-full max-w-xs bg-white rounded-2xl p-5 lma-slide-up" onClick={e=>e.stopPropagation()}>
-              <h4 className="text-sm font-extrabold text-lma-slate-900 mb-1">Cancel booking on seat {cell.display_label}?</h4>
-              <p className="text-[12px] text-lma-slate-500 mb-2">{confirmCancel.student_id} · {confirmCancel.name}&rsquo;s receipt {confirmCancel.receipt_no} will be marked CANCELLED and seat {cell.display_label} freed immediately. Nothing is carried forward.</p>
-              {confirmCancel.fees_due_balance>0&&<p className="text-[11px] font-bold text-lma-danger bg-lma-danger/10 rounded-lg p-2 mb-2">&#9888; &#8377;{confirmCancel.fees_due_balance} dues outstanding. Refunds are separate (use Issue Refund).</p>}
-              <div className="flex gap-2">
-                <button onClick={()=>setConfirmCancel(null)} className="flex-1 py-2.5 rounded-xl bg-lma-slate-100 text-lma-slate-600 font-bold text-sm">Keep</button>
-                <button disabled={busy} onClick={()=>{const o=confirmCancel;setConfirmCancel(null);doCancel(o);}} className="flex-1 py-2.5 rounded-xl bg-lma-danger text-white font-bold text-sm disabled:opacity-50">Cancel Booking</button>
-              </div>
+        {confirmCancel&&<BoardCancelSheet o={confirmCancel} seatLabel={cell.display_label} post={post} showToast={showToast} onClose={()=>setConfirmCancel(null)} onDone={(waText)=>{ setConfirmCancel(null); if(waText) onShare(waText,"Booking cancelled",confirmCancel?.phones); onChanged(); }}/>}
+      </div>
+    </div>
+  );
+}
+
+// ── B1: VACANT-SEATS TEXT LIST (board surface) — shared vacancy computer ──
+function VacancyListDialog({ board, libLabel, onClose }:{ board:BoardResp; libLabel:string; onClose:()=>void }){
+  const { showToast }=useLMA();
+  const ORDER:VacPlan[]=["MORNING","EVENING","FULL DAY"];
+  const [sel,setSel]=useState<VacPlan[]>(ORDER);
+  const toggle=(p:VacPlan)=>setSel(c=>c.includes(p)?c.filter(x=>x!==p):[...c,p]);
+  const plans=ORDER.filter(p=>sel.includes(p));
+  const text=plans.length?buildVacancyText(libLabel,fmtDMY(new Date()),board,plans):"";
+  return (
+    <div className="fixed inset-0 z-[10000] flex items-center justify-center px-5" onClick={onClose}>
+      <div className="absolute inset-0 bg-black/40"/>
+      <div className="relative w-full max-w-sm bg-white rounded-2xl p-4 lma-slide-up max-h-[85vh] overflow-y-auto" onClick={e=>e.stopPropagation()}>
+        <h3 className="text-base font-extrabold text-lma-slate-900 mb-2">📋 Vacant seats · {libLabel}</h3>
+        <div className="flex gap-1.5 mb-3 flex-wrap">
+          {ORDER.map(p=>(
+            <button key={p} onClick={()=>toggle(p)} className={`px-2.5 py-1.5 rounded-full text-[11px] font-bold ${sel.includes(p)?"bg-lma-primary text-white":"bg-lma-slate-100 text-lma-slate-500"}`}>{p}</button>
+          ))}
+        </div>
+        {plans.length===0
+          ? <div className="text-[12px] font-bold text-lma-danger bg-lma-danger/10 rounded-lg p-2 mb-3">Select at least one time plan.</div>
+          : <pre className="text-[11px] font-medium text-lma-slate-800 bg-lma-slate-50 rounded-xl p-3 mb-3 whitespace-pre-wrap break-words">{text}</pre>}
+        <div className="flex gap-2">
+          <button disabled={!plans.length} onClick={()=>{ navigator.clipboard.writeText(text); showToast("Copied"); }} className="flex-1 py-2.5 rounded-xl bg-lma-slate-100 text-lma-slate-600 font-bold text-sm disabled:opacity-50">Copy</button>
+          <button disabled={!plans.length} onClick={()=>window.open(`https://wa.me/?text=${encodeURIComponent(text)}`,"_blank")} className="flex-1 py-2.5 rounded-xl bg-lma-accent text-white font-bold text-sm disabled:opacity-50">WhatsApp</button>
+          <button onClick={onClose} className="px-4 py-2.5 rounded-xl bg-lma-slate-900 text-white font-bold text-sm">Close</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── A5: full cancel experience on the board — replicates Renewals CancelSheet / ReceiptModal CancelPanel
+// (3rd documented copy; consolidation slated for C4). markReceiptCancelled remains the single status path;
+// markReceiptCancelledWithRefund wraps it + issueRefund internally (10_Renewals / 08_Refunds).
+function BoardCancelSheet({ o, seatLabel, post, showToast, onClose, onDone }:{ o:Occupant; seatLabel:string; post:(a:string,p:any)=>Promise<any>; showToast:(m:string,t?:"success"|"error")=>void; onClose:()=>void; onDone:(waText:string)=>void }){
+  const { init }=useLMA();
+  const [withRefund,setWithRefund]=useState(false);
+  const [remark,setRemark]=useState("");
+  const [refundMode,setRefundMode]=useState("");
+  const [refundAmount,setRefundAmount]=useState("");
+  const [refundReason,setRefundReason]=useState("");
+  const [busy,setBusy]=useState(false);
+  const submit=async()=>{
+    setBusy(true);
+    if(withRefund){
+      if(!refundMode||!refundAmount){ setBusy(false); return; }
+      const r=await post("markReceiptCancelledWithRefund",{receipt_no:o.receipt_no,cancel_remark:remark,refund_mode:refundMode,refund_amount:Number(refundAmount),refund_reason:refundReason});
+      setBusy(false);
+      if(r&&r.cancelled){ showToast(`Receipt ${o.receipt_no} cancelled + refunded — seat freed`); onDone(r.cancel_whatsapp_text||r.refund_whatsapp_text||""); }
+      else showToast((r&&r.error)||"Cancel failed","error");
+    }else{
+      const r=await post("markReceiptCancelled",{receipt_no:o.receipt_no,cancel_remark:remark});
+      setBusy(false);
+      if(r&&r.updated){ showToast(`Receipt ${o.receipt_no} cancelled — seat freed`); onDone(r.cancel_whatsapp_text||""); }
+      else showToast((r&&r.error)||"Cancel failed","error");
+    }
+  };
+  return (
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center px-6" onClick={onClose}>
+      <div className="absolute inset-0 bg-black/40"/>
+      <div className="relative w-full max-w-xs bg-white rounded-2xl p-5 lma-slide-up max-h-[85vh] overflow-y-auto" onClick={e=>e.stopPropagation()}>
+        <h4 className="text-sm font-extrabold text-lma-slate-900 mb-1">Cancel booking on seat {seatLabel}?</h4>
+        <p className="text-[12px] text-lma-slate-500 mb-2">{o.student_id} · {o.name}&rsquo;s receipt {o.receipt_no} will be marked CANCELLED and the seat freed immediately. Nothing is carried forward.</p>
+        {o.fees_due_balance>0&&<p className="text-[11px] font-bold text-lma-danger bg-lma-danger/10 rounded-lg p-2 mb-2">&#9888; &#8377;{o.fees_due_balance} dues outstanding on this receipt.</p>}
+        <label className="flex items-center gap-2 mb-2 cursor-pointer">
+          <input type="checkbox" checked={withRefund} onChange={e=>setWithRefund(e.target.checked)} className="w-4 h-4 accent-lma-primary"/>
+          <span className="text-[12px] font-semibold text-lma-slate-700">Issue a refund with this cancellation</span>
+        </label>
+        {withRefund&&(
+          <div className="bg-lma-slate-50 rounded-xl p-3 mb-2 space-y-2 text-left">
+            <div>
+              <div className="text-[10px] font-bold text-lma-slate-500 mb-1">Refund Mode</div>
+              <select value={refundMode} onChange={e=>setRefundMode(e.target.value)} className="w-full px-3 py-2.5 rounded-xl border-[1.5px] border-lma-slate-200 bg-white text-sm font-medium"><option value="">Select…</option>{(init?.paymentTags||[]).filter((t:any)=>t.active).map((t:any)=><option key={t.tag_name} value={t.tag_name}>{t.tag_name}</option>)}</select>
             </div>
+            <div><div className="text-[10px] font-bold text-lma-slate-500 mb-1">Refund Amount (&#8377;)</div><input type="number" value={refundAmount} onChange={e=>setRefundAmount(e.target.value)} placeholder="rupees handed back" className="w-full px-3 py-2.5 rounded-xl border-[1.5px] border-lma-slate-200 bg-white text-sm font-medium"/></div>
+            <div><div className="text-[10px] font-bold text-lma-slate-500 mb-1">Refund Reason</div><input value={refundReason} onChange={e=>setRefundReason(e.target.value)} placeholder="optional" className="w-full px-3 py-2.5 rounded-xl border-[1.5px] border-lma-slate-200 bg-white text-sm font-medium"/></div>
           </div>
         )}
+        <div className="text-[10px] font-bold text-lma-slate-500 mb-1 text-left">Cancellation note (optional)</div>
+        <input value={remark} onChange={e=>setRemark(e.target.value)} placeholder="why cancelling" className="w-full px-3 py-2.5 rounded-xl border-[1.5px] border-lma-slate-200 bg-lma-slate-50 text-sm font-medium mb-3"/>
+        <div className="flex gap-2">
+          <button onClick={onClose} className="flex-1 py-2.5 rounded-xl bg-lma-slate-100 text-lma-slate-600 font-bold text-sm">Keep</button>
+          <button disabled={busy||(withRefund&&(!refundMode||!refundAmount))} onClick={submit} className="flex-1 py-2.5 rounded-xl bg-lma-danger text-white font-bold text-sm disabled:opacity-50">{busy?"…":withRefund?"Cancel + Refund":"Cancel Booking"}</button>
+        </div>
       </div>
     </div>
   );
@@ -1245,10 +1360,10 @@ const halfNameSize=(name:string)=>{
 //   • floating restore: ctx.original is the parked seat (pre-noted)
 //   • move a seated student: no original; any vacant seat is the target
 function ReAllotPicker({ ctx, lib, branch, post, onClose, showToast, onDone, onShare }:{
-  ctx:{receipt_no:string;name:string;student_id:string;shift:string;original?:string};
+  ctx:{receipt_no:string;name:string;student_id:string;shift:string;original?:string;phones?:{number:string;tag:string}[]};
   lib:string; branch:string;
   post:(a:string,p:any)=>Promise<any>;
-  onClose:()=>void; showToast:(m:string,t?:"success"|"error")=>void; onDone:()=>void; onShare:(text:string,label:string)=>void;
+  onClose:()=>void; showToast:(m:string,t?:"success"|"error")=>void; onDone:()=>void; onShare:(text:string,label:string,phones?:{number:string;tag:string}[])=>void;
 }){
   const [data,setData]=useState<PickResp|null>(null);
   const [loading,setLoading]=useState(true);
@@ -1265,7 +1380,7 @@ function ReAllotPicker({ ctx, lib, branch, post, onClose, showToast, onDone, onS
     setBusy(true);
     const r=await post("reAllotSeat",{receipt_no:ctx.receipt_no,seat_no:seat});
     setBusy(false);
-    if(r&&r.reallotted){ showToast(`${ctx.student_id} → seat ${r.seat_no}`); if(r.whatsapp_text) onShare(r.whatsapp_text,"Seat changed"); onDone(); }
+    if(r&&r.reallotted){ showToast(`${ctx.student_id} → seat ${r.seat_no}`); if(r.whatsapp_text) onShare(r.whatsapp_text,"Seat changed",ctx.phones); onDone(); }
     else showToast(r&&r.error?r.error:"Re-allot failed","error");
   };
 

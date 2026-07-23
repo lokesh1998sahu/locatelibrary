@@ -89,6 +89,7 @@ export default function ReceiptsPage(){
   const matchesReceipt=useCallback((r:Receipt,q:string):boolean=>{
     const t=q.trim(); if(!t) return true;
     const typ=autoDetectSearchType(t); const Q=t.toUpperCase();
+    const seat=String(r.seat_no||"").trim().toUpperCase(); if(seat&&seat===Q) return true; // B2: exact seat-label match
     if(typ==="RECEIPT_NO") return String(r.receipt_no||"").toUpperCase().includes(Q);
     if(typ==="STUDENT_ID") return String(r.student_id||"").toUpperCase().includes(Q);
     if(typ==="PHONE"){ const d=parsePhone10(t); return (r.phones||[]).some(p=>parsePhone10(String(p.number||"")).includes(d)); }

@@ -9,7 +9,7 @@ import ReceiptModal from "../_components/ReceiptModal";
 import StudentModal from "../_components/StudentModal";
 import SearchBar, { matchesSearch } from "../_components/SearchBar";
 import DateRangeFilter from "../_components/DateRangeFilter";
-import { buildRenewReminder } from "../_lib/reminderText";
+import { buildRenewReminder, buildRenewFollowUp } from "../_lib/reminderText";
 import WhatsAppButton from "../_components/WhatsAppButton";
 import Pager, { PAGE_SIZE } from "../_components/Pager";
 import BookingFlow from "../_components/BookingFlow";
@@ -71,6 +71,7 @@ export default function RenewalsPage(){
   useEffect(()=>{ load(); },[load]);
  
   const remind=(it:QueueItem, expired:boolean):string=>{ const libName=(init?.libraries?.find(l=>l.library_code===it.library)?.display_name)||it.library; return buildRenewReminder(it.name, libName, fmtDMY(it.booking_to), expired); };
+  const followUp=(it:QueueItem, expired:boolean):string=>{ const libName=(init?.libraries?.find(l=>l.library_code===it.library)?.display_name)||it.library; return buildRenewFollowUp(it.name, libName, fmtDMY(it.booking_to), expired); }; // B5
   const doDoNotRenew=async(it:QueueItem)=>{
     const r=await post("markReceiptDoNotRenew",{receipt_no:it.receipt_no});
     if(r){ showToast("Marked Do Not Renew"); load(); }
@@ -154,7 +155,7 @@ export default function RenewalsPage(){
               <div className="space-y-2">
                 {expShown.slice((page-1)*PAGE_SIZE, page*PAGE_SIZE).map(it=>(
                   <ReviewCard key={it.receipt_no} it={it} kind={tierOf(it)}
-                    onRenew={()=>setRenew(it)} onSecondary={secondaryFor(it,"expiring")} remindText={remind(it,false)}
+                    onRenew={()=>setRenew(it)} onSecondary={secondaryFor(it,"expiring")} remindText={remind(it,false)} remindFollowUp={followUp(it,false)}
                     onRno={()=>setOpenRno(it.receipt_no)} onStu={()=>setOpenStu({id:it.student_id,library:homeLib(it)})}/>
                 ))}
                 <Pager page={page} totalPages={Math.max(1,Math.ceil(expShown.length/PAGE_SIZE))} onPage={setPage}/>
@@ -169,7 +170,7 @@ export default function RenewalsPage(){
           <div className="space-y-2">
             {expiredF.slice((page-1)*PAGE_SIZE, page*PAGE_SIZE).map(it=>(
               <ReviewCard key={it.receipt_no} it={it} kind="expired"
-                onRenew={()=>setRenew(it)} onSecondary={secondaryFor(it,"expired")} remindText={remind(it,true)}
+                onRenew={()=>setRenew(it)} onSecondary={secondaryFor(it,"expired")} remindText={remind(it,true)} remindFollowUp={followUp(it,true)}
                 onRno={()=>setOpenRno(it.receipt_no)} onStu={()=>setOpenStu({id:it.student_id,library:homeLib(it)})}/>
             ))}
             <Pager page={page} totalPages={Math.max(1,Math.ceil(expiredF.length/PAGE_SIZE))} onPage={setPage}/>
@@ -226,8 +227,8 @@ const LOOK:Record<"soon"|"expiring"|"expired",{accent:string;pillBg:string;pillF
 };
  
 // ── Review card (Soon + Expiring + Expired) ──
-function ReviewCard({ it, kind, onRenew, onSecondary, onRno, onStu, remindText }:{
-  it:QueueItem; kind:"soon"|"expiring"|"expired"; onRenew:()=>void; onSecondary:()=>void; onRno:()=>void; onStu:()=>void; remindText?:string;
+function ReviewCard({ it, kind, onRenew, onSecondary, onRno, onStu, remindText, remindFollowUp }:{
+  it:QueueItem; kind:"soon"|"expiring"|"expired"; onRenew:()=>void; onSecondary:()=>void; onRno:()=>void; onStu:()=>void; remindText?:string; remindFollowUp?:string;
 }){
   const lk = LOOK[kind];
   const isExpired = kind==="expired";
@@ -253,7 +254,7 @@ function ReviewCard({ it, kind, onRenew, onSecondary, onRno, onStu, remindText }
         {isExpired
           ? <button onClick={onSecondary} className="py-2 rounded-lg bg-lma-slate-100 text-lma-slate-600 font-bold text-xs">Don&apos;t Renew</button>
           : <button onClick={onSecondary} className="py-2 rounded-lg bg-lma-danger/10 text-lma-danger font-bold text-xs">Cancel</button>}
-        {remindText&&<div className="flex gap-1"><WhatsAppButton phones={it.phones} text={remindText} label="💬 Remind" className="flex-1 min-w-0 py-2 rounded-lg bg-lma-accent/10 text-lma-accent font-bold text-xs disabled:opacity-40"/><WhatsAppButton phones={it.phones} className="px-2.5 py-2 rounded-lg bg-lma-primary/10 text-lma-primary font-bold text-xs disabled:opacity-40"/></div>}
+        {remindText&&<div className="flex gap-1"><WhatsAppButton phones={it.phones} text={remindText} variants={remindFollowUp?[{label:"Initial reminder",text:remindText},{label:"Follow-up",text:remindFollowUp}]:undefined} label="💬 Remind" className="flex-1 min-w-0 py-2 rounded-lg bg-lma-accent/10 text-lma-accent font-bold text-xs disabled:opacity-40"/><WhatsAppButton phones={it.phones} className="px-2.5 py-2 rounded-lg bg-lma-primary/10 text-lma-primary font-bold text-xs disabled:opacity-40"/></div>}
       </div>
     </div>
   );
