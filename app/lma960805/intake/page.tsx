@@ -6,6 +6,7 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import Link from "next/link";
 import { useLMA } from "../_components/LMAProvider";
+import { parsePhone10 } from "../_lib/phone";
 
 const API = "/api/lma960805";
 const PUBLIC_PATH = "/jn-x7k2q";
@@ -17,10 +18,11 @@ export default function EnquiryCodePage(){
   const [items,setItems]=useState<any[]>([]);
   const [loading,setLoading]=useState(false);
   const [scope,setScope]=useState("");
-  const [fresh,setFresh]=useState<{pretty:string;scope:string;remark:string}|null>(null);
+  const [fresh,setFresh]=useState<{pretty:string;scope:string;remark:string;mobile:string}|null>(null);
   const [filter,setFilter]=useState<Filt>("ALL");
   const [busy,setBusy]=useState(false);
   const [confirmVoid,setConfirmVoid]=useState<any>(null);
+  const [mobile,setMobile]=useState("");   // required — normalised by the shared parser
   const [remark,setRemark]=useState("");
   const [confirmGen,setConfirmGen]=useState(false);
 
@@ -54,16 +56,17 @@ export default function EnquiryCodePage(){
   // Link and code go as TWO messages: the student taps the link in one and
   // long-press-copies the bare code from the other — nothing to select by hand.
   const linkUrl=()=>(typeof window!=="undefined"?window.location.origin:"")+PUBLIC_PATH;
-  const wa=(t:string)=>window.open(`https://wa.me/?text=${encodeURIComponent(t)}`,"_blank");
+  const wa=(t:string,to?:string)=>window.open(to?`https://wa.me/91${to}?text=${encodeURIComponent(t)}`:`https://wa.me/?text=${encodeURIComponent(t)}`,"_blank");
   const cp=(t:string,l:string)=>{ navigator.clipboard.writeText(t); showToast(`${l} copied`); };
 
   const generate=async()=>{
     const s=scopes.find(x=>x.value===scope);
     if(!s){ showToast("Pick a library/branch first","error"); return; }
+    if(!mobOk){ showToast("Enter a valid 10-digit mobile number","error"); return; }
     setConfirmGen(false); setBusy(true);
-    const r=await post("intakeGenerateCode",{ library:s.library, branch:s.branch, remark:remark.trim() });
+    const r=await post("intakeGenerateCode",{ library:s.library, branch:s.branch, mobile, remark:remark.trim() });
     setBusy(false);
-    if(r&&r.ok){ setFresh({pretty:r.pretty,scope:s.label,remark:remark.trim()}); setRemark(""); showToast("Code generated"); load(); } // scope stays selected — next code is one tap
+    if(r&&r.ok){ setFresh({pretty:r.pretty,scope:s.label,remark:remark.trim(),mobile}); setMobile(""); setRemark(""); showToast("Code generated"); load(); } // scope stays selected — next code is one tap
   };
   const doVoid=async(it:any)=>{
     setConfirmVoid(null);
@@ -71,6 +74,7 @@ export default function EnquiryCodePage(){
     if(r&&r.ok){ showToast(`${it.code} voided`); load(); }
   };
 
+  const mobOk=/^[6-9]\d{9}$/.test(mobile);
   const shown=items.filter(i=>filter==="ALL"||i.status===filter);
   const meta=(s:string)=>s==="SUBMITTED"?{chip:"bg-lma-accent text-white",bar:"bg-lma-accent",hint:"Ready — enter this code in a NEW admission"}
     :s==="ISSUED"?{chip:"bg-lma-slate-200 text-lma-slate-700",bar:"bg-lma-slate-300",hint:"Waiting for the student to fill the form"}
@@ -81,11 +85,11 @@ export default function EnquiryCodePage(){
   // to text links, Void tucked on the same row so it never floats alone.
   // Colour = action type: green sends, blue copies, red void. Columns stay
   // aligned (link | code) so the grid reads down as well as across.
-  const Share=({ code, onVoid }:{ code:string; onVoid?:()=>void })=>(
+  const Share=({ code, mob, onVoid }:{ code:string; mob?:string; onVoid?:()=>void })=>(
     <>
       <div className="grid grid-cols-2 gap-2">
-        <button onClick={()=>wa(linkUrl())} style={{borderRadius:12}} className="h-10 bg-lma-accent text-white font-bold text-[12px] active:scale-[0.98]">Send link</button>
-        <button onClick={()=>wa(code)} style={{borderRadius:12}} className="h-10 bg-lma-accent text-white font-bold text-[12px] active:scale-[0.98]">Send code</button>
+        <button onClick={()=>wa(linkUrl(),mob)} style={{borderRadius:12}} className="h-10 bg-lma-accent text-white font-bold text-[12px] active:scale-[0.98]">Send link</button>
+        <button onClick={()=>wa(code,mob)} style={{borderRadius:12}} className="h-10 bg-lma-accent text-white font-bold text-[12px] active:scale-[0.98]">Send code</button>
         <button onClick={()=>cp(linkUrl(),"Link")} style={{borderRadius:12}} className="h-10 bg-lma-primary/10 text-lma-primary font-bold text-[12px] active:scale-[0.98]">Copy link</button>
         <button onClick={()=>cp(code,"Code")} style={{borderRadius:12}} className="h-10 bg-lma-primary/10 text-lma-primary font-bold text-[12px] active:scale-[0.98]">Copy code</button>
       </div>
@@ -120,12 +124,16 @@ export default function EnquiryCodePage(){
             </button>
           ))}
         </div>
+        <input value={mobile} onChange={e=>setMobile(parsePhone10(e.target.value))} inputMode="numeric"
+          placeholder="Student mobile number (required)"
+          style={{borderRadius:10}} className={`w-full h-10 px-3 mb-2 border-[1.5px] text-[13px] font-semibold text-lma-slate-800 placeholder:text-lma-slate-400 placeholder:font-medium ${mobile&&!mobOk?"border-lma-danger bg-lma-danger/5":"border-lma-slate-200 bg-lma-slate-50"}`}/>
+        {mobile&&!mobOk&&<div className="text-[10px] font-bold text-lma-danger mb-2 -mt-1">Needs 10 digits starting 6&ndash;9. Paste any format &mdash; +91, 0091, spaces or dashes all work.</div>}
         <input value={remark} onChange={e=>setRemark(e.target.value)} placeholder="Remark — who is this code for? (optional)"
           style={{borderRadius:10}} className="w-full h-10 px-3 mb-2.5 border-[1.5px] border-lma-slate-200 bg-lma-slate-50 text-[13px] font-medium text-lma-slate-800 placeholder:text-lma-slate-400"/>
-        <button onClick={()=>{ if(!scope){ showToast("Pick a library/branch first","error"); return; } setConfirmGen(true); }} disabled={!scope||busy}
+        <button onClick={()=>setConfirmGen(true)} disabled={!scope||!mobOk||busy}
           style={{borderRadius:12, height:54}}
-          className={`w-full font-extrabold text-[15px] ${(!scope||busy)?"bg-lma-slate-100 text-lma-slate-400":"bg-lma-primary text-white shadow-md"}`}>
-          {busy?"Generating…":scope?`Generate code for ${scope}`:"Pick a library above"}
+          className={`w-full font-extrabold text-[15px] ${(!scope||!mobOk||busy)?"bg-lma-slate-100 text-lma-slate-400":"bg-lma-primary text-white shadow-md"}`}>
+          {busy?"Generating…":!scope?"Pick a library above":!mobOk?"Enter the student's mobile number":`Generate code for ${scope}`}
         </button>
         {fresh&&(
           <div className="mt-3 pt-3 border-t border-lma-slate-100">
@@ -133,8 +141,8 @@ export default function EnquiryCodePage(){
               <span className="text-[22px] font-extrabold font-mono tracking-[0.08em] text-lma-slate-900 select-all">{fresh.pretty}</span>
               <span className="text-[10px] font-extrabold text-lma-slate-400">{fresh.scope}</span>
             </div>
-            {fresh.remark&&<div className="text-[11px] font-bold text-lma-slate-600 text-center mb-2">👤 {fresh.remark}</div>}
-            <Share code={fresh.pretty}/>
+            <div className="text-[11px] font-bold text-lma-slate-600 text-center mb-2">📱 {fresh.mobile}{fresh.remark?` · ${fresh.remark}`:""}</div>
+            <Share code={fresh.pretty} mob={fresh.mobile}/>
           </div>
         )}
       </div>
@@ -170,14 +178,16 @@ export default function EnquiryCodePage(){
                     <span className={`text-[9px] font-extrabold tracking-wide px-1.5 py-0.5 rounded ${m.chip}`}>{it.status}</span>
                     <span className="ml-auto text-[11px] font-bold text-lma-slate-500 shrink-0">{it.branch||it.library}</span>
                   </div>
-                  {it.remark&&<div className="text-[12px] font-bold text-lma-slate-800 mt-1.5 leading-snug">👤 {it.remark}</div>}
+                  {(it.mobile||it.remark)&&<div className="text-[12px] font-bold text-lma-slate-800 mt-1.5 leading-snug">
+                    {it.mobile&&<span className="font-mono">📱 {it.mobile}</span>}{it.mobile&&it.remark?" · ":""}{it.remark}
+                  </div>}
                   {m.hint&&<div className="text-[11px] text-lma-slate-500 mt-1 leading-snug">{m.hint}</div>}
                   <div className="text-[10px] text-lma-slate-400 mt-1">
                     Issued {it.issued_on}
                     {it.used_receipt?<> · <span className="font-bold text-lma-slate-600">{it.used_receipt}</span></>:null}
                     {it.used_by_library&&it.used_by_library!==(it.branch||it.library)?<> · used at {it.used_by_library}</>:null}
                   </div>
-                  {live&&<div className="mt-3"><Share code={it.code} onVoid={()=>setConfirmVoid(it)}/></div>}
+                  {live&&<div className="mt-3"><Share code={it.code} mob={it.mobile} onVoid={()=>setConfirmVoid(it)}/></div>}
                 </div>
               </div>
             ); })}
@@ -191,6 +201,7 @@ export default function EnquiryCodePage(){
             <h4 className="text-sm font-extrabold text-lma-slate-900 mb-2">Generate a new enquiry code?</h4>
             <div className="bg-lma-slate-50 rounded-xl p-3 mb-3 space-y-1">
               <div className="flex items-center gap-2"><span className="text-[10px] font-bold text-lma-slate-400 w-12">FOR</span><span className="text-[13px] font-extrabold text-lma-slate-900">{scope}</span></div>
+              <div className="flex items-center gap-2"><span className="text-[10px] font-bold text-lma-slate-400 w-12">MOBILE</span><span className="text-[13px] font-extrabold text-lma-slate-900 font-mono">{mobile}</span></div>
               <div className="flex items-start gap-2"><span className="text-[10px] font-bold text-lma-slate-400 w-12 shrink-0 pt-0.5">REMARK</span><span className={`text-[13px] font-semibold ${remark.trim()?"text-lma-slate-800":"text-lma-slate-400"}`}>{remark.trim()||"none"}</span></div>
             </div>
             <p className="text-[11px] text-lma-slate-500 mb-4 leading-snug">The code works once. Share it with one student only.</p>

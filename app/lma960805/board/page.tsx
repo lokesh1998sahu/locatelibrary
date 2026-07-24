@@ -264,7 +264,7 @@ export default function BoardPage(){
   {showPngMenu&&<div className="fixed inset-0 z-40" onClick={()=>setShowPngMenu(false)}/>}
 </div>
       </header>
-      {showVacList&&board&&<VacancyListDialog board={board} libLabel={resolved.branch||resolved.lib} onClose={()=>setShowVacList(false)}/>}
+      {showVacList&&board&&<VacancyListDialog board={board} libCode={resolved.lib} scopeCode={resolved.branch||resolved.lib} onClose={()=>setShowVacList(false)}/>}
 
       {/* library chips */}
       <div className="flex gap-1.5 mb-3 overflow-x-auto -mx-4 px-4 pb-1">
@@ -983,30 +983,36 @@ const BlockPanel=(blk:BlockInfo)=>{
 }
 
 // ── B1: VACANT-SEATS TEXT LIST (board surface) — shared vacancy computer ──
-function VacancyListDialog({ board, libLabel, onClose }:{ board:BoardResp; libLabel:string; onClose:()=>void }){
-  const { showToast }=useLMA();
+function VacancyListDialog({ board, libCode, scopeCode, onClose }:{ board:BoardResp; libCode:string; scopeCode:string; onClose:()=>void }){
+  const { init, showToast }=useLMA();
   const ORDER:VacPlan[]=["MORNING","EVENING","FULL DAY"];
-  const [sel,setSel]=useState<VacPlan[]>(ORDER);
+  const [sel,setSel]=useState<VacPlan[]>([]);      // nothing pre-selected — you pick what you need
+  const [side,setSide]=useState(false);
   const toggle=(p:VacPlan)=>setSel(c=>c.includes(p)?c.filter(x=>x!==p):[...c,p]);
   const plans=ORDER.filter(p=>sel.includes(p));
-  const text=plans.length?buildVacancyText(libLabel,fmtDMY(new Date()),board,plans):"";
+  const libName=((init?.libraries)||[]).find((l:any)=>l.library_code===libCode)?.display_name||"";
+  const libLabel=libName?`${libName} (${scopeCode})`:scopeCode;
+  const any=plans.length>0||side;
+  const text=any?buildVacancyText(libLabel,fmtDMY(new Date()),board,plans,side):"";
   return (
     <div className="fixed inset-0 z-[10000] flex items-center justify-center px-5" onClick={onClose}>
       <div className="absolute inset-0 bg-black/40"/>
       <div className="relative w-full max-w-sm bg-white rounded-2xl p-4 lma-slide-up max-h-[85vh] overflow-y-auto" onClick={e=>e.stopPropagation()}>
-        <h3 className="text-base font-extrabold text-lma-slate-900 mb-2">📋 Vacant seats · {libLabel}</h3>
+        <h3 className="text-base font-extrabold text-lma-slate-900 leading-tight mb-0.5">🪑 Vacant seats</h3>
+        <p className="text-[11px] font-bold text-lma-slate-500 mb-2.5">{libLabel}</p>
         <div className="flex gap-1.5 mb-3 flex-wrap">
           {ORDER.map(p=>(
-            <button key={p} onClick={()=>toggle(p)} className={`px-2.5 py-1.5 rounded-full text-[11px] font-bold ${sel.includes(p)?"bg-lma-primary text-white":"bg-lma-slate-100 text-lma-slate-500"}`}>{p}</button>
+            <button key={p} onClick={()=>toggle(p)} style={{borderRadius:10}} className={`px-3 h-9 text-[11px] font-extrabold ${sel.includes(p)?"bg-lma-primary text-white":"bg-lma-slate-100 text-lma-slate-600"}`}>{p}</button>
           ))}
+          <button onClick={()=>setSide(v=>!v)} style={{borderRadius:10}} className={`px-3 h-9 text-[11px] font-extrabold ${side?"bg-lma-primary text-white":"bg-lma-slate-100 text-lma-slate-600"}`}>SIDE PANEL</button>
         </div>
-        {plans.length===0
-          ? <div className="text-[12px] font-bold text-lma-danger bg-lma-danger/10 rounded-lg p-2 mb-3">Select at least one time plan.</div>
+        {!any
+          ? <div className="text-[12px] font-bold text-lma-slate-500 bg-lma-slate-50 rounded-xl p-3 mb-3 text-center">Tap a time plan above to build the list.</div>
           : <pre className="text-[11px] font-medium text-lma-slate-800 bg-lma-slate-50 rounded-xl p-3 mb-3 whitespace-pre-wrap break-words">{text}</pre>}
         <div className="flex gap-2">
-          <button disabled={!plans.length} onClick={()=>{ navigator.clipboard.writeText(text); showToast("Copied"); }} className="flex-1 py-2.5 rounded-xl bg-lma-slate-100 text-lma-slate-600 font-bold text-sm disabled:opacity-50">Copy</button>
-          <button disabled={!plans.length} onClick={()=>window.open(`https://wa.me/?text=${encodeURIComponent(text)}`,"_blank")} className="flex-1 py-2.5 rounded-xl bg-lma-accent text-white font-bold text-sm disabled:opacity-50">WhatsApp</button>
-          <button onClick={onClose} className="px-4 py-2.5 rounded-xl bg-lma-slate-900 text-white font-bold text-sm">Close</button>
+          <button disabled={!any} onClick={()=>{ navigator.clipboard.writeText(text); showToast("Copied"); }} style={{borderRadius:12}} className="flex-1 h-10 bg-lma-primary/10 text-lma-primary font-bold text-sm disabled:opacity-40">Copy</button>
+          <button disabled={!any} onClick={()=>window.open(`https://wa.me/?text=${encodeURIComponent(text)}`,"_blank")} style={{borderRadius:12}} className="flex-1 h-10 bg-lma-accent text-white font-bold text-sm disabled:opacity-40">WhatsApp</button>
+          <button onClick={onClose} style={{borderRadius:12}} className="px-4 h-10 bg-lma-slate-900 text-white font-bold text-sm">Close</button>
         </div>
       </div>
     </div>

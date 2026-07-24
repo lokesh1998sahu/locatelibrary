@@ -204,6 +204,8 @@ function StepStudent({ init, resolvedLib, resolvedBranch, admitType, post, showT
   const [intakeBusy,setIntakeBusy]=useState(false);
   const [intakeOk,setIntakeOk]=useState("");
   const [intakeRemark,setIntakeRemark]=useState(""); // admin note from the enquiry code — verify it matches the student in front of you
+  const [intakeMobile,setIntakeMobile]=useState("");
+  const [intakeAlt,setIntakeAlt]=useState("");   // code number ≠ the number the student filled — offer it as a secondary
   const fetchIntake=async()=>{
     const c=intakeCode.trim(); if(!c) return;
     setIntakeBusy(true); setIntakeOk("");
@@ -218,6 +220,9 @@ function StepStudent({ init, resolvedLib, resolvedBranch, admitType, post, showT
         setAddress(String(f.address||"").toUpperCase());
         setPreparingFor(String(f.preparing_for||"").toUpperCase());
         setIntakeRemark(String(r.remark||""));
+        const adminMob=String(r.mobile||""), stuMob=String(f.whatsapp_no||"");
+        setIntakeMobile(adminMob);
+        setIntakeAlt(adminMob&&stuMob&&adminMob!==stuMob?adminMob:"");
         setIntakeOk(r.issued_for&&r.issued_for!==(resolvedBranch||resolvedLib)?`Prefilled · code issued for ${r.issued_for}`:"Prefilled from student submission");
       } else showToast((r&&r.error)||"Could not fetch this code","error");
     }catch{ showToast("Network error","error"); }
@@ -317,10 +322,19 @@ function StepStudent({ init, resolvedLib, resolvedBranch, admitType, post, showT
           <div className="bg-lma-slate-50 rounded-xl p-2.5 mb-3">
             <FieldLabel>Intake code (optional)</FieldLabel>
             <div className="flex gap-2">
-              <input value={intakeCode} onChange={e=>{setIntakeCode(e.target.value.toUpperCase());setIntakeOk("");setIntakeRemark("");}} placeholder="XXXXX-XXXXX" autoCapitalize="characters" className="flex-1 px-3 py-2.5 rounded-xl border-[1.5px] border-lma-slate-200 bg-white text-sm font-mono tracking-wider"/>
+              <input value={intakeCode} onChange={e=>{setIntakeCode(e.target.value.toUpperCase());setIntakeOk("");setIntakeRemark("");setIntakeMobile("");setIntakeAlt("");}} placeholder="XXXXX-XXXXX" autoCapitalize="characters" className="flex-1 px-3 py-2.5 rounded-xl border-[1.5px] border-lma-slate-200 bg-white text-sm font-mono tracking-wider"/>
               <button type="button" onClick={fetchIntake} disabled={intakeBusy||!intakeCode.trim()} className="px-3.5 py-2.5 rounded-xl bg-lma-primary text-white font-bold text-xs disabled:opacity-50">{intakeBusy?"…":"Fetch"}</button>
             </div>
-            {intakeRemark&&<div className="mt-1.5 px-2 py-1.5 rounded-lg bg-lma-primary/10 text-[11px] font-extrabold text-lma-primary leading-snug">👤 {intakeRemark}</div>}
+            {(intakeMobile||intakeRemark)&&<div className="mt-1.5 px-2 py-1.5 rounded-lg bg-lma-primary/10 text-[11px] font-extrabold text-lma-primary leading-snug">{intakeMobile&&<span className="font-mono">📱 {intakeMobile}</span>}{intakeMobile&&intakeRemark?" · ":""}{intakeRemark}</div>}
+            {intakeAlt&&(
+              <div className="mt-1.5 px-2.5 py-2 rounded-lg bg-lma-warn/10 border border-lma-warn/30">
+                <div className="text-[11px] font-bold text-lma-slate-800 leading-snug">&#9888; Number mismatch &mdash; code issued to <span className="font-mono font-extrabold">{intakeAlt}</span>, student filled <span className="font-mono font-extrabold">{phones[0]?.number||"—"}</span>. Check you have the right person.</div>
+                <div className="flex gap-2 mt-2">
+                  <button type="button" onClick={()=>{ setPhones(p=>p.some(x=>x.number===intakeAlt)?p:[...p,{number:intakeAlt,tag:"ALT"}]); setIntakeAlt(""); }} style={{borderRadius:10}} className="flex-1 h-8 bg-lma-primary text-white font-bold text-[11px]">Add as secondary</button>
+                  <button type="button" onClick={()=>setIntakeAlt("")} style={{borderRadius:10}} className="flex-1 h-8 bg-lma-slate-100 text-lma-slate-600 font-bold text-[11px]">Keep only theirs</button>
+                </div>
+              </div>
+            )}
             {intakeOk&&<div className="text-[10px] font-bold text-lma-accent mt-1.5">✓ {intakeOk}</div>}
           </div>
           <FieldLabel>Name *</FieldLabel>

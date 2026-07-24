@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { useLMA, useScopeChips } from "./_components/LMAProvider";
+import { buildVacancyText, type VacPlan } from "./_lib/vacancy";
 
 const API = "/api/lma960805";
 
@@ -96,6 +97,7 @@ export default function LmaHomePage() {
         </div>
       </div>
 
+      <VacantSeatsCard scope={scope}/>
 
       {/* Launcher grid */}
       <section className="lma-slide-up">
@@ -125,6 +127,65 @@ function CockpitCell({label,value}:{label:string;value:string}){
     <div className="bg-white/12 rounded-xl px-2.5 py-2 backdrop-blur-sm">
       <div className="text-[9px] font-bold uppercase tracking-wide opacity-75">{label}</div>
       <div className="text-[15px] font-extrabold mt-0.5 leading-none truncate">{value}</div>
+    </div>
+  );
+}
+
+// ── B1: VACANT SEATS — same shared vacancy computer as the seat chart ──
+// Uses the page's own library/branch chips as the selector. Nothing is
+// pre-selected: you tap the plans you actually want in the list.
+function VacantSeatsCard({ scope }:{ scope:string }){
+  const { init, showToast }=useLMA();
+  const ORDER:VacPlan[]=["MORNING","EVENING","FULL DAY"];
+  const [sel,setSel]=useState<VacPlan[]>([]);
+  const [side,setSide]=useState(false);
+  const [busy,setBusy]=useState(false);
+  const [text,setText]=useState("");
+  const toggle=(p:VacPlan)=>{ setText(""); setSel(c=>c.includes(p)?c.filter(x=>x!==p):[...c,p]); };
+  const plans=ORDER.filter(p=>sel.includes(p));
+  const any=plans.length>0||side;
+  const go=async()=>{
+    if(!scope){ showToast("Pick a library/branch chip above first","error"); return; }
+    if(!any){ showToast("Tap a time plan first","error"); return; }
+    const b=((init?.branches)||[]).find((x:any)=>x.branch_code===scope);
+    const lib=b?b.library_code:scope, br=b?scope:"";
+    const libName=((init?.libraries)||[]).find((l:any)=>l.library_code===lib)?.display_name||"";
+    const libLabel=libName?`${libName} (${scope})`:scope;
+    setBusy(true); setText("");
+    try{
+      const p=new URLSearchParams({action:"getBoardOccupancy",library_code:lib});
+      if(br) p.set("branch_code",br);
+      const r=await fetch(`${API}?${p}`).then(x=>x.json());
+      if(r&&r.ok){ const d=new Date(); setText(buildVacancyText(libLabel,`${d.getDate()}-${d.getMonth()+1}-${d.getFullYear()}`,r,plans,side)); }
+      else showToast((r&&r.error)||"Could not load board","error");
+    }catch{ showToast("Network error","error"); }
+    setBusy(false);
+  };
+  return (
+    <div className="bg-white rounded-2xl p-4 shadow-sm mb-3 lma-slide-up">
+      <div className="flex items-center justify-between mb-2">
+        <h3 className="text-sm font-extrabold text-lma-slate-900">🪑 Vacant seats</h3>
+        <span className="text-[10px] font-bold text-lma-slate-400">{scope||"pick a chip above"}</span>
+      </div>
+      <div className="flex gap-1.5 mb-2 flex-wrap">
+        {ORDER.map(p=>(
+          <button key={p} onClick={()=>toggle(p)} style={{borderRadius:10}}
+            className={`px-3 h-9 text-[11px] font-extrabold ${sel.includes(p)?"bg-lma-primary text-white":"bg-lma-slate-100 text-lma-slate-600"}`}>{p}</button>
+        ))}
+        <button onClick={()=>{setText("");setSide(v=>!v);}} style={{borderRadius:10}}
+          className={`px-3 h-9 text-[11px] font-extrabold ${side?"bg-lma-primary text-white":"bg-lma-slate-100 text-lma-slate-600"}`}>SIDE PANEL</button>
+        <button onClick={go} disabled={busy||!any} style={{borderRadius:10}}
+          className="ml-auto px-4 h-9 text-[11px] font-extrabold bg-lma-slate-900 text-white disabled:opacity-40">{busy?"…":"Get list"}</button>
+      </div>
+      {text&&(
+        <>
+          <pre className="text-[11px] font-medium text-lma-slate-800 bg-lma-slate-50 rounded-xl p-3 mb-2 whitespace-pre-wrap break-words">{text}</pre>
+          <div className="grid grid-cols-2 gap-2">
+            <button onClick={()=>{ navigator.clipboard.writeText(text); showToast("Copied"); }} style={{borderRadius:10}} className="h-9 bg-lma-primary/10 text-lma-primary font-bold text-[11px]">Copy</button>
+            <button onClick={()=>window.open(`https://wa.me/?text=${encodeURIComponent(text)}`,"_blank")} style={{borderRadius:10}} className="h-9 bg-lma-accent text-white font-bold text-[11px]">WhatsApp</button>
+          </div>
+        </>
+      )}
     </div>
   );
 }

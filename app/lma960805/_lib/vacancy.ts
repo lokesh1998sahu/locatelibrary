@@ -33,11 +33,18 @@ export function vacantSeats(board:VacBoard, plan:VacPlan):string[]{
   board.sections.forEach(sec=>sec.seats.forEach(c=>{ if(c.cell_type==="DEAD") return; if(planFree(c,plan)) out.push(c.display_label); }));
   return out.sort((a,b)=>{ const ka=seatKey(a), kb=seatKey(b); return ka[0]-kb[0] || ka[1].localeCompare(kb[1]); });
 }
-export function buildVacancyText(libLabel:string, dateStr:string, board:VacBoard, plans:VacPlan[]):string{
-  const L:string[]=["\u{1FA91} VACANT SEATS \u2014 "+libLabel, dateStr, ""];
-  plans.forEach(p=>{ const s=vacantSeats(board,p); L.push(p+" ("+s.length+"): "+(s.length?s.join(", "):"\u2014")); });
-  const f=(board.floating||[]).length, u=(board.unassigned||[]).length, o=(board.otherShift||[]).length;
-  if(f||u||o) L.push("", "Also on board: "+[f?f+" floating":"", u?u+" unassigned":"", o?o+" other-shift":""].filter(Boolean).join(" \u00b7 "));
+export function buildVacancyText(libLabel:string, dateStr:string, board:VacBoard, plans:VacPlan[], sidePanel?:boolean):string{
+  const L:string[]=["\u{1FA91} VACANT SEATS \u2014 "+libLabel, dateStr];
+  plans.forEach(p=>{
+    const s=vacantSeats(board,p);
+    L.push("", p+" ("+s.length+(s.length===1?" SEAT":" SEATS")+"): "+(s.length?s.join(", "):"\u2014"));
+  });
+  if(sidePanel){
+    const f=(board.floating||[]).length, u=(board.unassigned||[]).length, o=(board.otherShift||[]).length;
+    const n=f+u+o;
+    const parts=[f?f+" floating":"", u?u+" unassigned":"", o?o+" other-shift":""].filter(Boolean);
+    L.push("", "SIDE PANEL ("+n+(n===1?" BOOKING":" BOOKINGS")+")"+(parts.length?": "+parts.join(", "):""));
+  }
   return L.join("\n");
 }
 
