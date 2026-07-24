@@ -45,7 +45,7 @@ interface VacantResp { ok:boolean; needs_seat:boolean; sections:{section_name:st
 interface ResultData { receipt_no:string; student_id:string; receipt_text:string; registration_text:string; name:string; library:string; phones:PhoneEntry[]; }
 type PayMode = { mode:string; amount:string; date?:string };
 interface BookingPreload { seat?:string; shift?:string; fee?:string; from?:string; to?:string; }
-interface BookingCtx { admitType:"NEW"|"RENEWAL"; student:Student|null; isCross:boolean; crossOrigin:string; renewFrom?:Receipt|null; preload?:BookingPreload; }
+interface BookingCtx { admitType:"NEW"|"RENEWAL"; student:Student|null; isCross:boolean; crossOrigin:string; renewFrom?:Receipt|null; preload?:BookingPreload; intakeCode?:string; }
 
 export default function BookingFlow({ renewReceiptNo, addMode, libCode, presetSeat, presetShift, onClose, onComplete }:{
   renewReceiptNo?:string; addMode?:boolean; libCode:string; presetSeat?:string; presetShift?:string; onClose:()=>void; onComplete:()=>void;
@@ -200,6 +200,27 @@ function StepStudent({ init, resolvedLib, resolvedBranch, admitType, post, showT
   const [aadhaar,setAadhaar]=useState("");
   const [dob,setDob]=useState("");
   const [gender,setGender]=useState<"M"|"F"|"">("");
+  const [intakeCode,setIntakeCode]=useState("");   // B6
+  const [intakeBusy,setIntakeBusy]=useState(false);
+  const [intakeOk,setIntakeOk]=useState("");
+  const fetchIntake=async()=>{
+    const c=intakeCode.trim(); if(!c) return;
+    setIntakeBusy(true); setIntakeOk("");
+    try{
+      const r=await fetch(`${API}?action=intakeFetch&code=${encodeURIComponent(c)}`).then(x=>x.json());
+      if(r&&r.ok&&r.fields){
+        const f=r.fields;
+        setName(String(f.name||"").toUpperCase());
+        if(f.gender==="M"||f.gender==="F") setGender(f.gender);
+        if(f.whatsapp_no) setPhones([{number:String(f.whatsapp_no),tag:"SELF"}]);
+        setDob(String(f.date_of_birth||""));
+        setAddress(String(f.address||"").toUpperCase());
+        setPreparingFor(String(f.preparing_for||"").toUpperCase());
+        setIntakeOk(r.issued_for&&r.issued_for!==(resolvedBranch||resolvedLib)?`Prefilled · code issued for ${r.issued_for}`:"Prefilled from student submission");
+      } else showToast((r&&r.error)||"Could not fetch this code","error");
+    }catch{ showToast("Network error","error"); }
+    setIntakeBusy(false);
+  };
 
   const [search,setSearch]=useState("");
   const [studentResults,setStudentResults]=useState<Student[]>([]);
@@ -262,7 +283,7 @@ function StepStudent({ init, resolvedLib, resolvedBranch, admitType, post, showT
     const cleanPhones=phones.filter(p=>p.number.trim()).map(p=>({number:normalizePhone(p.number),tag:p.tag}));
     const student:Student={ student_id:"", library:resolvedLib, branch:resolvedBranch, name:name.trim(),
       phones:cleanPhones, address, preparing_for:preparingFor, aadhaar_last4:aadhaar, date_of_birth:dob, gender, is_past:false };
-    onReady({ admitType:"NEW", student, isCross:false, crossOrigin:"" });
+    onReady({ admitType:"NEW", student, isCross:false, crossOrigin:"", intakeCode:intakeCode.trim() });
   };
 
   const pickRenewalStudent=(st:Student)=>{ // A1: student tile = FRESH booking from today (pick a RECEIPT tile to continue a booking)
@@ -291,6 +312,14 @@ function StepStudent({ init, resolvedLib, resolvedBranch, admitType, post, showT
       {admitType==="NEW"?(
         <div className="bg-white rounded-2xl p-4 shadow-sm">
           <h3 className="text-base font-extrabold text-lma-slate-900 mb-3">New Student Details</h3>
+          <div className="bg-lma-slate-50 rounded-xl p-2.5 mb-3">
+            <FieldLabel>Intake code (optional)</FieldLabel>
+            <div className="flex gap-2">
+              <input value={intakeCode} onChange={e=>{setIntakeCode(e.target.value.toUpperCase());setIntakeOk("");}} placeholder="XXXXX-XXXXX" autoCapitalize="characters" className="flex-1 px-3 py-2.5 rounded-xl border-[1.5px] border-lma-slate-200 bg-white text-sm font-mono tracking-wider"/>
+              <button type="button" onClick={fetchIntake} disabled={intakeBusy||!intakeCode.trim()} className="px-3.5 py-2.5 rounded-xl bg-lma-primary text-white font-bold text-xs disabled:opacity-50">{intakeBusy?"…":"Fetch"}</button>
+            </div>
+            {intakeOk&&<div className="text-[10px] font-bold text-lma-accent mt-1.5">✓ {intakeOk}</div>}
+          </div>
           <FieldLabel>Name *</FieldLabel>
           <Inp value={name} onChange={e=>setName(e.target.value.toUpperCase())} placeholder="FULL NAME"/>
           <FieldLabel>Gender *</FieldLabel>
@@ -422,6 +451,14 @@ function StepBooking({ init, resolvedLib, resolvedBranch, ctx, post, showToast, 
   const [receiptDate,setReceiptDate]=useState(todayDmy());
   const [fee,setFee]=useState("");
   const [pays,setPays]=useState<PayMode[]>([{mode:"",amount:""}]);
+  // C1: read-only settlement preview (source of truth = PAYMENT_TAGS.settlement_days via init)
+  const settleDays=(mode:string)=>Number(((init?.paymentTags)||[]).find((t:any)=>t.tag_name===mode)?.settlement_days||0);
+  const settleOn=(mode:string,dmy:string)=>{
+    const iso=dmyToIso(dmy); if(!iso) return "";
+    const dt=new Date(iso+"T00:00:00"); if(isNaN(dt.getTime())) return "";
+    dt.setDate(dt.getDate()+settleDays(mode));
+    return fmtDMY(`${dt.getDate()}-${dt.getMonth()+1}-${dt.getFullYear()}`);
+  };
   const [feesDue,setFeesDue]=useState("0");
   const [submitting,setSubmitting]=useState(false);
   const [showSeatPicker,setShowSeatPicker]=useState(false);
@@ -548,6 +585,9 @@ function StepBooking({ init, resolvedLib, resolvedBranch, ctx, post, showToast, 
       if(ctx.admitType==="RENEWAL"&&ctx.renewFrom){
         await post("markReceiptRenewed",{ receipt_no:ctx.renewFrom.receipt_no, successor:res.receipt_no });
       }
+      if(ctx.admitType==="NEW"&&ctx.intakeCode){ // B6: one-time code consumed
+        await post("intakeMarkUsed",{ code:ctx.intakeCode, receipt_no:res.receipt_no, used_by_library:resolvedBranch||resolvedLib });
+      }
       onDone({ receipt_no:res.receipt_no, student_id:res.student_id, receipt_text:res.receipt_text, registration_text:res.registration_text, name:ctx.student?.name||"", library:resolvedBranch||resolvedLib, phones:ctx.student?.phones||[] });
     }
   };
@@ -615,6 +655,7 @@ function StepBooking({ init, resolvedLib, resolvedBranch, ctx, post, showToast, 
                 <span className="text-[10px] font-bold text-lma-slate-400 shrink-0">Paid on</span>
                 <input type="date" value={dmyToIso(p.date||receiptDate)} onChange={e=>setPay(i,"date",isoToDmy(e.target.value))} className="flex-1 px-2.5 py-2 rounded-lg border-[1.5px] border-lma-slate-200 bg-lma-slate-50 text-xs font-medium"/>
               </div>}
+              {p.mode&&settleDays(p.mode)>0&&<div className="text-[10px] font-bold text-lma-accent mt-1 pl-1">💳 settles on {settleOn(p.mode,p.date||receiptDate)} · T+{settleDays(p.mode)}</div>}
             </div>
           ))}
           {pays.length<3&&<button onClick={addSplit} className="text-xs font-bold text-lma-primary">+ Split payment</button>}

@@ -8,10 +8,10 @@ const API = "/api/lma960805";
 const PASSWORD = process.env.NEXT_PUBLIC_LMA_PASSWORD!;
 
 // ── TYPES ─────────────────────────────────────────────────────────
-interface Library    { library_code:string; library_name:string; display_name:string; active:boolean; has_branches:boolean; emoji:string; color?:string; }
-interface Branch     { library_code:string; branch_code:string; branch_display:string; active:boolean; emoji?:string; color?:string; }
+interface Library    { library_code:string; library_name:string; display_name:string; active:boolean; has_branches:boolean; emoji:string; color?:string; address?:string; contact?:string; }
+interface Branch     { library_code:string; branch_code:string; branch_display:string; active:boolean; emoji?:string; color?:string; address?:string; contact?:string; }
 interface Shift      { shift_key:string; shift_name:string; shift_time:string; active:boolean; }
-interface PaymentTag { tag_name:string; fees_mode:string; active:boolean; created_at:string; }
+interface PaymentTag { tag_name:string; fees_mode:string; active:boolean; created_at:string; settlement_days?:number; }
 interface LibSettings { library:string; last_student_id:number; last_receipt_no:number; cutoff_student_id:number; cutoff_receipt_no:number; renewal_alert_days:number; renewal_alert_days_primary:number; }
 interface InitData   { ok:boolean; libraries:Library[]; branches:Branch[]; fees:Record<string,Record<string,number>>; shifts:Shift[]; paymentTags:PaymentTag[]; activeTags:string[]; settings:Record<string,LibSettings>; }
 
@@ -196,7 +196,7 @@ export default function LmaSettingsPage() {
                   key={t.tag_name}
                   emoji="💳"
                   title={t.tag_name}
-                  subtitle={`→ ${t.fees_mode || "(no bank set)"} · ${t.active ? "Active" : "Inactive"}`}
+                  subtitle={`→ ${t.fees_mode || "(no bank set)"} · settles T+${t.settlement_days ?? 0} · ${t.active ? "Active" : "Inactive"}`}
                   active={t.active}
                   onEdit={()=>setModal({ kind:"tag-edit", payload: t })}
                   onToggle={async ()=>{
@@ -454,6 +454,8 @@ function LibraryForm({ initial, onCancel, onSubmit }:{ initial?:Library; onCance
     has_branches: initial?.has_branches || false,
     emoji: initial?.emoji || "📚",
     color: initial?.color || "#6366f1",
+    address: initial?.address || "",
+    contact: initial?.contact || "",
   });
   const isEdit = !!initial;
   return (
@@ -465,6 +467,11 @@ function LibraryForm({ initial, onCancel, onSubmit }:{ initial?:Library; onCance
       <Input value={f.library_name} onChange={e=>setF({...f, library_name:e.target.value})} required/>
       <Label>Display Name</Label>
       <Input value={f.display_name} onChange={e=>setF({...f, display_name:e.target.value})} placeholder="Pretty version"/>
+      <Label>Address</Label>
+      <Input value={f.address} onChange={e=>setF({...f, address:e.target.value})} placeholder="Full address shown to students"/>
+      <Label>Contact Number</Label>
+      <Input value={f.contact} onChange={e=>setF({...f, contact:e.target.value})} placeholder="10-digit number" inputMode="numeric"/>
+      <p className="text-[11px] text-lma-slate-500 mt-2">Shown on the public enquiry form. Branches inherit these unless they set their own.</p>
       <div className="grid grid-cols-2 gap-3 mt-3">
         <div>
           <Label>Emoji</Label>
@@ -491,6 +498,8 @@ function BranchForm({ libraries, initial, onCancel, onSubmit }:{ libraries:Libra
     branch_display: initial?.branch_display || "",
     emoji: initial?.emoji || "🌿",
     color: initial?.color || "#6366f1",
+    address: initial?.address || "",
+    contact: initial?.contact || "",
   });
   const isEdit = !!initial;
   const branchable = libraries.filter(l => l.has_branches);
@@ -505,6 +514,11 @@ function BranchForm({ libraries, initial, onCancel, onSubmit }:{ libraries:Libra
       <Input value={f.branch_code} onChange={e=>setF({...f, branch_code:e.target.value.toUpperCase()})} placeholder="YAL-3" disabled={isEdit} required/>
       <Label>Display Name</Label>
       <Input value={f.branch_display} onChange={e=>setF({...f, branch_display:e.target.value})} required/>
+      <Label>Address</Label>
+      <Input value={f.address} onChange={e=>setF({...f, address:e.target.value})} placeholder="Leave blank to use the library's"/>
+      <Label>Contact Number</Label>
+      <Input value={f.contact} onChange={e=>setF({...f, contact:e.target.value})} placeholder="Leave blank to use the library's" inputMode="numeric"/>
+      <p className="text-[11px] text-lma-slate-500 mt-2">Only fill what differs from the parent library — blank cells inherit.</p>
       <div className="grid grid-cols-2 gap-3 mt-3">
         <div>
           <Label>Emoji</Label>
@@ -545,6 +559,7 @@ function TagForm({ initial, onCancel, onSubmit }:{ initial?:PaymentTag; onCancel
   const [f, setF] = useState({
     tag_name: initial?.tag_name || "",
     fees_mode: initial?.fees_mode || "",
+    settlement_days: initial?.settlement_days ?? 0,
   });
   const isEdit = !!initial;
   return (
@@ -555,6 +570,11 @@ function TagForm({ initial, onCancel, onSubmit }:{ initial?:PaymentTag; onCancel
       <Label>Fees Mode (Bank)</Label>
       <Input value={f.fees_mode} onChange={e=>setF({...f, fees_mode:e.target.value})} placeholder="HDFC-KD, ICICI-LS, CASH..."/>
       <p className="text-[11px] text-lma-slate-500 mt-2">The bank/mode this tag's money goes into.</p>
+      <div className="mt-3">
+        <Label>Settlement Days</Label>
+        <Input type="number" inputMode="numeric" min={0} max={90} value={f.settlement_days} onChange={e=>setF({...f, settlement_days:Number(e.target.value)})}/>
+        <p className="text-[11px] text-lma-slate-500 mt-2">Days until the money actually lands in the bank. <b>0</b> = same day (cash/UPI). <b>1</b> = next day, and so on. Drives the settlement date used by My Financials reconciliation.</p>
+      </div>
       <FormActions onCancel={onCancel}/>
     </form>
   );

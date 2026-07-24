@@ -27,7 +27,7 @@ const PASSWORD = process.env.NEXT_PUBLIC_LMA_PASSWORD!;
 interface Library   { library_code:string; library_name?:string; display_name:string; active:boolean; has_branches:boolean; emoji:string; color?:string; }
 interface Branch    { library_code:string; branch_code:string; branch_display:string; active:boolean; emoji?:string; color?:string; }
 interface Shift     { shift_key:string; shift_name:string; shift_time:string; active:boolean; }
-interface PaymentTag{ tag_name:string; fees_mode?:string; active:boolean; }
+interface PaymentTag{ tag_name:string; fees_mode?:string; active:boolean; settlement_days?:number; } // C1
 export interface LMAInitData {
   ok:boolean;
   libraries:Library[];
