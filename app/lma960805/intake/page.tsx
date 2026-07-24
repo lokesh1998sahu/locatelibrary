@@ -99,7 +99,7 @@ export default function EnquiryCodePage(){
       <header className="flex items-center gap-3 mb-4">
         <Link href="/lma960805" className="text-xl leading-none text-lma-slate-600">←</Link>
         <div className="flex-1 min-w-0">
-          <h1 className="text-xl font-extrabold tracking-tight text-lma-slate-900 leading-none">Enquiry Code</h1>
+          <h1 className="text-xl font-extrabold tracking-tight text-lma-slate-900 leading-none">Enquiry Codes</h1>
           <p className="text-[11px] font-semibold text-lma-slate-500 mt-1">
             {counts.SUBMITTED>0
               ? <span className="text-lma-accent">{counts.SUBMITTED} ready to admit</span>

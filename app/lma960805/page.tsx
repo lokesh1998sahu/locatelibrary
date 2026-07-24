@@ -10,7 +10,7 @@ type Card = { href:string; label:string; emoji:string; desc:string; badgeKey?:"r
 const CARDS: Card[] = [
   { href:"/lma960805/admissions",  label:"Admissions",  emoji:"📝", desc:"New & renewal receipts" },
   { href:"/lma960805/board",       label:"Seat Chart",  emoji:"🪑", desc:"Live seat map" },
-  { href:"/lma960805/intake",      label:"Intake Codes",emoji:"🎟️", desc:"Student self-fill details" },
+  { href:"/lma960805/intake",      label:"Enquiry Codes",emoji:"🎟️", desc:"Student self-fill details" },
   { href:"/lma960805/renewals",    label:"Renewals",    emoji:"🔁", desc:"expiring & cancellations", badgeKey:"renewals" },
   { href:"/lma960805/students",    label:"Students",    emoji:"👥", desc:"Browse & edit" },
   { href:"/lma960805/dues",        label:"Dues",        emoji:"💰", desc:"Pending & written-off", badgeKey:"dues" },

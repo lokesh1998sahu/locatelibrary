@@ -203,6 +203,7 @@ function StepStudent({ init, resolvedLib, resolvedBranch, admitType, post, showT
   const [intakeCode,setIntakeCode]=useState("");   // B6
   const [intakeBusy,setIntakeBusy]=useState(false);
   const [intakeOk,setIntakeOk]=useState("");
+  const [intakeRemark,setIntakeRemark]=useState(""); // admin note from the enquiry code — verify it matches the student in front of you
   const fetchIntake=async()=>{
     const c=intakeCode.trim(); if(!c) return;
     setIntakeBusy(true); setIntakeOk("");
@@ -216,6 +217,7 @@ function StepStudent({ init, resolvedLib, resolvedBranch, admitType, post, showT
         setDob(String(f.date_of_birth||""));
         setAddress(String(f.address||"").toUpperCase());
         setPreparingFor(String(f.preparing_for||"").toUpperCase());
+        setIntakeRemark(String(r.remark||""));
         setIntakeOk(r.issued_for&&r.issued_for!==(resolvedBranch||resolvedLib)?`Prefilled · code issued for ${r.issued_for}`:"Prefilled from student submission");
       } else showToast((r&&r.error)||"Could not fetch this code","error");
     }catch{ showToast("Network error","error"); }
@@ -315,9 +317,10 @@ function StepStudent({ init, resolvedLib, resolvedBranch, admitType, post, showT
           <div className="bg-lma-slate-50 rounded-xl p-2.5 mb-3">
             <FieldLabel>Intake code (optional)</FieldLabel>
             <div className="flex gap-2">
-              <input value={intakeCode} onChange={e=>{setIntakeCode(e.target.value.toUpperCase());setIntakeOk("");}} placeholder="XXXXX-XXXXX" autoCapitalize="characters" className="flex-1 px-3 py-2.5 rounded-xl border-[1.5px] border-lma-slate-200 bg-white text-sm font-mono tracking-wider"/>
+              <input value={intakeCode} onChange={e=>{setIntakeCode(e.target.value.toUpperCase());setIntakeOk("");setIntakeRemark("");}} placeholder="XXXXX-XXXXX" autoCapitalize="characters" className="flex-1 px-3 py-2.5 rounded-xl border-[1.5px] border-lma-slate-200 bg-white text-sm font-mono tracking-wider"/>
               <button type="button" onClick={fetchIntake} disabled={intakeBusy||!intakeCode.trim()} className="px-3.5 py-2.5 rounded-xl bg-lma-primary text-white font-bold text-xs disabled:opacity-50">{intakeBusy?"…":"Fetch"}</button>
             </div>
+            {intakeRemark&&<div className="mt-1.5 px-2 py-1.5 rounded-lg bg-lma-primary/10 text-[11px] font-extrabold text-lma-primary leading-snug">👤 {intakeRemark}</div>}
             {intakeOk&&<div className="text-[10px] font-bold text-lma-accent mt-1.5">✓ {intakeOk}</div>}
           </div>
           <FieldLabel>Name *</FieldLabel>
