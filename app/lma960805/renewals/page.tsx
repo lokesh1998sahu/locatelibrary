@@ -1,6 +1,7 @@
 "use client";
  
 import { useState, useEffect, useCallback } from "react";
+import CancelRefundSheet from "../_components/CancelRefundSheet";
 import Link from "next/link";
 import { useLMA, useScopeChips, type LMAInitData as InitData } from "../_components/LMAProvider";
 import { fmtDMY, inDateRange } from "../_lib/dates";
@@ -194,8 +195,8 @@ export default function RenewalsPage(){
  
       {/* cancel / refund action sheet */}
       {actionFor&&init&&(
-        <CancelSheet it={actionFor} init={init} onClose={()=>setActionFor(null)} post={post}
-          onDone={(title,text)=>{ setActionFor(null); if(text)setResultText({title,text}); showToast("Done"); load(); }}/>
+        <CancelRefundSheet target={{receipt_no:actionFor.receipt_no,name:actionFor.name,seat_no:actionFor.seat_no,shift_name:actionFor.shift_name,shift:actionFor.shift,fees_due_balance:actionFor.fees_due_balance}} presentation="sheet" post={post} showToast={showToast} onClose={()=>setActionFor(null)}
+          onDone={(r)=>{ setActionFor(null); if(r.whatsapp_text)setResultText({title:r.refunded?"Cancellation + Refund":"Cancellation",text:r.whatsapp_text}); showToast("Done"); load(); }}/>
       )}
  
       {/* whatsapp result sheet */}
@@ -292,63 +293,6 @@ function CancelledCard({ it, onRenew, onReset, onRno, onStu, showToast }:{
   );
 }
  
-function CancelSheet({ it, init, onClose, post, onDone }:{ it:QueueItem; init:InitData; onClose:()=>void; post:(a:string,p:any)=>Promise<any>; onDone:(title:string,text:string)=>void }){
-  const [withRefund,setWithRefund]=useState(false);
-  const [remark,setRemark]=useState("");
-  const [refundMode,setRefundMode]=useState("");
-  const [refundAmount,setRefundAmount]=useState("");
-  const [refundReason,setRefundReason]=useState("");
-  const [busy,setBusy]=useState(false);
- 
-  const submit=async()=>{
-    setBusy(true);
-    if(withRefund){
-      if(!refundMode||!refundAmount){ setBusy(false); return; }
-      const r=await post("markReceiptCancelledWithRefund",{receipt_no:it.receipt_no,cancel_remark:remark,refund_mode:refundMode,refund_amount:Number(refundAmount),refund_reason:refundReason});
-      setBusy(false);
-      if(r&&r.cancelled) onDone("Cancellation + Refund", r.cancel_whatsapp_text||r.refund_whatsapp_text||"");
-    }else{
-      const r=await post("markReceiptCancelled",{receipt_no:it.receipt_no,cancel_remark:remark});
-      setBusy(false);
-      if(r&&r.updated) onDone("Cancellation", r.cancel_whatsapp_text||"");
-    }
-  };
- 
-  return (
-    <Sheet onClose={onClose}>
-      <h3 className="text-base font-extrabold text-lma-slate-900 mb-1">Cancel {it.receipt_no}</h3>
-      <p className="text-[11px] text-lma-slate-500 mb-3">{it.name} · Seat {it.seat_no||"—"} · {it.shift_name||it.shift}</p>
-      {it.fees_due_balance>0&&<div className="text-[11px] font-bold text-lma-danger bg-lma-danger/10 rounded-lg p-2 mb-3">⚠ ₹{it.fees_due_balance} dues outstanding on this receipt.</div>}
- 
-      <label className="flex items-center gap-2 mb-3 cursor-pointer">
-        <input type="checkbox" checked={withRefund} onChange={e=>setWithRefund(e.target.checked)} className="w-4 h-4 accent-lma-primary"/>
-        <span className="text-sm font-semibold text-lma-slate-700">Issue a refund with this cancellation</span>
-      </label>
- 
-      {withRefund&&(
-        <div className="bg-lma-slate-50 rounded-xl p-3 mb-3 space-y-2">
-          <div>
-            <L>Refund Mode</L>
-            <select value={refundMode} onChange={e=>setRefundMode(e.target.value)} className="w-full px-3 py-2.5 rounded-xl border-[1.5px] border-lma-slate-200 bg-white text-sm font-medium">
-              <option value="">Select…</option>
-              {init.paymentTags.filter(t=>t.active).map(t=><option key={t.tag_name} value={t.tag_name}>{t.tag_name}</option>)}
-            </select>
-          </div>
-          <div><L>Refund Amount (₹)</L><I type="number" value={refundAmount} onChange={e=>setRefundAmount(e.target.value)} placeholder="rupees handed back"/></div>
-          <div><L>Refund Reason</L><I value={refundReason} onChange={e=>setRefundReason(e.target.value)} placeholder="optional"/></div>
-        </div>
-      )}
- 
-      <L>Cancellation note (optional)</L>
-      <I value={remark} onChange={e=>setRemark(e.target.value)} placeholder="why cancelling"/>
- 
-      <div className="flex gap-2.5 mt-4">
-        <button onClick={onClose} className="flex-1 py-3 rounded-xl bg-lma-slate-100 text-lma-slate-600 font-bold">Back</button>
-        <button onClick={submit} disabled={busy||(withRefund&&(!refundMode||!refundAmount))} className="flex-1 py-3 rounded-xl bg-lma-danger text-white font-bold shadow-md disabled:opacity-50">{busy?"…":withRefund?"Cancel + Refund":"Cancel Booking"}</button>
-      </div>
-    </Sheet>
-  );
-}
  
 function Sheet({ onClose, children }:{ onClose:()=>void; children:React.ReactNode }){
   return (

@@ -7,6 +7,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useLMA, useScopeChips } from "../_components/LMAProvider";
 import { laneFree, buildVacancyText, occupancyStats, type VacPlan } from "../_lib/vacancy";
+import CancelRefundSheet from "../_components/CancelRefundSheet";
 import { buildRenewReminder, buildDuesReminder, buildRenewFollowUp } from "../_lib/reminderText";
 import ReceiptModal from "../_components/ReceiptModal";
 import StudentModal from "../_components/StudentModal";
@@ -134,11 +135,11 @@ export default function BoardPage(){
   
 
   const resolved = useMemo(()=>{
-    if(!init||!scope) return {lib:"",branch:"",label:""};
+    if(!init||!scope) return {lib:"",branch:"",libName:"",label:""};
     const br=init.branches.find(b=>b.branch_code===scope);
-    if(br) return {lib:br.library_code,branch:br.branch_code,label:`${br.library_code} · ${br.branch_code}`};
+    if(br){ const pl=init.libraries.find(x=>x.library_code===br.library_code); const nm=pl?.display_name||br.library_code; return {lib:br.library_code,branch:br.branch_code,libName:nm,label:`${nm} · ${br.branch_code}`}; }
     const l=init.libraries.find(x=>x.library_code===scope);
-    return {lib:scope,branch:"",label:l?.display_name||scope};
+    return {lib:scope,branch:"",libName:l?.display_name||scope,label:l?.display_name||scope};
   },[init,scope]);
 
   const loadBoard=useCallback(async()=>{
@@ -215,18 +216,34 @@ export default function BoardPage(){
      {openStu && <StudentModal studentId={openStu.id} library={openStu.library} crossOrigin={openStu.crossOrigin} onClose={()=>setOpenStu(null)} onSaved={loadBoard}/>}
       {renew && <BookingFlow renewReceiptNo={renew.rno} libCode={renew.libCode} presetSeat={renew.seat} presetShift={renew.shift} onClose={()=>setRenew(null)} onComplete={loadBoard}/>}
       {addBk && <BookingFlow addMode libCode={addBk.libCode} presetSeat={addBk.seat} presetShift={addBk.shift} onClose={()=>setAddBk(null)} onComplete={loadBoard}/>}
-      <header className="flex items-center gap-3 mb-3">
-        <Link href="/lma960805" className="text-xl text-lma-slate-600 hover:text-lma-slate-900">←</Link>
-        <div className="flex-1"><h1 className="text-xl font-extrabold tracking-tight text-lma-slate-900">Seat Chart</h1><p className="text-[11px] text-lma-slate-500 font-medium">{resolved.label}</p></div>
-        <div className="inline-flex items-center rounded-lg bg-lma-slate-100 overflow-hidden">
-          <button onClick={()=>setZoomPx(z=> z===0?0:(z<=44?0:z-14))} disabled={zoomPx===0} className="px-2.5 py-2 text-sm font-extrabold text-lma-slate-600 disabled:opacity-40">−</button>
-          <button onClick={()=>setZoomPx(z=> z===0?44:Math.min(z+14,100))} className="px-2.5 py-2 text-sm font-extrabold text-lma-primary">+</button>
+      <header className="mb-3">
+        {/* Row 1 — back · Seat Chart + library name · refresh (top-right) */}
+        <div className="flex items-center gap-3">
+          <Link href="/lma960805" className="text-xl text-lma-slate-600 hover:text-lma-slate-900">←</Link>
+          <div className="flex-1 min-w-0">
+            <h1 className="text-xl font-extrabold tracking-tight text-lma-slate-900 leading-tight">Seat Chart</h1>
+            {resolved.libName&&<p className="text-[12px] font-bold text-lma-slate-500 truncate">{resolved.libName}</p>}
+          </div>
+          <button onClick={loadBoard} disabled={loading} className="w-9 h-9 shrink-0 rounded-xl bg-lma-slate-100 text-lma-slate-600 font-bold disabled:opacity-50">{loading?"·":"↻"}</button>
         </div>
-        <button onClick={loadBoard} disabled={loading} className="text-xs font-bold px-3 py-2 rounded-lg bg-lma-slate-100 text-lma-slate-600 disabled:opacity-50">{loading?"...":"↻"}</button>
-        <button onClick={()=>setShowVacList(true)} disabled={!board} title="Vacant seats" aria-label="Vacant seats" className="shrink-0 flex items-center gap-1 px-2.5 py-2 rounded-lg bg-lma-accent text-white leading-none shadow-sm active:scale-95 transition disabled:opacity-40"><span className="text-base leading-none">🪑</span>{board&&<span className="text-xs font-extrabold leading-none">{legendCounts.VACANT}</span>}</button>
-        <div className="relative">
+
+        {/* Row 2 — library / branch pills */}
+        <div className="mt-2.5"><div className="flex gap-1.5 overflow-x-auto -mx-4 px-4 pb-1">
+          {chips.map(c=>(
+            <button key={c.code} onClick={()=>{if(c.code!==scope){setScope(c.code);setBoard(null);setLoading(true);}}} style={scope===c.code&&c.color?{background:c.color,color:"#fff"}:undefined} className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-bold whitespace-nowrap ${scope===c.code&&!c.color?"bg-lma-slate-900 text-white":scope===c.code?"":"bg-white text-lma-slate-600"} shadow-sm`}>{c.emoji} {c.label}</button>
+          ))}
+        </div></div>
+
+        {/* Row 3 — zoom · vacant seats · PNG */}
+        <div className="flex items-center gap-2 mt-2.5">
+          <div className="inline-flex items-center rounded-xl bg-lma-slate-100 overflow-hidden shrink-0">
+            <button onClick={()=>setZoomPx(z=> z===0?0:(z<=44?0:z-14))} disabled={zoomPx===0} className="px-3 py-2 text-sm font-extrabold text-lma-slate-600 disabled:opacity-40">−</button>
+            <button onClick={()=>setZoomPx(z=> z===0?44:Math.min(z+14,100))} className="px-3 py-2 text-sm font-extrabold text-lma-primary">+</button>
+          </div>
+          <button onClick={()=>setShowVacList(true)} disabled={!board} className="flex-1 h-10 rounded-xl bg-lma-accent text-white text-[12px] font-bold disabled:opacity-40 flex items-center justify-center gap-1.5"><span className="text-base leading-none">🪑</span>Vacant seats{board&&<span className="text-[11px] font-extrabold opacity-80">· {legendCounts.VACANT}</span>}</button>
+        <div className="relative shrink-0">
   <button onClick={()=>setShowPngMenu(v=>!v)} disabled={exporting||!board}
-    className="text-xs font-bold px-3 py-2 rounded-lg bg-lma-primary text-white disabled:opacity-50">
+    className="h-10 px-4 rounded-xl bg-lma-primary text-white text-[12px] font-bold disabled:opacity-50">
     {exporting?"…":"⬇ PNG"}
   </button>
   {showPngMenu&&(
@@ -262,16 +279,10 @@ export default function BoardPage(){
     </div>
   )}
   {showPngMenu&&<div className="fixed inset-0 z-40" onClick={()=>setShowPngMenu(false)}/>}
-</div>
+        </div>
+        </div>
       </header>
       {showVacList&&board&&<VacancyListDialog board={board} libCode={resolved.lib} scopeCode={resolved.branch||resolved.lib} onClose={()=>setShowVacList(false)}/>}
-
-      {/* library chips */}
-      <div className="flex gap-1.5 mb-3 overflow-x-auto -mx-4 px-4 pb-1">
-        {chips.map(c=>(
-          <button key={c.code} onClick={()=>{if(c.code!==scope){setScope(c.code);setBoard(null);setLoading(true);}}} style={scope===c.code&&c.color?{background:c.color,color:"#fff"}:undefined} className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-bold whitespace-nowrap ${scope===c.code&&!c.color?"bg-lma-slate-900 text-white":scope===c.code?"":"bg-white text-lma-slate-600"} shadow-sm`}>{c.emoji} {c.label}</button>
-        ))}
-      </div>
 
       {/* shift view toggle */}
       <div className="bg-white rounded-2xl p-1 flex gap-1 mb-3 shadow-sm">
@@ -676,6 +687,11 @@ function MoneyTrailInline({ receiptNo }:{ receiptNo:string }){
           {t&&!busy&&!err&&(
             <div className="space-y-1.5">
               <div>
+                <div className="font-bold text-lma-slate-500 mb-0.5">Paid at receipt</div>
+                {(t.initial_payments&&t.initial_payments.length)?t.initial_payments.filter((p:any)=>p.mode||p.amount).map((p:any,i:number)=>(<div key={i} className="flex justify-between"><span className="text-lma-slate-500">{p.date?fmtDMY(p.date):"—"} · {p.mode||""}</span><span className="font-bold">₹{p.amount||0}</span></div>)):<div className="text-lma-slate-400">None</div>}
+              </div>
+              <div className="h-px bg-lma-slate-200"/>
+              <div>
                 <div className="font-bold text-lma-slate-500 mb-0.5">Due payments</div>
                 {(t.dues_payments&&t.dues_payments.length)?t.dues_payments.map((d:any,i:number)=>(<div key={i} className="flex justify-between"><span className="text-lma-slate-500">{d.received_on?fmtDMYT(d.received_on):"—"} · {d.mode||""}</span><span className="font-bold">₹{d.amount||0}</span></div>)):<div className="text-lma-slate-400">None</div>}
               </div>
@@ -766,7 +782,7 @@ function DetailSheet({ cell, panel, onClose, scope, lib, branch, post, showToast
     if(r&&r.vacated){ showToast(`${o.student_id} parked (seat ${r.original_seat} held)`); if(r.whatsapp_text) onShare(r.whatsapp_text,"Seat temporarily vacated",o.phones); onChanged(); }
     else showToast(r&&r.error?r.error:"Temp-vacate failed","error");
   };
-  // A5: cancel handled by BoardCancelSheet (full refund-capable flow)
+  // A5/C4: cancel handled by shared CancelRefundSheet (full refund-capable flow)
   const removeBlock=async(blk:BlockInfo)=>{
     if(busy) return;
     if(!confirm("Remove this block?")) return;
@@ -976,7 +992,7 @@ const BlockPanel=(blk:BlockInfo)=>{
             </div>
           </div>
         )}
-        {confirmCancel&&<BoardCancelSheet o={confirmCancel} seatLabel={cell.display_label} post={post} showToast={showToast} onClose={()=>setConfirmCancel(null)} onDone={(waText)=>{ setConfirmCancel(null); if(waText) onShare(waText,"Booking cancelled",confirmCancel?.phones); onChanged(); }}/>}
+        {confirmCancel&&<CancelRefundSheet target={{receipt_no:confirmCancel.receipt_no,name:confirmCancel.name,student_id:confirmCancel.student_id,seat_label:cell.display_label,fees_due_balance:confirmCancel.fees_due_balance}} presentation="modal" post={post} showToast={showToast} onClose={()=>setConfirmCancel(null)} onDone={(r)=>{ const ph=confirmCancel?.phones; setConfirmCancel(null); if(r.whatsapp_text) onShare(r.whatsapp_text,"Booking cancelled",ph); onChanged(); }}/>}
       </div>
     </div>
   );
@@ -1022,61 +1038,6 @@ function VacancyListDialog({ board, libCode, scopeCode, onClose }:{ board:BoardR
 // ── A5: full cancel experience on the board — replicates Renewals CancelSheet / ReceiptModal CancelPanel
 // (3rd documented copy; consolidation slated for C4). markReceiptCancelled remains the single status path;
 // markReceiptCancelledWithRefund wraps it + issueRefund internally (10_Renewals / 08_Refunds).
-function BoardCancelSheet({ o, seatLabel, post, showToast, onClose, onDone }:{ o:Occupant; seatLabel:string; post:(a:string,p:any)=>Promise<any>; showToast:(m:string,t?:"success"|"error")=>void; onClose:()=>void; onDone:(waText:string)=>void }){
-  const { init }=useLMA();
-  const [withRefund,setWithRefund]=useState(false);
-  const [remark,setRemark]=useState("");
-  const [refundMode,setRefundMode]=useState("");
-  const [refundAmount,setRefundAmount]=useState("");
-  const [refundReason,setRefundReason]=useState("");
-  const [busy,setBusy]=useState(false);
-  const submit=async()=>{
-    setBusy(true);
-    if(withRefund){
-      if(!refundMode||!refundAmount){ setBusy(false); return; }
-      const r=await post("markReceiptCancelledWithRefund",{receipt_no:o.receipt_no,cancel_remark:remark,refund_mode:refundMode,refund_amount:Number(refundAmount),refund_reason:refundReason});
-      setBusy(false);
-      if(r&&r.cancelled){ showToast(`Receipt ${o.receipt_no} cancelled + refunded — seat freed`); onDone(r.cancel_whatsapp_text||r.refund_whatsapp_text||""); }
-      else showToast((r&&r.error)||"Cancel failed","error");
-    }else{
-      const r=await post("markReceiptCancelled",{receipt_no:o.receipt_no,cancel_remark:remark});
-      setBusy(false);
-      if(r&&r.updated){ showToast(`Receipt ${o.receipt_no} cancelled — seat freed`); onDone(r.cancel_whatsapp_text||""); }
-      else showToast((r&&r.error)||"Cancel failed","error");
-    }
-  };
-  return (
-    <div className="fixed inset-0 z-[9999] flex items-center justify-center px-6" onClick={onClose}>
-      <div className="absolute inset-0 bg-black/40"/>
-      <div className="relative w-full max-w-xs bg-white rounded-2xl p-5 lma-slide-up max-h-[85vh] overflow-y-auto" onClick={e=>e.stopPropagation()}>
-        <h4 className="text-sm font-extrabold text-lma-slate-900 mb-1">Cancel booking on seat {seatLabel}?</h4>
-        <p className="text-[12px] text-lma-slate-500 mb-2">{o.student_id} · {o.name}&rsquo;s receipt {o.receipt_no} will be marked CANCELLED and the seat freed immediately. Nothing is carried forward.</p>
-        {o.fees_due_balance>0&&<p className="text-[11px] font-bold text-lma-danger bg-lma-danger/10 rounded-lg p-2 mb-2">&#9888; &#8377;{o.fees_due_balance} dues outstanding on this receipt.</p>}
-        <label className="flex items-center gap-2 mb-2 cursor-pointer">
-          <input type="checkbox" checked={withRefund} onChange={e=>setWithRefund(e.target.checked)} className="w-4 h-4 accent-lma-primary"/>
-          <span className="text-[12px] font-semibold text-lma-slate-700">Issue a refund with this cancellation</span>
-        </label>
-        {withRefund&&(
-          <div className="bg-lma-slate-50 rounded-xl p-3 mb-2 space-y-2 text-left">
-            <div>
-              <div className="text-[10px] font-bold text-lma-slate-500 mb-1">Refund Mode</div>
-              <select value={refundMode} onChange={e=>setRefundMode(e.target.value)} className="w-full px-3 py-2.5 rounded-xl border-[1.5px] border-lma-slate-200 bg-white text-sm font-medium"><option value="">Select…</option>{(init?.paymentTags||[]).filter((t:any)=>t.active).map((t:any)=><option key={t.tag_name} value={t.tag_name}>{t.tag_name}</option>)}</select>
-            </div>
-            <div><div className="text-[10px] font-bold text-lma-slate-500 mb-1">Refund Amount (&#8377;)</div><input type="number" value={refundAmount} onChange={e=>setRefundAmount(e.target.value)} placeholder="rupees handed back" className="w-full px-3 py-2.5 rounded-xl border-[1.5px] border-lma-slate-200 bg-white text-sm font-medium"/></div>
-            <div><div className="text-[10px] font-bold text-lma-slate-500 mb-1">Refund Reason</div><input value={refundReason} onChange={e=>setRefundReason(e.target.value)} placeholder="optional" className="w-full px-3 py-2.5 rounded-xl border-[1.5px] border-lma-slate-200 bg-white text-sm font-medium"/></div>
-          </div>
-        )}
-        <div className="text-[10px] font-bold text-lma-slate-500 mb-1 text-left">Cancellation note (optional)</div>
-        <input value={remark} onChange={e=>setRemark(e.target.value)} placeholder="why cancelling" className="w-full px-3 py-2.5 rounded-xl border-[1.5px] border-lma-slate-200 bg-lma-slate-50 text-sm font-medium mb-3"/>
-        <div className="flex gap-2">
-          <button onClick={onClose} className="flex-1 py-2.5 rounded-xl bg-lma-slate-100 text-lma-slate-600 font-bold text-sm">Keep</button>
-          <button disabled={busy||(withRefund&&(!refundMode||!refundAmount))} onClick={submit} className="flex-1 py-2.5 rounded-xl bg-lma-danger text-white font-bold text-sm disabled:opacity-50">{busy?"…":withRefund?"Cancel + Refund":"Cancel Booking"}</button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 // ── VACANCY EXPORT (O6): live seat chart 1:1 at normal scale, no names/ID ──
 function VacancyExport({ board, label, shiftView, genderM, genderF }:{ board:BoardResp; label:string; shiftView:ShiftView; genderM:boolean; genderF:boolean }){
   return (
@@ -1088,11 +1049,11 @@ function VacancyExport({ board, label, shiftView, genderM, genderF }:{ board:Boa
       {board.sections.slice().sort((a,b)=>a.section_order-b.section_order).map(sec=>(
         <div key={sec.section_name} style={{marginBottom:"14px"}}>
           {board.sections.length>1&&<div style={{fontSize:"11px",fontWeight:700,color:"#64748b",marginBottom:"5px"}}>{sec.section_name}</div>}
-          <div style={{display:"grid",gridTemplateColumns:`repeat(${sec.cols}, 52px)`,gap:"5px"}}>
+          <div style={{display:"grid",gridTemplateColumns:`repeat(${sec.cols}, 52px)`,columnGap:"5px",rowGap:"10px"}}>
             {Array.from({length:sec.rows*sec.cols}).map((_,idx)=>{
               const r=Math.floor(idx/sec.cols)+1,c=(idx%sec.cols)+1;
               const cell=sec.seats.find(s=>s.row_in_section===r&&s.col_in_section===c);
-              if(!cell||cell.cell_type==="DEAD") return <div key={idx} style={{width:"52px",height:"52px",background:"#f8fafc",border:"1px solid #e2e8f0",borderRadius:"6px",boxSizing:"border-box"}}/>;
+              if(!cell||cell.cell_type==="DEAD") return <div key={idx} style={{width:"52px",height:"64px"}}/>;
               const bi=cell.block_info||{morning:null,evening:null,fullday:null};
               const gline=(g?:string)=>{const n=normGender(g||"");if(genderM&&n==="M")return "#2563eb";if(genderF&&n==="F")return "#db2777";return null;};
               const zone=(o:any,blk:any,h:string)=>{
@@ -1100,13 +1061,13 @@ function VacancyExport({ board, label, shiftView, genderM, genderF }:{ board:Boa
                 if(blk){const gb=gline(blk.gender);return <div style={{height:h,background:blk.expired?"#6b0a0a":"repeating-linear-gradient(45deg,#fecaca,#fecaca 3px,#fee2e2 3px,#fee2e2 6px)",border:gb?`2px solid ${gb}`:"1px solid #b91c1c",borderRadius:"4px",display:"flex",alignItems:"center",justifyContent:"center",boxSizing:"border-box"}}><div style={{fontSize:"8px",fontWeight:800,color:blk.expired?"#fff":"#7f1d1d"}}>BLK</div></div>;}
                 return <div style={{height:h,background:"#ffffff",border:"1px dashed #cbd5e1",borderRadius:"4px",boxSizing:"border-box"}}/>;
               };
-              const full=cell.fullday||bi.fullday;
+              const full=cell.fullday||bi.fullday;  
               return (
-                <div key={idx} style={{width:"52px",height:"52px",display:"flex",flexDirection:"column",boxSizing:"border-box"}}>
-                  <div style={{fontSize:"10px",fontWeight:800,color:"#0f172a",textAlign:"center",lineHeight:"12px",height:"12px"}}>{cell.display_label}</div>
+                <div key={idx} style={{width:"52px",display:"grid",gridTemplateRows:"12px 52px",boxSizing:"border-box"}}>
+                  <div style={{fontSize:"10px",fontWeight:800,color:"#0f172a",textAlign:"center",lineHeight:"12px",overflow:"hidden",whiteSpace:"nowrap"}}>{cell.display_label}</div>
                   {full
-                    ? <div style={{flex:1}}>{zone(cell.fullday,bi.fullday,"100%")}</div>
-                    : <div style={{flex:1,display:"flex",flexDirection:"column",gap:"1px"}}>{zone(cell.morning,bi.morning,"50%")}{zone(cell.evening,bi.evening,"50%")}</div>}
+                    ? <div style={{height:"52px"}}>{zone(cell.fullday,bi.fullday,"100%")}</div>
+                    : <div style={{height:"52px",display:"flex",flexDirection:"column",gap:"1px"}}>{zone(cell.morning,bi.morning,"50%")}{zone(cell.evening,bi.evening,"50%")}</div>}
                 </div>
               );
             })}

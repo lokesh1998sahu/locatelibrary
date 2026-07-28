@@ -16,6 +16,7 @@ import ContactCopyButton from "./ContactCopyButton";
 import WhatsAppButton from "./WhatsAppButton";
 import { useState, useEffect } from "react";
 import { useLMA } from "./LMAProvider";
+import CancelRefundSheet from "./CancelRefundSheet";
 import { fmtDMY, fmtDMYT, toIsoInput, toDmy } from "../_lib/dates";
 import { genderCardStyle } from "../_lib/genderTheme";
 import StudentModal from "./StudentModal";
@@ -180,7 +181,7 @@ export default function ReceiptModal({ receiptNo, onClose, onSaved, context }:{
       {showStudent && receipt && <StudentModal studentId={receipt.student_id} library={receipt.library} crossOrigin={receipt.is_cross_library} onClose={()=>setShowStudent(false)} onSaved={refresh}/>}
       {showRenew && receipt && <BookingFlow renewReceiptNo={receipt.receipt_no} libCode={receipt.branch||receipt.library} onClose={()=>setShowRenew(false)} onComplete={refresh}/>}
       {showReAllot && receipt && <EditSeatPicker library={receipt.library} branch={receipt.branch} shift={receipt.shift} currentSeat={receipt.seat_no} ignoreReceiptNo={receipt.receipt_no} onClose={()=>setShowReAllot(false)} onPick={async(label:string)=>{ const r=await post("reAllotSeat",{receipt_no:receipt.receipt_no,seat_no:label,editor_remark:"",flush:true}); if(r&&r.ok!==false){ showToast("Seat re-allotted"); setShowReAllot(false); refresh(); } else showToast((r&&r.error)||"Re-allot failed","error"); }}/>}
-      {showCancel && receipt && init && <CancelPanel receipt={receipt} init={init} post={post} showToast={showToast} onClose={()=>setShowCancel(false)} onDone={()=>{ setShowCancel(false); refresh(); }}/>}
+      {showCancel && receipt && init && <CancelRefundSheet target={{receipt_no:receipt.receipt_no,name:receipt.name,seat_no:receipt.seat_no,shift_name:receipt.shift_name,shift:receipt.shift,fees_due_balance:receipt.fees_due_balance}} presentation="sheet" post={post} showToast={showToast} onClose={()=>setShowCancel(false)} onDone={()=>{ setShowCancel(false); refresh(); }}/>}
 
       {studentSend && receipt && (
         <div className="fixed inset-0 z-[10002] flex items-center justify-center px-6" onClick={()=>setStudentSend(false)}>
@@ -415,54 +416,6 @@ function MoreActions({ children }:{ children:React.ReactNode }){
   );
 }
 
-function CancelPanel({ receipt, init, post, showToast, onClose, onDone }:{ receipt:Receipt; init:any; post:(a:string,p:any)=>Promise<any>; showToast:(m:string,t?:"success"|"error")=>void; onClose:()=>void; onDone:()=>void }){
-  const [withRefund,setWithRefund]=useState(false);
-  const [remark,setRemark]=useState("");
-  const [refundMode,setRefundMode]=useState("");
-  const [refundAmount,setRefundAmount]=useState("");
-  const [refundReason,setRefundReason]=useState("");
-  const [busy,setBusy]=useState(false);
-  const submit=async()=>{
-    setBusy(true);
-    if(withRefund){
-      if(!refundMode||!refundAmount){ setBusy(false); return; }
-      const r=await post("markReceiptCancelledWithRefund",{receipt_no:receipt.receipt_no,cancel_remark:remark,refund_mode:refundMode,refund_amount:Number(refundAmount),refund_reason:refundReason});
-      setBusy(false);
-      if(r&&r.cancelled){ showToast("Cancelled + refunded"); onDone(); } else showToast((r&&r.error)||"Cancel failed","error");
-    }else{
-      const r=await post("markReceiptCancelled",{receipt_no:receipt.receipt_no,cancel_remark:remark});
-      setBusy(false);
-      if(r&&r.updated){ showToast("Cancelled"); onDone(); } else showToast((r&&r.error)||"Cancel failed","error");
-    }
-  };
-  return (
-    <Sheet onClose={onClose}>
-      <h3 className="text-base font-extrabold text-lma-slate-900 mb-1">Cancel {receipt.receipt_no}</h3>
-      <p className="text-[11px] text-lma-slate-500 mb-3">{receipt.name} · Seat {receipt.seat_no||"—"} · {receipt.shift_name||receipt.shift}</p>
-      {receipt.fees_due_balance>0&&<div className="text-[11px] font-bold text-lma-danger bg-lma-danger/10 rounded-lg p-2 mb-3">⚠ ₹{receipt.fees_due_balance} dues outstanding on this receipt.</div>}
-      <label className="flex items-center gap-2 mb-3 cursor-pointer">
-        <input type="checkbox" checked={withRefund} onChange={e=>setWithRefund(e.target.checked)} className="w-4 h-4 accent-lma-primary"/>
-        <span className="text-sm font-semibold text-lma-slate-700">Issue a refund with this cancellation</span>
-      </label>
-      {withRefund&&(
-        <div className="bg-lma-slate-50 rounded-xl p-3 mb-3 space-y-2">
-          <div><L>Refund Mode</L>
-            <select value={refundMode} onChange={e=>setRefundMode(e.target.value)} className="w-full px-3 py-2.5 rounded-xl border-[1.5px] border-lma-slate-200 bg-white text-sm font-medium"><option value="">Select…</option>{(init?.paymentTags||[]).filter((t:any)=>t.active).map((t:any)=><option key={t.tag_name} value={t.tag_name}>{t.tag_name}</option>)}</select>
-          </div>
-          <div><L>Refund Amount (₹)</L><I type="number" value={refundAmount} onChange={e=>setRefundAmount(e.target.value)} placeholder="rupees handed back"/></div>
-          <div><L>Refund Reason</L><I value={refundReason} onChange={e=>setRefundReason(e.target.value)} placeholder="optional"/></div>
-        </div>
-      )}
-      <L>Cancellation note (optional)</L>
-      <I value={remark} onChange={e=>setRemark(e.target.value)} placeholder="why cancelling"/>
-      <div className="flex gap-2.5 mt-4">
-        <button onClick={onClose} className="flex-1 py-3 rounded-xl bg-lma-slate-100 text-lma-slate-600 font-bold">Back</button>
-        <button onClick={submit} disabled={busy||(withRefund&&(!refundMode||!refundAmount))} className="flex-1 py-3 rounded-xl bg-lma-danger text-white font-bold shadow-md disabled:opacity-50">{busy?"…":withRefund?"Cancel + Refund":"Cancel Booking"}</button>
-      </div>
-    </Sheet>
-  );
-}
-
 function CollectDueInline({ receiptNo, balance, post, showToast, onChanged, onEvent }:{ receiptNo:string; balance:number; post:(a:string,p:any)=>Promise<any>; showToast:(m:string,t?:"success"|"error")=>void; onChanged:()=>void; onEvent?:(text:string)=>void }){
   const { init }=useLMA();
   const modes=(init?.paymentTags||[]).filter(t=>t.active).map(t=>t.tag_name);
@@ -640,6 +593,14 @@ function MoneyTrail({receiptNo}:{receiptNo:string}){
                 {t.totals.refunds_total>0&&<><span className="text-lma-danger">Refunds made</span><span className="text-right font-bold text-lma-danger">−{inr(t.totals.refunds_total)}</span></>}
                 <span className="text-lma-slate-500">Outstanding balance</span><span className={`text-right font-extrabold ${t.fees_due_balance>0?"text-lma-warn":"text-lma-slate-800"}`}>{inr(t.fees_due_balance)}</span>
               </div>
+              {(t.initial_payments&&t.initial_payments.filter((p:any)=>p.mode||p.amount).length>0)&&(
+                <div className="mt-2 pt-2 border-t border-lma-slate-200 space-y-0.5">
+                  <div className="text-[10px] font-bold text-lma-slate-400">Paid at receipt</div>
+                  {t.initial_payments.filter((p:any)=>p.mode||p.amount).map((p:any,i:number)=>(
+                    <div key={"ip"+i} className="flex justify-between text-[10px]"><span className="text-lma-slate-500">{p.mode||"—"} · {p.date?fmtDMY(p.date):"—"}</span><span className="font-bold text-lma-slate-700">{inr(p.amount)}</span></div>
+                  ))}
+                </div>
+              )}
               {(t.dues_payments.length>0||t.refunds.length>0)&&(
                 <div className="mt-2 pt-2 border-t border-lma-slate-200 space-y-0.5">
                   {t.dues_payments.map((d:any)=>(
