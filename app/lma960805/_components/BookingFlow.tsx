@@ -20,7 +20,7 @@ import ContactCopyButton from "./ContactCopyButton";
 import WhatsAppButton from "./WhatsAppButton";
 import { useState, useEffect, useMemo, useRef } from "react";
 import { useLMA } from "./LMAProvider";
-import { toDmy, fmtDMY } from "../_lib/dates";
+import { toDmy, fmtDMY, toIsoInput } from "../_lib/dates";
 import { parsePhone10 } from "../_lib/phone";
 import CodePill from "./CodePill";
 
@@ -364,7 +364,7 @@ function StepStudent({ init, resolvedLib, resolvedBranch, admitType, post, showT
             <Inp value={preparingFor} onChange={e=>setPreparingFor(e.target.value.toUpperCase())} placeholder="NEET, UPSC…"/>
             <div className="grid grid-cols-2 gap-3">
               <div><FieldLabel>Aadhaar (last 4)</FieldLabel><Inp value={aadhaar} onChange={e=>setAadhaar(e.target.value.replace(/\D/g,"").slice(0,4))} maxLength={4}/></div>
-              <div><FieldLabel>DOB</FieldLabel><input type="date" value={dob} onChange={e=>setDob(e.target.value)} className="w-full px-3 py-2.5 rounded-xl border-[1.5px] border-lma-slate-200 bg-lma-slate-50 text-sm font-medium"/>{dob && <span className="block text-[10px] font-bold text-lma-slate-500 mt-1">{fmtDMY(dob)}</span>}</div>
+              <div><FieldLabel>DOB</FieldLabel><input type="date" value={toIsoInput(dob)} onChange={e=>setDob(e.target.value)} className="w-full px-3 py-2.5 rounded-xl border-[1.5px] border-lma-slate-200 bg-lma-slate-50 text-sm font-medium"/>{dob && <span className="block text-[10px] font-bold text-lma-slate-500 mt-1">{fmtDMY(dob)}</span>}</div>
             </div>
           </div>
           <button onClick={handleNewNext} className="w-full mt-3 py-3 rounded-xl bg-gradient-to-br from-lma-primary to-lma-primary-2 text-white font-bold shadow-md">Next: Booking →</button>

@@ -35,6 +35,8 @@ export default function LmaHomePage() {
   const [today,setToday]=useState<{net:number;receipts:number;dues:number}|null>(null);
   const [badges,setBadges]=useState<{renewals:number;dues:number}>({renewals:0,dues:0});
   const [statsLoading,setStatsLoading]=useState(false);
+  const [loaded,setLoaded]=useState(false);          // C: nothing hits GAS until the user taps "Load live data"
+  const [loadedScope,setLoadedScope]=useState("");   // which chip the shown numbers belong to
 
   // Mark connected once init lands (or stay loading if still null)
   useEffect(()=>{ if(init) setConnected(true); },[init]);
@@ -55,8 +57,10 @@ export default function LmaHomePage() {
       setBadges({ renewals:expiredCount, dues:(dues?.pending?.length||dues?.total||0) });
     }catch{ setToday({net:0,receipts:0,dues:0}); setConnected(false); }
     setStatsLoading(false);
+    setLoaded(true);
+    setLoadedScope(scope);
   },[scope]);
-  useEffect(()=>{ loadStats(); },[loadStats]);
+  // C: NO auto-run on mount or scope change — GAS is only hit when the button is tapped.
 
   const dotCls = connected===null ? "bg-lma-warn animate-pulse" : connected ? "bg-lma-accent" : "bg-lma-danger";
   const dotTxt = connected===null ? "Checking…" : connected ? "Connected" : "Offline";
@@ -84,18 +88,27 @@ export default function LmaHomePage() {
         ))}
       </div>
 
-      {/* TODAY cockpit */}
-      <div className="bg-gradient-to-br from-lma-primary to-lma-primary-2 rounded-2xl p-4 text-white shadow-md mb-3 lma-slide-up">
-        <div className="flex items-center justify-between mb-2">
-          <span className="text-[11px] font-bold uppercase tracking-wide opacity-80">Today {scope?`· ${scope}`:""}</span>
-          {statsLoading&&<span className="text-[10px] opacity-70">updating…</span>}
+      {/* TODAY cockpit — hidden until the user manually loads (saves GAS quota) */}
+      {!loaded ? (
+        <button onClick={loadStats} disabled={statsLoading}
+          className="w-full bg-gradient-to-br from-lma-primary to-lma-primary-2 rounded-2xl p-4 text-white shadow-md mb-3 lma-slide-up flex items-center justify-center gap-2 active:scale-[0.98] transition disabled:opacity-60">
+          <span className="text-lg">📡</span>
+          <span className="text-sm font-extrabold">{statsLoading?"Loading live data…":"Load live data"}</span>
+        </button>
+      ) : (
+        <div className="bg-gradient-to-br from-lma-primary to-lma-primary-2 rounded-2xl p-4 text-white shadow-md mb-3 lma-slide-up">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-[11px] font-bold uppercase tracking-wide opacity-80">Today {loadedScope?`· ${loadedScope}`:""}</span>
+            <button onClick={loadStats} disabled={statsLoading} className="text-[10px] font-bold opacity-80 hover:opacity-100 active:scale-90 transition">{statsLoading?"updating…":"↻ refresh"}</button>
+          </div>
+          {loadedScope!==scope&&<div className="text-[10px] font-semibold opacity-80 mb-2">Showing {loadedScope||"All"} — tap ↻ to load {scope||"All"}</div>}
+          <div className="grid grid-cols-3 gap-2">
+            <CockpitCell label="Collected" value={today?fmtINR(today.net):"…"}/>
+            <CockpitCell label="Receipts" value={today?String(today.receipts):"…"}/>
+            <CockpitCell label="Dues (live)" value={today?fmtINR(today.dues):"…"}/>
+          </div>
         </div>
-        <div className="grid grid-cols-3 gap-2">
-          <CockpitCell label="Collected" value={today?fmtINR(today.net):"…"}/>
-          <CockpitCell label="Receipts" value={today?String(today.receipts):"…"}/>
-          <CockpitCell label="Dues (live)" value={today?fmtINR(today.dues):"…"}/>
-        </div>
-      </div>
+      )}
 
       <VacantSeatsCard scope={scope}/>
 

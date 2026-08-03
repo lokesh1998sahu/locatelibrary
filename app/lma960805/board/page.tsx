@@ -1049,11 +1049,11 @@ function VacancyExport({ board, label, shiftView, genderM, genderF }:{ board:Boa
       {board.sections.slice().sort((a,b)=>a.section_order-b.section_order).map(sec=>(
         <div key={sec.section_name} style={{marginBottom:"14px"}}>
           {board.sections.length>1&&<div style={{fontSize:"11px",fontWeight:700,color:"#64748b",marginBottom:"5px"}}>{sec.section_name}</div>}
-          <div style={{display:"grid",gridTemplateColumns:`repeat(${sec.cols}, 52px)`,columnGap:"5px",rowGap:"10px"}}>
+          <div style={{display:"grid",gridTemplateColumns:`repeat(${sec.cols}, 58px)`,gridAutoRows:"64px",gap:"7px"}}>
             {Array.from({length:sec.rows*sec.cols}).map((_,idx)=>{
               const r=Math.floor(idx/sec.cols)+1,c=(idx%sec.cols)+1;
               const cell=sec.seats.find(s=>s.row_in_section===r&&s.col_in_section===c);
-              if(!cell||cell.cell_type==="DEAD") return <div key={idx} style={{width:"52px",height:"64px"}}/>;
+              if(!cell||cell.cell_type==="DEAD") return <div key={idx} style={{width:"58px",height:"64px"}}/>;
               const bi=cell.block_info||{morning:null,evening:null,fullday:null};
               const gline=(g?:string)=>{const n=normGender(g||"");if(genderM&&n==="M")return "#2563eb";if(genderF&&n==="F")return "#db2777";return null;};
               const zone=(o:any,blk:any,h:string)=>{
@@ -1061,15 +1061,46 @@ function VacancyExport({ board, label, shiftView, genderM, genderF }:{ board:Boa
                 if(blk){const gb=gline(blk.gender);return <div style={{height:h,background:blk.expired?"#6b0a0a":"repeating-linear-gradient(45deg,#fecaca,#fecaca 3px,#fee2e2 3px,#fee2e2 6px)",border:gb?`2px solid ${gb}`:"1px solid #b91c1c",borderRadius:"4px",display:"flex",alignItems:"center",justifyContent:"center",boxSizing:"border-box"}}><div style={{fontSize:"8px",fontWeight:800,color:blk.expired?"#fff":"#7f1d1d"}}>BLK</div></div>;}
                 return <div style={{height:h,background:"#ffffff",border:"1px dashed #cbd5e1",borderRadius:"4px",boxSizing:"border-box"}}/>;
               };
-              const full=cell.fullday||bi.fullday;  
-              return (
-                <div key={idx} style={{width:"52px",display:"grid",gridTemplateRows:"12px 52px",boxSizing:"border-box"}}>
-                  <div style={{fontSize:"10px",fontWeight:800,color:"#0f172a",textAlign:"center",lineHeight:"12px",overflow:"hidden",whiteSpace:"nowrap"}}>{cell.display_label}</div>
-                  {full
-                    ? <div style={{height:"52px"}}>{zone(cell.fullday,bi.fullday,"100%")}</div>
-                    : <div style={{height:"52px",display:"flex",flexDirection:"column",gap:"1px"}}>{zone(cell.morning,bi.morning,"50%")}{zone(cell.evening,bi.evening,"50%")}</div>}
-                </div>
-              );
+              const full=cell.fullday||bi.fullday;
+              // Mirror the on-screen SeatTile: number INSIDE the tile at top, coloured field fills the rest.
+              const tile=(cell:any,bi:any,full:any)=>{
+                // Mirrors LIVE SeatTile. Number 11px bold, dates 9px bold — same in full-day & split.
+                // Blocks treated exactly like bookings (full or half); show block_to end date, else "BLK".
+                if(full){
+                  const o=cell.fullday, blk=bi.fullday;
+                  const col=o?occLook(o):null; const gb=o?gline(o.gender):null;
+                  const bg=o&&col?col.bg:blk?(blk.expired?"repeating-linear-gradient(45deg,#6b0a0a,#6b0a0a 2px,#8a1a1a 2px,#8a1a1a 4px)":"repeating-linear-gradient(45deg,#fecaca,#fecaca 2px,#fee2e2 2px,#fee2e2 4px)"):"#ffffff";
+                  const txt=o&&col?col.text:blk?(blk.expired?"#fecaca":"#7f1d1d"):"#0f172a";
+                  const bd=o&&col?(gb?`2px solid ${gb}`:`1px solid ${col.border}`):blk?"1px solid #b91c1c":"1px dashed #cbd5e1";
+                  const label=o?shortDate(o.booking_to):blk?(shortDate(blk.block_to||"")||"BLK"):"";
+                  const numCol=(o&&col&&col.text==="#ffffff")?"#ffffff":"#0f172a";
+                  return <div style={{width:"100%",height:"100%",background:bg,border:bd,borderRadius:"6px",boxSizing:"border-box",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",textAlign:"center",overflow:"hidden",padding:"2px"}}>
+                    <span style={{display:"block",fontSize:"11px",fontWeight:800,color:numCol,lineHeight:"1.1"}}>{cell.display_label}</span>
+                    {label&&<span style={{display:"block",fontSize:"9px",fontWeight:700,color:txt,lineHeight:"1.1",marginTop:"2px"}}>{label}</span>}
+                  </div>;
+                }
+                // SPLIT — three EQUAL strips (all flex:1): morning date / seat number / evening date.
+                const anyBooked=!!(cell.morning||cell.evening||bi.morning||bi.evening);
+                const halfSty=(o:any,blk:any):any=>{
+                  if(o){const c=occLook(o);return {background:c.bg,color:c.text};}
+                  if(blk){return {background:blk.expired?"#6b0a0a":"#fecaca",color:blk.expired?"#fecaca":"#7f1d1d"};}
+                  return anyBooked?{background:"rgba(0,0,0,0.06)",color:"#94a3b8"}:{background:"#ffffff",color:"#cbd5e1"};
+                };
+                const halfTxt=(o:any,blk:any)=> o?shortDate(o.booking_to):blk?(shortDate(blk.block_to||"")||"BLK"):"·";
+                const mS=halfSty(cell.morning,bi.morning), eS=halfSty(cell.evening,bi.evening);
+                // THREE FIXED-HEIGHT strips (NOT grid 1fr — html2canvas collapses 1fr, breaking centering).
+                // Each strip has an explicit pixel height + flex centering, giving a real box to center text in.
+                // Each strip: fixed height + symmetric vertical padding + flex-center. The padding guarantees
+                // text stays off both edges even if html2canvas mis-computes flex; centering does the rest.
+                return <table style={{width:"100%",height:"100%",borderCollapse:"collapse",tableLayout:"fixed",border:anyBooked?"1px solid #cbd5e1":"1px dashed #cbd5e1",borderRadius:"6px",overflow:"hidden",background:"#ffffff"}}>
+<tbody>
+<tr><td style={{height:"20px",padding:0,textAlign:"center",verticalAlign:"middle",fontSize:"9px",fontWeight:700,...mS}}>{halfTxt(cell.morning,bi.morning)}</td></tr>
+<tr><td style={{height:"20px",padding:0,textAlign:"center",verticalAlign:"middle",fontSize:"11px",fontWeight:800,color:"#0f172a",background:"#ffffff",borderTop:"1px solid #e5e7eb",borderBottom:"1px solid #e5e7eb"}}>{cell.display_label}</td></tr>
+<tr><td style={{height:"20px",padding:0,textAlign:"center",verticalAlign:"middle",fontSize:"9px",fontWeight:700,...eS}}>{halfTxt(cell.evening,bi.evening)}</td></tr>
+</tbody>
+</table>;
+              };
+              return <div key={idx} style={{width:"58px",height:"64px"}}>{tile(cell,bi,full)}</div>;
             })}
           </div>
         </div>
