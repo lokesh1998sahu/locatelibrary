@@ -3,7 +3,7 @@
 // Generate one-time codes per library/branch, share link + code as TWO separate
 // WhatsApp messages, track ISSUED → SUBMITTED → USED (side exit VOID).
 // Consumed by BookingFlow NEW admission.
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useCallback, useMemo } from "react";
 import Link from "next/link";
 import { useLMA } from "../_components/LMAProvider";
 import { parsePhone10 } from "../_lib/phone";
@@ -14,9 +14,12 @@ const FILTERS = ["ALL","ISSUED","SUBMITTED","USED"] as const;
 type Filt = typeof FILTERS[number];
 
 export default function EnquiryCodePage(){
-  const { init, post, showToast } = useLMA();
+  const { init, post, showToast, refreshInit, loading:initLoading } = useLMA();
   const [items,setItems]=useState<any[]>([]);
   const [loading,setLoading]=useState(false);
+  const [listLoaded,setListLoaded]=useState(false);   // C: list fetches only when the owner taps "Load codes"
+  const [genOpen,setGenOpen]=useState(false);         // C: generate form shows only after the owner taps + init is ready
+  const [listError,setListError]=useState(false);     // C: inline retry when the list fetch fails
   const [scope,setScope]=useState("");
   const [fresh,setFresh]=useState<{pretty:string;scope:string;remark:string;mobile:string}|null>(null);
   const [filter,setFilter]=useState<Filt>("ALL");
@@ -27,15 +30,15 @@ export default function EnquiryCodePage(){
   const [confirmGen,setConfirmGen]=useState(false);
 
   const load=useCallback(async()=>{
-    setLoading(true);
+    setLoading(true); setListError(false);
     try{
       const r=await fetch(`${API}?action=intakeList`).then(x=>x.json());
-      if(r&&r.ok) setItems(r.items||[]);
-      else showToast((r&&r.error)||"Could not load codes","error");
-    }catch{ showToast("Network error","error"); }
+      if(r&&r.ok){ setItems(r.items||[]); setListLoaded(true); }
+      else { setListError(true); showToast((r&&r.error)||"Could not load codes","error"); }
+    }catch{ setListError(true); showToast("Network error","error"); }
     setLoading(false);
   },[showToast]);
-  useEffect(()=>{ load(); },[load]);
+  // C: NO auto-load on open — nothing hits GAS until the "Load codes" button is tapped.
 
   const scopes = useMemo(()=>{
     const out:{value:string;label:string;library:string;branch:string}[]=[];
@@ -66,12 +69,12 @@ export default function EnquiryCodePage(){
     setConfirmGen(false); setBusy(true);
     const r=await post("intakeGenerateCode",{ library:s.library, branch:s.branch, mobile, remark:remark.trim() });
     setBusy(false);
-    if(r&&r.ok){ setFresh({pretty:r.pretty,scope:s.label,remark:remark.trim(),mobile}); setMobile(""); setRemark(""); showToast("Code generated"); load(); } // scope stays selected — next code is one tap
+    if(r&&r.ok){ setFresh({pretty:r.pretty,scope:s.label,remark:remark.trim(),mobile}); setMobile(""); setRemark(""); showToast("Code generated"); if(listLoaded) load(); } // scope stays selected; list refreshes only if already open
   };
   const doVoid=async(it:any)=>{
     setConfirmVoid(null);
     const r=await post("intakeVoid",{ code:it.code });
-    if(r&&r.ok){ showToast(`${it.code} voided`); load(); }
+    if(r&&r.ok){ showToast(`${it.code} voided`); if(listLoaded) load(); }
   };
 
   const mobOk=/^[6-9]\d{9}$/.test(mobile);
@@ -105,15 +108,41 @@ export default function EnquiryCodePage(){
         <div className="flex-1 min-w-0">
           <h1 className="text-xl font-extrabold tracking-tight text-lma-slate-900 leading-none">Enquiry Codes</h1>
           <p className="text-[11px] font-semibold text-lma-slate-500 mt-1">
-            {counts.SUBMITTED>0
+            {listLoaded&&counts.SUBMITTED>0
               ? <span className="text-lma-accent">{counts.SUBMITTED} ready to admit</span>
               : "Share a code · student fills details · you admit"}
           </p>
         </div>
-        <button onClick={load} disabled={loading} className="w-9 h-9 shrink-0 rounded-xl bg-white shadow-sm text-lma-slate-500 font-bold disabled:opacity-50">{loading?"·":"↻"}</button>
+        {listLoaded&&<button onClick={load} disabled={loading} className="w-9 h-9 shrink-0 rounded-xl bg-white shadow-sm text-lma-slate-500 font-bold disabled:opacity-50">{loading?"·":"↻"}</button>}
       </header>
 
-      {/* GENERATE */}
+      {/* ── PART 1: GENERATE ── opens on tap; form appears only once init (libraries) is loaded ── */}
+      {!genOpen ? (
+        <button onClick={()=>setGenOpen(true)}
+          className="w-full bg-white rounded-2xl p-4 shadow-sm mb-3 flex items-center justify-center gap-2 active:scale-[0.98] transition">
+          <span className="text-lg">➕</span>
+          <span className="text-sm font-extrabold text-lma-slate-900">Generate a code</span>
+        </button>
+      ) : !init && initLoading ? (
+        // Skeleton mirrors the real form's shape so the swap-in feels seamless.
+        <div className="bg-white rounded-2xl p-3.5 shadow-sm mb-3">
+          <div className="h-2.5 w-24 rounded bg-lma-slate-200 animate-pulse mb-3"/>
+          <div className="flex gap-1.5 flex-wrap mb-3">
+            {[44,52,40,56,48].map((w,i)=><div key={i} style={{width:w}} className="h-9 rounded-[10px] bg-lma-slate-100 animate-pulse"/>)}
+          </div>
+          <div className="h-10 rounded-[10px] bg-lma-slate-100 animate-pulse mb-2"/>
+          <div className="h-10 rounded-[10px] bg-lma-slate-100 animate-pulse mb-2.5"/>
+          <div className="rounded-xl bg-lma-slate-200 animate-pulse" style={{height:54}}/>
+        </div>
+      ) : !init ? (
+        // init failed (provider swallows the error) — offer a retry
+        <div className="bg-white rounded-2xl p-6 shadow-sm mb-3 text-center">
+          <div className="text-2xl mb-2">⚠️</div>
+          <div className="text-[13px] font-bold text-lma-slate-700 mb-3">Couldn&rsquo;t load libraries</div>
+          <button onClick={()=>refreshInit()} disabled={initLoading} style={{borderRadius:12}}
+            className="px-5 h-10 bg-lma-primary text-white font-extrabold text-[13px] active:scale-[0.98] disabled:opacity-50">{initLoading?"Retrying…":"Retry"}</button>
+        </div>
+      ) : (
       <div className="bg-white rounded-2xl p-3.5 shadow-sm mb-3">
         <div className="text-[10px] font-extrabold text-lma-slate-400 tracking-wider mb-2">NEW CODE FOR</div>
         <div className="flex gap-1.5 flex-wrap mb-2.5">
@@ -146,52 +175,73 @@ export default function EnquiryCodePage(){
           </div>
         )}
       </div>
+      )}
 
-      {/* FILTERS — segmented control; count sits beside the label, lighter weight */}
-      <div className="flex bg-white rounded-xl shadow-sm p-1 mb-3">
-        {FILTERS.map(f=>{
-          const on=filter===f;
-          return (
-            <button key={f} onClick={()=>setFilter(f)}
-              className={`flex-1 flex items-center justify-center gap-1.5 h-8 rounded-lg text-[10px] font-extrabold tracking-wide ${on?"bg-lma-slate-900 text-white":"text-lma-slate-500"}`}>
-              <span>{f}</span>
-              <span className={`font-bold ${on?"text-white/55":"text-lma-slate-300"}`}>{counts[f]}</span>
-            </button>
-          );
-        })}
-      </div>
-
-      {/* LIST */}
-      {shown.length===0
-        ? <div className="bg-white rounded-2xl p-7 text-center shadow-sm">
-            <div className="text-3xl mb-2">🎟️</div>
-            <div className="text-[13px] font-bold text-lma-slate-700 mb-1">{loading?"Loading…":filter==="ALL"?"No codes yet":`Nothing in ${filter}`}</div>
-            {!loading&&filter==="ALL"&&<p className="text-[12px] text-lma-slate-500 leading-snug">Pick a library above and tap Generate.</p>}
+      {/* ── PART 2: VIEW GENERATED CODES ── loads only on tap (saves GAS) ── */}
+      {!listLoaded ? (
+        listError ? (
+          <div className="w-full bg-white rounded-2xl p-4 shadow-sm mb-3 text-center">
+            <div className="text-2xl mb-2">⚠️</div>
+            <div className="text-[13px] font-bold text-lma-slate-700 mb-3">Couldn&rsquo;t load codes</div>
+            <button onClick={load} disabled={loading} style={{borderRadius:12}}
+              className="px-5 h-10 bg-lma-primary text-white font-extrabold text-[13px] active:scale-[0.98] disabled:opacity-50">{loading?"Retrying…":"Retry"}</button>
           </div>
-        : <div className="space-y-2 pb-10">
-            {shown.map(it=>{ const m=meta(it.status); const live=it.status==="ISSUED"||it.status==="SUBMITTED"; return (
-              <div key={it.code} className="bg-white rounded-2xl shadow-sm overflow-hidden flex">
-                <div className={`w-1 shrink-0 ${m.bar}`}/>
-                <div className="flex-1 min-w-0 p-3.5">
-                  <div className="flex items-center gap-2">
-                    <span className="text-[15px] font-extrabold font-mono tracking-wide text-lma-slate-900 select-all">{it.code}</span>
-                    <span className={`text-[9px] font-extrabold tracking-wide px-1.5 py-0.5 rounded ${m.chip}`}>{it.status}</span>
-                    <span className="ml-auto text-[11px] font-bold text-lma-slate-500 shrink-0">{it.branch||it.library}</span>
-                  </div>
-                  {(it.mobile||it.remark)&&<div className="text-[12px] font-bold text-lma-slate-800 mt-1.5 leading-snug">
-                    {it.mobile&&<span className="font-mono">📱 {it.mobile}</span>}{it.mobile&&it.remark?" · ":""}{it.remark}
-                  </div>}
-                  {m.hint&&<div className="text-[11px] text-lma-slate-500 mt-1 leading-snug">{m.hint}</div>}
-                  <div className="text-[10px] text-lma-slate-400 mt-1">
-                    Issued {it.issued_on}
-                    {it.used_receipt?<> · <span className="font-bold text-lma-slate-600">{it.used_receipt}</span></>:null}
-                    {it.used_by_library&&it.used_by_library!==(it.branch||it.library)?<> · used at {it.used_by_library}</>:null}
-                  </div>
-                  {live&&<div className="mt-3"><Share code={it.code} mob={it.mobile} onVoid={()=>setConfirmVoid(it)}/></div>}
-                </div>
+        ) : (
+        <button onClick={load} disabled={loading}
+          className="w-full bg-white rounded-2xl p-4 shadow-sm mb-3 flex items-center justify-center gap-2 active:scale-[0.98] transition disabled:opacity-60">
+          <span className="text-lg">📋</span>
+          <span className="text-sm font-extrabold text-lma-slate-900">{loading?"Loading codes…":"Load generated codes"}</span>
+        </button>
+        )
+      ) : (
+        <>
+          {/* FILTERS — segmented control; count sits beside the label, lighter weight */}
+          <div className="flex bg-white rounded-xl shadow-sm p-1 mb-3">
+            {FILTERS.map(f=>{
+              const on=filter===f;
+              return (
+                <button key={f} onClick={()=>setFilter(f)}
+                  className={`flex-1 flex items-center justify-center gap-1.5 h-8 rounded-lg text-[10px] font-extrabold tracking-wide ${on?"bg-lma-slate-900 text-white":"text-lma-slate-500"}`}>
+                  <span>{f}</span>
+                  <span className={`font-bold ${on?"text-white/55":"text-lma-slate-300"}`}>{counts[f]}</span>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* LIST */}
+          {shown.length===0
+            ? <div className="bg-white rounded-2xl p-7 text-center shadow-sm">
+                <div className="text-3xl mb-2">🎟️</div>
+                <div className="text-[13px] font-bold text-lma-slate-700 mb-1">{loading?"Loading…":filter==="ALL"?"No codes yet":`Nothing in ${filter}`}</div>
+                {!loading&&filter==="ALL"&&<p className="text-[12px] text-lma-slate-500 leading-snug">Pick a library above and tap Generate.</p>}
               </div>
-            ); })}
-          </div>}
+            : <div className="space-y-2 pb-10">
+                {shown.map(it=>{ const m=meta(it.status); const live=it.status==="ISSUED"||it.status==="SUBMITTED"; return (
+                  <div key={it.code} className="bg-white rounded-2xl shadow-sm overflow-hidden flex">
+                    <div className={`w-1 shrink-0 ${m.bar}`}/>
+                    <div className="flex-1 min-w-0 p-3.5">
+                      <div className="flex items-center gap-2">
+                        <span className="text-[15px] font-extrabold font-mono tracking-wide text-lma-slate-900 select-all">{it.code}</span>
+                        <span className={`text-[9px] font-extrabold tracking-wide px-1.5 py-0.5 rounded ${m.chip}`}>{it.status}</span>
+                        <span className="ml-auto text-[11px] font-bold text-lma-slate-500 shrink-0">{it.branch||it.library}</span>
+                      </div>
+                      {(it.mobile||it.remark)&&<div className="text-[12px] font-bold text-lma-slate-800 mt-1.5 leading-snug">
+                        {it.mobile&&<span className="font-mono">📱 {it.mobile}</span>}{it.mobile&&it.remark?" · ":""}{it.remark}
+                      </div>}
+                      {m.hint&&<div className="text-[11px] text-lma-slate-500 mt-1 leading-snug">{m.hint}</div>}
+                      <div className="text-[10px] text-lma-slate-400 mt-1">
+                        Issued {it.issued_on}
+                        {it.used_receipt?<> · <span className="font-bold text-lma-slate-600">{it.used_receipt}</span></>:null}
+                        {it.used_by_library&&it.used_by_library!==(it.branch||it.library)?<> · used at {it.used_by_library}</>:null}
+                      </div>
+                      {live&&<div className="mt-3"><Share code={it.code} mob={it.mobile} onVoid={()=>setConfirmVoid(it)}/></div>}
+                    </div>
+                  </div>
+                ); })}
+              </div>}
+        </>
+      )}
 
       {/* GENERATE CONFIRM */}
       {confirmGen&&(

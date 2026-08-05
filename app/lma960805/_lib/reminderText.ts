@@ -23,12 +23,20 @@ export function buildDuesReminder(name:string, library:string, balance:number):s
   return `Hi ${n}, a fee balance of ₹${balance} is pending on your seat at ${lib}. Kindly clear it at your earliest. Thank you!`;
 }
 
-// B5 — follow-up variant (second nudge after an earlier reminder)
-export function buildRenewFollowUp(name:string, library:string, dateStr:string, expired:boolean):string{
+// B5 — follow-up split into two: (a) deposit fees (continuing assumed); (b) confirm if continuing (unknown)
+export function buildRenewFollowUpPay(name:string, library:string, dateStr:string, expired:boolean):string{
   const n = titleCase(name);
   const lib = boldLib(library);
   if (expired) {
-    return `Hi ${n}, we messaged earlier — your seat at ${lib} expired on ${dateStr}. Please update us: deposit the fees to renew, or let us know if you're not continuing. Thank you!`;
+    return `Hi ${n}, following up — your seat at ${lib} expired on ${dateStr}. Please deposit the fees to keep it going. Thanks!`;
   }
-  return `Hi ${n}, we messaged earlier about your seat at ${lib} expiring on ${dateStr}. Please update us on whether you'll continue. Thank you!`;
+  return `Hi ${n}, following up — your seat at ${lib} is expiring on ${dateStr}. Please deposit the fees to keep it going. Thanks!`;
+}
+export function buildRenewFollowUpAsk(name:string, library:string, dateStr:string, expired:boolean):string{
+  const n = titleCase(name);
+  const lib = boldLib(library);
+  if (expired) {
+    return `Hi ${n}, following up — your seat at ${lib} expired on ${dateStr}. Do let us know if you'll continue, so we can hold it for you. Thanks!`;
+  }
+  return `Hi ${n}, following up — your seat at ${lib} is expiring on ${dateStr}. Do let us know if you'll continue, so we can hold it for you. Thanks!`;
 }

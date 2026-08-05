@@ -16,6 +16,7 @@ export default function WhatsAppButton({ phones, className, label, text, variant
   const list=(phones||[]).filter(p=>p&&p.number);
   const multi=list.length>1;
   const vlist=(variants||[]).filter(v=>v&&v.text);
+  const soleVar = vlist.length===1 ? vlist[0].text : undefined;
   const hasVar=vlist.length>1;
   useEffect(()=>{
     if(!open){ setChosen(null); return; }
@@ -23,7 +24,7 @@ export default function WhatsAppButton({ phones, className, label, text, variant
     document.addEventListener("mousedown",h);
     return ()=>document.removeEventListener("mousedown",h);
   },[open]);
-  const openChat=(num:string,t?:string)=>{ const p=parsePhone10(num||""); const msg=t!==undefined?t:(chosen!==null?chosen:text); if(p) window.open(msg?`https://wa.me/91${p}?text=${encodeURIComponent(msg)}`:`https://wa.me/91${p}`,"_blank"); setOpen(false); };
+  const openChat=(num:string,t?:string)=>{ const p=parsePhone10(num||""); const msg=t!==undefined?t:(chosen!==null?chosen:(text!==undefined?text:soleVar)); if(p) window.open(msg?`https://wa.me/91${p}?text=${encodeURIComponent(msg)}`:`https://wa.me/91${p}`,"_blank"); setOpen(false); };
   const onClick=()=>{ if(list.length===0) return; if(hasVar){ setChosen(null); setOpen(o=>!o); return; } if(!multi){ openChat(list[0].number); } else { setOpen(o=>!o); } };
   const pickVariant=(t:string)=>{ if(!multi){ openChat(list[0].number,t); } else { setChosen(t); } };
   const showVarStep = hasVar && chosen===null;
@@ -41,7 +42,7 @@ export default function WhatsAppButton({ phones, className, label, text, variant
             {showVarStep ? vlist.map((v,i)=>(
               <button type="button" key={i} onClick={()=>pickVariant(v.text)} className="flex items-center gap-3 w-full px-4 py-3 text-left border-b border-lma-slate-100 last:border-b-0 hover:bg-lma-accent/5 active:bg-lma-accent/10">
                 <span className="w-7 h-7 rounded-full bg-lma-accent/10 text-lma-accent text-xs font-extrabold flex items-center justify-center shrink-0">{i+1}</span>
-                <span className="min-w-0 flex-1"><span className="block text-sm font-bold text-lma-slate-800 truncate">{v.label}</span><span className="block text-[10px] text-lma-slate-400 truncate">{v.text}</span></span>
+                <span className="min-w-0 flex-1"><span className="block text-sm font-bold text-lma-slate-800 truncate">{v.label}</span><span className="block text-[10px] text-lma-slate-400 whitespace-pre-wrap break-words">{v.text}</span> </span>
                 <span className="shrink-0 text-xs font-extrabold text-lma-accent">→</span>
               </button>
             )) : list.map((l,i)=>(

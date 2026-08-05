@@ -8,12 +8,12 @@ import { useRouter } from "next/navigation";
 import { useLMA, useScopeChips } from "../_components/LMAProvider";
 import { laneFree, buildVacancyText, occupancyStats, type VacPlan } from "../_lib/vacancy";
 import CancelRefundSheet from "../_components/CancelRefundSheet";
-import { buildRenewReminder, buildDuesReminder, buildRenewFollowUp } from "../_lib/reminderText";
+import { buildRenewReminder, buildDuesReminder, buildRenewFollowUpPay, buildRenewFollowUpAsk } from "../_lib/reminderText";
 import ReceiptModal from "../_components/ReceiptModal";
 import StudentModal from "../_components/StudentModal";
 import BookingFlow from "../_components/BookingFlow";
 import { toIsoInput, fmtDMY, fmtDMYT } from "../_lib/dates";
-import { genderCardStyle, normGender } from "../_lib/genderTheme";
+import { normGender } from "../_lib/genderTheme";
 
 const API = "/api/lma960805";
 
@@ -73,6 +73,33 @@ const COLOR: Record<string,{bg:string;text:string;border:string;label:string}> =
   DUES:     { bg:"#fde68a", text:"#92400e", border:"#f59e0b", label:"Dues" },
 };
 const GOLD = "#f59e0b";
+
+// ── v4 seat-token: tokens + element (mirrors the board tile inside the detail card) ──
+const V4_TINT: Record<string,string> = { OK:"#e6f7f0", EXPIRING:"#ffe3ea", EXPIRED:"#efdada" };
+const V4_VAC = "#f3f4fa";
+const V4_HATCH = "repeating-linear-gradient(45deg,#e4e6f0 0 5px,#eef0f6 5px 10px)";
+function v4HalfBg(o:Occupant|null|undefined, b:BlockInfo|null|undefined):string{
+  if(o) return V4_TINT[o.color] || V4_TINT.OK;
+  if(b) return V4_HATCH;
+  return V4_VAC;
+}
+function SeatToken({ cell }:{ cell:BoardCell }){
+  const bi = cell.block_info || { morning:null, evening:null, fullday:null };
+  const isFull = !!(cell.fullday || bi.fullday) || (!cell.morning && !cell.evening && !bi.morning && !bi.evening);
+  const band = (
+    <div style={{ background:"#fff", padding:"8px 0 7px", textAlign:"center", boxShadow:"0 0 0 1px rgba(31,28,84,.05)" }}>
+      <div style={{ fontFamily:"'JetBrains Mono',ui-monospace,monospace", fontSize:20, fontWeight:700, lineHeight:1, color:"#1b1d2e" }}>{cell.display_label}</div>
+    </div>
+  );
+  const field = (bg:string) => <div style={{ flex:1, minHeight:30, background:bg }}/>;
+  return (
+    <div style={{ width:58, flexShrink:0, borderRadius:15, overflow:"hidden", display:"flex", flexDirection:"column", boxShadow:"inset 0 0 0 1px rgba(31,28,84,.07)" }}>
+      {isFull
+        ? <>{band}{field(v4HalfBg(cell.fullday, bi.fullday))}</>
+        : <>{field(v4HalfBg(cell.morning, bi.morning))}{band}{field(v4HalfBg(cell.evening, bi.evening))}</>}
+    </div>
+  );
+}
 // Resolve an occupant's tile look: expiry decides the FILL; dues shows as a
 // gold FILL when the seat is OK, or a gold RING when Expiring/Expired (so the
 // expiry is never hidden but dues is always visible).
@@ -769,6 +796,8 @@ function DetailSheet({ cell, panel, onClose, scope, lib, branch, post, showToast
   const [confirmVacate,setConfirmVacate]=useState<Occupant|null>(null);
   const [confirmCancel,setConfirmCancel]=useState<Occupant|null>(null);
   const [chooseMode,setChooseMode]=useState<""|"ADD"|"BLOCK">(""); // fully-vacant: ask shift before booking/blocking
+  const [laneUI,setLaneUI]=useState<{rno:string;sec:string}>({rno:"",sec:""});
+  const tglLane=(rno:string,sec:string)=>setLaneUI(p=>(p.rno===rno&&p.sec===sec)?{rno:"",sec:""}:{rno,sec});
   const L = branch||lib;
   const { init }=useLMA();
   const libName=((init?.libraries||[]).find(l=>l.library_code===lib)?.display_name)||lib;
@@ -793,7 +822,8 @@ function DetailSheet({ cell, panel, onClose, scope, lib, branch, post, showToast
   };
 
   const remind=(o:Occupant):string=>buildRenewReminder(o.name, libName, fmtDMY(o.booking_to), o.color==="EXPIRED");
-  const followUp=(o:Occupant):string=>buildRenewFollowUp(o.name, libName, fmtDMY(o.booking_to), o.color==="EXPIRED"); // B5
+  const followUpPay=(o:Occupant):string=>buildRenewFollowUpPay(o.name, libName, fmtDMY(o.booking_to), o.color==="EXPIRED");
+  const followUpAsk=(o:Occupant):string=>buildRenewFollowUpAsk(o.name, libName, fmtDMY(o.booking_to), o.color==="EXPIRED");   
   const duesReminder=(o:Occupant):string=>buildDuesReminder(o.name, libName, o.fees_due_balance);
   const doNotRenew=async(o:Occupant)=>{
     if(busy) return;
@@ -813,37 +843,59 @@ function DetailSheet({ cell, panel, onClose, scope, lib, branch, post, showToast
 
   // ── BOOKED lane: details + actions ──
   const BookingPanel=(o:Occupant)=>{
-    const col=(o.color==="EXPIRING"&&o.urgent)?COLOR.EXPIRING_PRIMARY:(COLOR[o.color]||COLOR.OK);
+    const cross = !!(o.is_cross_library && o.is_cross_library!=="NO");
+    const st = o.color;
+    const sColor = st==="EXPIRED"?"#6b0a0a":st==="EXPIRING"?"#be123c":"#0e9f6e";
+    const sWord = st==="EXPIRED"?"Expired":st==="EXPIRING"?"Expiring":"Active";
+    const mono = "'JetBrains Mono',ui-monospace,monospace";
     return (
-      <div className="rounded-xl p-3 border" style={genderCardStyle(o.gender||"")}>
-        <div className="flex items-center gap-2 mb-2 flex-wrap">
-          <span className="text-[10px] font-bold px-2 py-0.5 rounded" style={{background:col.bg,color:col.text}}>{o.shift_name||o.shift}</span>
-          <span className="text-[10px] font-bold px-2 py-0.5 rounded" style={{background:col.bg,color:col.text}}>{col.label}</span>
-          {o.has_dues&&<span className="text-[10px] font-bold px-2 py-0.5 rounded" style={{background:COLOR.DUES.bg,color:COLOR.DUES.text}}>DUES</span>}
-          {o.is_cross_library&&o.is_cross_library!=="NO"&&<span className="text-[9px] font-bold text-lma-warn bg-lma-warn/10 px-1.5 py-0.5 rounded ml-auto">CROSS · {o.is_cross_library}</span>}
+      <div className="rounded-[14px] p-3 border" style={{ background:"#fff", borderColor:"#e7e9f3" }}>
+        <div className="flex items-center gap-2">
+          <button onClick={()=>onViewStudent(o.student_id, o.is_cross_library)} className="text-[15.5px] font-bold text-lma-slate-900 hover:underline text-left truncate">{o.name}</button>
+          {o.gender&&<span className="inline-flex items-center justify-center w-[15px] h-[15px] rounded-[5px] text-[9px] font-extrabold text-white shrink-0" style={{ background:normGender(o.gender)==="F"?"#ec4899":"#3b82f6" }}>{normGender(o.gender)}</span>}
         </div>
-        <button onClick={()=>onViewStudent(o.student_id, o.is_cross_library)} className="block text-left text-sm font-extrabold text-lma-primary hover:underline">{o.student_id} · {o.name}</button>
-        <div className="text-[11px] text-lma-slate-600 mt-0.5">Receipt <button onClick={()=>onViewReceipt(o.receipt_no)} className="text-lma-primary underline decoration-dotted font-bold">{o.receipt_no}</button> · until {fmtDMY(o.booking_to)}</div>
-        {o.fees_due_balance>0&&<div className="text-[11px] font-bold text-lma-danger mt-0.5">Dues: ₹{o.fees_due_balance} ({o.dues_status})</div>}
-        {o.remark&&<div className="text-[11px] text-lma-slate-500 mt-1 italic">📝 {o.remark}</div>}
-        {o.fees_due_balance>0&&<CollectDueInline receiptNo={o.receipt_no} balance={o.fees_due_balance} post={post} showToast={showToast} onChanged={onChanged} onEvent={(t)=>onShare(t,"Due collected",o.phones)}/>}
-        <div className="grid grid-cols-2 gap-2 mt-2">
-          <button onClick={()=>onRenew(o.receipt_no, cell.display_label, o.shift)} className="py-2 rounded-lg bg-lma-primary/10 text-lma-primary font-bold text-xs">Renew</button>
-          {o.color==="EXPIRED"
-            ? <button disabled={busy} onClick={()=>doNotRenew(o)} className="py-2 rounded-lg bg-lma-slate-100 text-lma-slate-600 font-bold text-xs disabled:opacity-50">Do Not Renew</button>
-            : <button disabled={busy} onClick={()=>setConfirmCancel(o)} className="py-2 rounded-lg bg-lma-slate-100 text-lma-slate-600 font-bold text-xs disabled:opacity-50">Cancel</button>}
-          {o.temporary_seat
-            ? <div className="py-2 rounded-lg bg-lma-warn/10 text-lma-warn font-bold text-xs text-center">Floating · was {o.temporary_seat}</div>
-            : <button disabled={busy} onClick={()=>setConfirmVacate(o)} className="py-2 rounded-lg bg-lma-warn/10 text-lma-warn font-bold text-xs disabled:opacity-50">Temp-Vacate</button>}
-          <button disabled={busy} onClick={()=>onReAllot(o)} className="py-2 rounded-lg bg-lma-slate-100 text-lma-slate-600 font-bold text-xs disabled:opacity-50">{o.temporary_seat?"Re-Allot (restore)":"Re-Allot"}</button>
+        <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
+          {cross
+            ? <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[11px] font-semibold" style={{ background:"#f3effe", color:"#7c3aed", boxShadow:"inset 0 0 0 1px #e4d9fb", fontFamily:mono }}><svg width="10" height="10" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round"><path d="M8 12l4-4M7.5 7H6a4 4 0 000 8h1.5M12.5 13H14a4 4 0 000-8h-1.5"/></svg>{o.student_id}-{o.is_cross_library}</span>
+            : <span className="px-1.5 py-0.5 rounded-md text-[11px] font-semibold" style={{ background:"#f1f2fa", color:"#52566f", boxShadow:"inset 0 0 0 1px #e7e9f3", fontFamily:mono }}>{o.student_id}</span>}
+          <span style={{ color:"#cfd2e3", fontWeight:700 }}>·</span>
+          <button onClick={()=>onViewReceipt(o.receipt_no)} className="text-[11.5px] font-semibold underline decoration-dotted" style={{ color:"#646882", fontFamily:mono }}>{o.receipt_no}</button>
         </div>
-        {(o.color==="EXPIRED"||o.color==="EXPIRING")&&<WhatsAppButton phones={o.phones} text={remind(o)} variants={[{label:"Initial reminder",text:remind(o)},{label:"Follow-up",text:followUp(o)}]} label="💬 Remind to Renew" className="w-full mt-2 py-2 rounded-lg bg-lma-accent/10 text-lma-accent font-bold text-xs disabled:opacity-40"/>}
-        {(o.fees_due_balance>0&&o.dues_status==="PENDING")&&<WhatsAppButton phones={o.phones} text={duesReminder(o)} label="💬 Dues Reminder" className="w-full mt-2 py-2 rounded-lg bg-lma-warn/10 text-lma-warn font-bold text-xs disabled:opacity-40"/>}
-        <MoneyTrailInline receiptNo={o.receipt_no}/>
-        <RefundInline receiptNo={o.receipt_no} post={post} showToast={showToast} onChanged={onChanged} onEvent={(t)=>onShare(t,"Refund issued",o.phones)}/>
-        <DetailCopyRow occupant={o} lib={lib} branch={branch} showToast={showToast}/>
-        <button onClick={()=>loadHist(o.shift)} className="w-full mt-2 py-2 rounded-lg bg-lma-slate-100 text-lma-slate-600 font-bold text-xs">{histBusy===shKey(o.shift)?"…":`🕘 Past 5 on this seat · ${shKey(o.shift)}`}</button>
-        {histBlock(o.shift)}
+        <div className="flex items-center gap-1.5 mt-2 text-[12.5px] font-semibold flex-wrap" style={{ color:sColor }}>
+          {st==="EXPIRED"
+            ? <svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round"><path d="M10 3.2L2.4 16.4h15.2L10 3.2z"/><path d="M10 8.2v3.4"/><circle cx="10" cy="13.8" r=".5" fill="currentColor"/></svg>
+            : st==="EXPIRING"
+            ? <svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth={1.9} strokeLinecap="round" strokeLinejoin="round"><circle cx="10" cy="10" r="6.4"/><path d="M10 6.6V10l2.4 1.6"/></svg>
+            : <svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth={2.3} strokeLinecap="round" strokeLinejoin="round"><path d="M4 10.5l3.4 3.4L16 6"/></svg>}
+          <span>{sWord}</span>
+          <span style={{ opacity:.45, fontWeight:500 }}>·</span>
+          <span>{st==="EXPIRED"?"":"till "}<span style={{ fontFamily:mono, fontWeight:700 }}>{fmtDMY(o.booking_to)}</span></span>
+        </div>
+        {o.fees_due_balance>0&&<div className="inline-flex items-center gap-1 mt-2 px-2.5 py-1 rounded-lg text-[12px] font-extrabold" style={{ background:"#fcecca", color:"#b45309", boxShadow:"inset 0 0 0 1px rgba(180,83,9,.18)", fontFamily:mono }}>₹{o.fees_due_balance} due</div>}
+        {o.remark&&<div className="text-[11px] mt-1.5 italic" style={{ color:"#646882" }}>📝 {o.remark}</div>}
+        <div className="flex gap-2 mt-3">
+          {o.fees_due_balance>0&&<button disabled={busy} onClick={()=>tglLane(o.receipt_no,"collect")} className="flex-1 h-[42px] rounded-[12px] text-white text-[13px] font-bold flex items-center justify-center disabled:opacity-50" style={{ background:"#4f46e5" }}>Collect ₹{o.fees_due_balance}</button>}
+          <button onClick={()=>onRenew(o.receipt_no, cell.display_label, o.shift)} className="flex-1 h-[42px] rounded-[12px] text-[13px] font-bold flex items-center justify-center" style={{ background:"#eef0fe", color:"#4f46e5" }}>Renew</button>
+          <WhatsAppButton phones={o.phones} label="💬" className="w-[42px] h-[42px] rounded-[12px] flex items-center justify-center shrink-0 text-base bg-[#e7f6ef] text-[#0d9488]" variants={[...(o.fees_due_balance>0&&o.dues_status==="PENDING"?[{label:"Dues reminder",text:duesReminder(o)}]:[]),...((o.color==="EXPIRING"||o.color==="EXPIRED")?[{label:"Renewal reminder",text:remind(o)}]:[]),...(o.color==="EXPIRED"?[{label:"Follow-up · deposit fees",text:followUpPay(o)},{label:"Follow-up · confirm continuing",text:followUpAsk(o)}]:[])]}/>
+          <button onClick={()=>tglLane(o.receipt_no,"more")} className="w-[42px] h-[42px] rounded-[12px] flex items-center justify-center text-lg shrink-0" style={{ background:"#f1f2fa", color:"#646882" }}>⋯</button>
+        </div>
+        {laneUI.rno===o.receipt_no&&laneUI.sec==="collect"&&o.fees_due_balance>0&&<div className="mt-2"><CollectDueInline receiptNo={o.receipt_no} balance={o.fees_due_balance} post={post} showToast={showToast} onChanged={onChanged} onEvent={(t)=>onShare(t,"Due collected",o.phones)}/></div>}
+        {laneUI.rno===o.receipt_no&&laneUI.sec==="more"&&<div className="mt-2 space-y-2 pt-2 border-t" style={{ borderColor:"#eef0f8" }}>
+          <div className="grid grid-cols-2 gap-2">
+            {o.color==="EXPIRED"
+              ? <button disabled={busy} onClick={()=>doNotRenew(o)} className="py-2 rounded-lg bg-lma-slate-100 text-lma-slate-600 font-bold text-xs disabled:opacity-50">Do Not Renew</button>
+              : <button disabled={busy} onClick={()=>setConfirmCancel(o)} className="py-2 rounded-lg bg-lma-slate-100 text-lma-slate-600 font-bold text-xs disabled:opacity-50">Cancel</button>}
+            {o.temporary_seat
+              ? <div className="py-2 rounded-lg bg-lma-warn/10 text-lma-warn font-bold text-xs text-center">Floating · was {o.temporary_seat}</div>
+              : <button disabled={busy} onClick={()=>setConfirmVacate(o)} className="py-2 rounded-lg bg-lma-warn/10 text-lma-warn font-bold text-xs disabled:opacity-50">Temp-Vacate</button>}
+            <button disabled={busy} onClick={()=>onReAllot(o)} className="py-2 rounded-lg bg-lma-slate-100 text-lma-slate-600 font-bold text-xs disabled:opacity-50">{o.temporary_seat?"Re-Allot (restore)":"Re-Allot"}</button>
+          </div>
+          <MoneyTrailInline receiptNo={o.receipt_no}/>
+          <RefundInline receiptNo={o.receipt_no} post={post} showToast={showToast} onChanged={onChanged} onEvent={(t)=>onShare(t,"Refund issued",o.phones)}/>
+          <DetailCopyRow occupant={o} lib={lib} branch={branch} showToast={showToast}/>
+          <button onClick={()=>loadHist(o.shift)} className="w-full py-2 rounded-lg bg-lma-slate-100 text-lma-slate-600 font-bold text-xs">{histBusy===shKey(o.shift)?"…":`🕘 Past 5 on this seat · ${shKey(o.shift)}`}</button>
+          {histBlock(o.shift)}
+        </div>}
       </div>
     );
   };
@@ -883,18 +935,22 @@ function DetailSheet({ cell, panel, onClose, scope, lib, branch, post, showToast
   // ── BLOCKED lane: same architecture as a booking ──
 const BlockPanel=(blk:BlockInfo)=>{
     const exp=blk.expired;
+    const bc = exp?"#6b0a0a":"#4c5270";
+    const bg = exp?"#fbf4f4":"#f7f8fc";
+    const bd = exp?"#efdada":"#dfe2ee";
+    const mono2 = "'JetBrains Mono',ui-monospace,monospace";
     return (
-    <div className="rounded-xl p-3" style={exp?{border:"1.5px solid #450a0a",background:"#6b0a0a"}:{border:"1.5px solid #fca5a5",background:"repeating-linear-gradient(45deg,#fff5f5,#fff5f5 8px,#fee2e2 8px,#fee2e2 16px)"}}>
-      <div className="flex items-center gap-2 mb-2 flex-wrap">
-        <span className="text-[10px] font-extrabold px-2 py-0.5 rounded bg-lma-danger text-white" style={exp?{background:"#450a0a"}:undefined}>🚫 {exp?"BLOCK ENDED":"BLOCKED"}</span>
-        <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-white/70 text-lma-danger" style={exp?{background:"rgba(255,255,255,0.2)",color:"#ffffff"}:undefined}>{blk.shift==="ALL"?"All shifts":blk.shift}</span>
-        <span className="text-[10px] font-mono text-lma-slate-500 ml-auto" style={exp?{color:"#ffffff"}:undefined}>{blk.block_id}</span>
+    <div className="rounded-[14px] p-3 border" style={{ background:bg, borderColor:bd }}>
+      <div className="flex items-center gap-1.5 text-[12.5px] font-semibold" style={{ color:bc }}>
+        <svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round"><rect x="4.5" y="9" width="11" height="7.5" rx="1.6"/><path d="M6.8 9V6.5a3.2 3.2 0 016.4 0V9"/></svg>
+        <span>{exp?"Block ended":"Blocked"}</span>
+        {blk.shift&&blk.shift!=="ALL"&&<><span style={{ opacity:.45, fontWeight:500 }}>·</span><span>{blk.shift}</span></>}
       </div>
-      <div className="text-[11px] text-lma-slate-600" style={exp?{color:"#ffffff"}:undefined}><span className="font-bold">Reason: </span>{blk.reason||"—"}</div>
-      {(blk.block_from||blk.block_to)&&<div className="text-[11px] text-lma-slate-600 mt-0.5" style={exp?{color:"#ffffff"}:undefined}><span className="font-bold">Dates: </span>{blk.block_from||"…"} → {blk.block_to||"…"}</div>}
-      <div className="grid grid-cols-2 gap-2 mt-2.5">
-        <button disabled={busy} onClick={()=>onEdit(cell.display_label,blk)} className="py-2 rounded-lg bg-lma-slate-100 text-lma-slate-700 font-bold text-xs disabled:opacity-50" style={exp?{background:"rgba(255,255,255,0.18)",color:"#ffffff"}:undefined}>Edit</button>
-        <button disabled={busy} onClick={()=>removeBlock(blk)} className="py-2 rounded-lg bg-lma-danger text-white font-bold text-xs disabled:opacity-50" style={exp?{background:"#450a0a"}:undefined}>Remove Block</button>
+      <div className="text-[11.5px] mt-1.5" style={{ color:"#646882" }}><span className="font-bold">Reason: </span>{blk.reason||"—"}</div>
+      {(blk.block_from||blk.block_to)&&<div className="text-[11.5px] mt-0.5" style={{ color:"#646882" }}><span className="font-bold">Dates: </span><span style={{ fontFamily:mono2 }}>{blk.block_from||"…"} → {blk.block_to||"…"}</span></div>}
+      <div className="grid grid-cols-2 gap-2 mt-3">
+        <button disabled={busy} onClick={()=>onEdit(cell.display_label,blk)} className="h-[38px] rounded-[11px] text-[12.5px] font-bold flex items-center justify-center disabled:opacity-50" style={{ background:"#fff", color:bc, boxShadow:"inset 0 0 0 1.5px "+bd }}>Edit</button>
+        <button disabled={busy} onClick={()=>removeBlock(blk)} className="h-[38px] rounded-[11px] text-[12.5px] font-bold flex items-center justify-center gap-1 disabled:opacity-50" style={{ background:"#fff", color:bc, boxShadow:"inset 0 0 0 1.5px "+bd }}><svg width="13" height="13" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round"><rect x="4.5" y="9" width="11" height="7.5" rx="1.6"/><path d="M6.8 9V6.5a3.2 3.2 0 015.9-1.4"/></svg>Unblock</button>
       </div>
     </div>
     );
@@ -902,32 +958,33 @@ const BlockPanel=(blk:BlockInfo)=>{
 
   // ── VACANT lane: add booking / block seat ──
   const VacantPanel=(shift:"MORNING"|"EVENING"|"FULL DAY"|undefined, held:TempHeldInfo|null)=>{
-    // Fully-vacant seat (shift undefined): Add Booking AND Block Seat each ask the shift first.
+    const vac = { background:"#fbfbfe", borderColor:"#d7d9e6" };
     if(chooseMode && !shift){
       const isAdd=chooseMode==="ADD";
       const pick=(s:"MORNING"|"EVENING"|"FULL DAY")=>{ if(isAdd){ goBook(s); } else { setChooseMode(""); onBlock(cell.display_label,s); } };
       return (
-        <div className="rounded-xl p-3 border border-dashed border-lma-slate-300 bg-lma-slate-50">
-          <div className="text-[11px] font-bold text-lma-slate-500 mb-2">{isAdd?"Book which shift?":"Block which shift?"}</div>
+        <div className="rounded-[14px] p-3 border border-dashed" style={vac}>
+          <div className="text-[11px] font-bold mb-2" style={{ color:"#9a9eb6" }}>{isAdd?"Book which shift?":"Block which shift?"}</div>
           <div className="grid grid-cols-3 gap-2">
             {(["MORNING","EVENING","FULL DAY"] as const).map(s=>(
-              <button key={s} onClick={()=>pick(s)} className={`py-2.5 rounded-lg font-bold text-xs ${isAdd?"bg-lma-primary/10 text-lma-primary":"bg-lma-danger/10 text-lma-danger"}`}>{s==="FULL DAY"?"Full Day":s.charAt(0)+s.slice(1).toLowerCase()}</button>
+              <button key={s} onClick={()=>pick(s)} className="py-2.5 rounded-[11px] font-bold text-xs" style={isAdd?{ background:"#eef0fe", color:"#4f46e5" }:{ background:"#eef0f6", color:"#4c5270" }}>{s==="FULL DAY"?"Full Day":s.charAt(0)+s.slice(1).toLowerCase()}</button>
             ))}
           </div>
-          <button onClick={()=>setChooseMode("")} className="w-full mt-2 py-1.5 rounded-lg text-lma-slate-500 font-bold text-[11px]">Back</button>
+          <button onClick={()=>setChooseMode("")} className="w-full mt-2 py-1.5 rounded-lg font-bold text-[11px]" style={{ color:"#9a9eb6" }}>Back</button>
         </div>
       );
     }
+    const shLbl = shift?(shift==="FULL DAY"?"Full Day":shift.charAt(0)+shift.slice(1).toLowerCase()):"";
     return (
-      <div className="rounded-xl p-3 border border-dashed border-lma-slate-300 bg-lma-slate-50">
-        {held&&<p className="text-[11px] text-lma-warn font-semibold mb-2">⚠ Held by <b>{held.name||held.student_id}</b> (temp-vacate). Use another seat unless you mean to reassign it.</p>}
+      <div className="rounded-[14px] p-3 border border-dashed" style={vac}>
+        {held&&<p className="text-[11px] font-semibold mb-2" style={{ color:"#b45309" }}>⚠ Held by <b>{held.name||held.student_id}</b> (temp-vacate). Use another seat unless you mean to reassign it.</p>}
         <div className="grid grid-cols-2 gap-2">
-          <button onClick={()=>{ if(shift) goBook(shift); else setChooseMode("ADD"); }} className="py-2.5 rounded-lg bg-gradient-to-br from-lma-primary to-lma-primary-2 text-white font-bold text-xs shadow-md">＋ Add Booking</button>
-          <button onClick={()=>{ if(shift) onBlock(cell.display_label,shift); else setChooseMode("BLOCK"); }} className="py-2.5 rounded-lg bg-lma-danger/10 text-lma-danger font-bold text-xs">🚫 Block Seat</button>
+          <button onClick={()=>{ if(shift) goBook(shift); else setChooseMode("ADD"); }} className="py-2.5 rounded-[11px] text-white font-bold text-xs flex items-center justify-center gap-1" style={{ background:"#4f46e5" }}><svg width="13" height="13" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth={2.4} strokeLinecap="round"><path d="M10 4.5v11M4.5 10h11"/></svg>{shift?`Book ${shLbl}`:"Book"}</button>
+          <button onClick={()=>{ if(shift) onBlock(cell.display_label,shift); else setChooseMode("BLOCK"); }} className="py-2.5 rounded-[11px] font-bold text-xs flex items-center justify-center gap-1" style={{ background:"#eef0f6", color:"#4c5270" }}><svg width="13" height="13" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round"><rect x="4.5" y="9" width="11" height="7.5" rx="1.6"/><path d="M6.8 9V6.5a3.2 3.2 0 016.4 0V9"/></svg>Block</button>
         </div>
         {shift
-          ? <><button onClick={()=>loadHist(shift)} className="w-full mt-2 py-1.5 rounded-lg bg-white border border-lma-slate-200 text-lma-slate-500 font-bold text-[11px]">{histBusy===shift?"…":"🕘 Past bookings here"}</button>{histBlock(shift)}</>
-          : <><div className="flex gap-1.5 mt-2">{(["MORNING","EVENING","FULL DAY"] as const).map(s=>(<button key={s} onClick={()=>loadHist(s)} className="flex-1 py-1.5 rounded-lg bg-white border border-lma-slate-200 text-lma-slate-500 font-bold text-[10px]">{histBusy===s?"…":`🕘 ${s==="FULL DAY"?"Full Day":s.charAt(0)+s.slice(1).toLowerCase()}`}</button>))}</div>{hist&&histBlock(hist.key)}</>}
+          ? <><button onClick={()=>loadHist(shift)} className="w-full mt-2 py-1.5 rounded-lg font-bold text-[11px]" style={{ background:"#fff", color:"#9a9eb6", boxShadow:"inset 0 0 0 1px #e7e9f3" }}>{histBusy===shift?"…":"🕘 Past bookings here"}</button>{histBlock(shift)}</>
+          : <><div className="flex gap-1.5 mt-2">{(["MORNING","EVENING","FULL DAY"] as const).map(s=>(<button key={s} onClick={()=>loadHist(s)} className="flex-1 py-1.5 rounded-lg font-bold text-[10px]" style={{ background:"#fff", color:"#9a9eb6", boxShadow:"inset 0 0 0 1px #e7e9f3" }}>{histBusy===s?"…":`🕘 ${s==="FULL DAY"?"Full Day":s.charAt(0)+s.slice(1).toLowerCase()}`}</button>))}</div>{hist&&histBlock(hist.key)}</>}
       </div>
     );
   };
@@ -969,14 +1026,17 @@ const BlockPanel=(blk:BlockInfo)=>{
   return (
     <div className="fixed inset-0 z-[9998] flex items-end justify-center" onClick={onClose}>
       <div className="absolute inset-0 bg-black/50 backdrop-blur-sm"/>
-      <div className="relative w-full max-w-md bg-white rounded-t-3xl p-5 max-h-[88vh] overflow-y-auto lma-slide-up" onClick={e=>e.stopPropagation()}>
-        <div className="w-9 h-1 bg-lma-slate-200 rounded-full mx-auto mb-4"/>
-        <div className="flex items-baseline gap-2 mb-3">
-          <h3 className="text-base font-extrabold text-lma-slate-900">Seat {cell.display_label}</h3>
-          <span className="text-[11px] font-semibold text-lma-slate-500">{summary}</span>
-          <button onClick={onClose} aria-label="Close" className="absolute top-3 right-3 w-8 h-8 rounded-full bg-lma-slate-100 text-lma-slate-500 font-bold text-lg leading-none flex items-center justify-center hover:bg-lma-slate-200 z-10">×</button>
+      <div role="dialog" aria-label={`Seat ${cell.display_label} · ${summary}`} className="relative w-full max-w-md rounded-t-[28px] p-4 pb-5 max-h-[88vh] overflow-y-auto lma-slide-up" style={{ background:"#fcfcff" }} onClick={e=>e.stopPropagation()}>
+        <div className="w-9 h-[5px] rounded-full mx-auto mb-3" style={{ background:"#dfe1ee" }}/>
+        <div className="flex justify-end mb-3">
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-extrabold" style={{ background:(((init?.libraries||[]).find(l=>l.library_code===lib)?.color)||"#4f46e5")+"1a", color:((init?.libraries||[]).find(l=>l.library_code===lib)?.color)||"#4f46e5" }}>
+            <span>{((init?.libraries||[]).find(l=>l.library_code===lib)?.emoji)||"📚"}</span><span>{branch||lib}</span>
+          </span>
         </div>
-        {body}
+        <div className="flex gap-3 items-stretch">
+          <SeatToken cell={cell}/>
+          <div className="flex-1 min-w-0">{body}</div>
+        </div>
         <button onClick={onClose} className="w-full mt-4 py-3 rounded-xl bg-lma-slate-100 text-lma-slate-600 font-bold">Close</button>
 
         {confirmVacate&&(
