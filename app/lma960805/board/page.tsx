@@ -12,7 +12,7 @@ import { buildRenewReminder, buildDuesReminder, buildRenewFollowUpPay, buildRene
 import ReceiptModal from "../_components/ReceiptModal";
 import StudentModal from "../_components/StudentModal";
 import BookingFlow from "../_components/BookingFlow";
-import { toIsoInput, fmtDMY, fmtDMYT } from "../_lib/dates";
+import { toIsoInput, fmtDMY, fmtDMYT, daysFromToday } from "../_lib/dates";
 import { normGender } from "../_lib/genderTheme";
 
 const API = "/api/lma960805";
@@ -848,6 +848,17 @@ function DetailSheet({ cell, panel, onClose, scope, lib, branch, post, showToast
     const sColor = st==="EXPIRED"?"#6b0a0a":st==="EXPIRING"?"#be123c":"#0e9f6e";
     const sWord = st==="EXPIRED"?"Expired":st==="EXPIRING"?"Expiring":"Active";
     const mono = "'JetBrains Mono',ui-monospace,monospace";
+    const dLeft = daysFromToday(o.booking_to);
+    const fetchCopy = async (kind:"student"|"group"):Promise<string> => {
+      const scope=branch||lib;
+      const params=new URLSearchParams({action:"getReceiptLog",q:o.receipt_no,search_type:"RECEIPT_NO",limit:"5"});
+      if(scope) params.set("library",scope);
+      const r=await fetch(`${API}?${params}`).then(x=>x.json()).catch(()=>null);
+      const rec=(r&&r.receipts&&r.receipts.length)?(r.receipts.find((x:any)=>String(x.receipt_no).toUpperCase()===String(o.receipt_no).toUpperCase())||r.receipts[0]):null;
+      const t=rec?(kind==="student"?rec.receipt_text:rec.registration_text):"";
+      if(!t) showToast(kind==="student"?"No receipt text":"No group text (renewal?)","error");
+      return t||"";
+    };
     return (
       <div className="rounded-[14px] p-3 border" style={{ background:"#fff", borderColor:"#e7e9f3" }}>
         <div className="flex items-center gap-2">
@@ -867,7 +878,7 @@ function DetailSheet({ cell, panel, onClose, scope, lib, branch, post, showToast
             : st==="EXPIRING"
             ? <svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth={1.9} strokeLinecap="round" strokeLinejoin="round"><circle cx="10" cy="10" r="6.4"/><path d="M10 6.6V10l2.4 1.6"/></svg>
             : <svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth={2.3} strokeLinecap="round" strokeLinejoin="round"><path d="M4 10.5l3.4 3.4L16 6"/></svg>}
-          <span>{sWord}</span>
+          <span>{sWord}</span>{st==="EXPIRING"&&dLeft!=null&&dLeft>=0&&<><span style={{ opacity:.45, fontWeight:500 }}>·</span><span style={{ fontFamily:mono, fontWeight:700 }}>{dLeft}d</span></>}
           <span style={{ opacity:.45, fontWeight:500 }}>·</span>
           <span>{st==="EXPIRED"?"":"till "}<span style={{ fontFamily:mono, fontWeight:700 }}>{fmtDMY(o.booking_to)}</span></span>
         </div>
@@ -876,7 +887,7 @@ function DetailSheet({ cell, panel, onClose, scope, lib, branch, post, showToast
         <div className="flex gap-2 mt-3">
           {o.fees_due_balance>0&&<button disabled={busy} onClick={()=>tglLane(o.receipt_no,"collect")} className="flex-1 h-[42px] rounded-[12px] text-white text-[13px] font-bold flex items-center justify-center disabled:opacity-50" style={{ background:"#4f46e5" }}>Collect ₹{o.fees_due_balance}</button>}
           <button onClick={()=>onRenew(o.receipt_no, cell.display_label, o.shift)} className="flex-1 h-[42px] rounded-[12px] text-[13px] font-bold flex items-center justify-center" style={{ background:"#eef0fe", color:"#4f46e5" }}>Renew</button>
-          <WhatsAppButton phones={o.phones} label="💬" className="w-[42px] h-[42px] rounded-[12px] flex items-center justify-center shrink-0 text-base bg-[#e7f6ef] text-[#0d9488]" variants={[...(o.fees_due_balance>0&&o.dues_status==="PENDING"?[{label:"Dues reminder",text:duesReminder(o)}]:[]),...((o.color==="EXPIRING"||o.color==="EXPIRED")?[{label:"Renewal reminder",text:remind(o)}]:[]),...(o.color==="EXPIRED"?[{label:"Follow-up · deposit fees",text:followUpPay(o)},{label:"Follow-up · confirm continuing",text:followUpAsk(o)}]:[])]}/>
+          <WhatsAppButton phones={o.phones} label="💬" chat className="w-[42px] h-[42px] rounded-[12px] flex items-center justify-center shrink-0 text-base bg-[#e7f6ef] text-[#0d9488]" variants={[...(o.fees_due_balance>0&&o.dues_status==="PENDING"?[{label:"Dues reminder",text:duesReminder(o)}]:[]),...((o.color==="EXPIRING"||o.color==="EXPIRED")?[{label:"Renewal reminder",text:remind(o)}]:[]),...(o.color==="EXPIRED"?[{label:"Follow-up · deposit fees",text:followUpPay(o)},{label:"Follow-up · confirm continuing",text:followUpAsk(o)}]:[]),...(o.receipt_no?[{label:"📋 Student copy",text:"",getText:()=>fetchCopy("student")}]:[]),...(o.receipt_type!=="RENEWAL"?[{label:"📢 Group copy",text:"",getText:()=>fetchCopy("group")}]:[])]}/>
           <button onClick={()=>tglLane(o.receipt_no,"more")} className="w-[42px] h-[42px] rounded-[12px] flex items-center justify-center text-lg shrink-0" style={{ background:"#f1f2fa", color:"#646882" }}>⋯</button>
         </div>
         {laneUI.rno===o.receipt_no&&laneUI.sec==="collect"&&o.fees_due_balance>0&&<div className="mt-2"><CollectDueInline receiptNo={o.receipt_no} balance={o.fees_due_balance} post={post} showToast={showToast} onChanged={onChanged} onEvent={(t)=>onShare(t,"Due collected",o.phones)}/></div>}
@@ -1026,7 +1037,7 @@ const BlockPanel=(blk:BlockInfo)=>{
   return (
     <div className="fixed inset-0 z-[9998] flex items-end justify-center" onClick={onClose}>
       <div className="absolute inset-0 bg-black/50 backdrop-blur-sm"/>
-      <div role="dialog" aria-label={`Seat ${cell.display_label} · ${summary}`} className="relative w-full max-w-md rounded-t-[28px] p-4 pb-5 max-h-[88vh] overflow-y-auto lma-slide-up" style={{ background:"#fcfcff" }} onClick={e=>e.stopPropagation()}>
+      <div role="dialog" aria-label={`Seat ${cell.display_label} · ${summary}`} className="relative w-full max-w-md rounded-t-[28px] p-4 pb-5 max-h-[88vh] overflow-y-auto lma-slide-up motion-reduce:animate-none" style={{ background:"#fcfcff" }} onClick={e=>e.stopPropagation()}>
         <div className="w-9 h-[5px] rounded-full mx-auto mb-3" style={{ background:"#dfe1ee" }}/>
         <div className="flex justify-end mb-3">
           <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-extrabold" style={{ background:(((init?.libraries||[]).find(l=>l.library_code===lib)?.color)||"#4f46e5")+"1a", color:((init?.libraries||[]).find(l=>l.library_code===lib)?.color)||"#4f46e5" }}>

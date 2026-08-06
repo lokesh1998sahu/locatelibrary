@@ -6,18 +6,20 @@ import { parsePhone10 } from "../_lib/phone";
 // B5: optional `variants` — when 2+ are provided, tapping the button first shows a
 // message chooser (e.g. Initial / Follow-up), THEN the existing phones flow.
 // With no variants the behavior is exactly as before.
-export default function WhatsAppButton({ phones, className, label, text, variants }:{
+export default function WhatsAppButton({ phones, className, label, text, variants, chat }:{
   phones?:ContactPhone[]; className?:string; label?:string; text?:string;
-  variants?:{label:string;text:string}[];
+  variants?:{label:string;text:string;getText?:()=>Promise<string>}[]; chat?:boolean;
 }){
   const [open,setOpen]=useState(false);
   const [chosen,setChosen]=useState<string|null>(null);
+  const [loadingIdx,setLoadingIdx]=useState(-1);
   const wrap=useRef<HTMLDivElement>(null);
   const list=(phones||[]).filter(p=>p&&p.number);
   const multi=list.length>1;
-  const vlist=(variants||[]).filter(v=>v&&v.text);
-  const soleVar = vlist.length===1 ? vlist[0].text : undefined;
-  const hasVar=vlist.length>1;
+  const vlist=(variants||[]).filter(v=>v&&(v.text||v.getText));
+  const items = chat ? [{label:"Open WhatsApp chat", text:""}, ...vlist] : vlist;
+  const soleVar = items.length===1 ? items[0].text : undefined;
+  const hasVar = items.length>1;
   useEffect(()=>{
     if(!open){ setChosen(null); return; }
     const h=(e:MouseEvent)=>{ if(wrap.current && !wrap.current.contains(e.target as Node)) setOpen(false); };
@@ -37,13 +39,13 @@ export default function WhatsAppButton({ phones, className, label, text, variant
           <div className="relative w-full max-w-xs bg-white rounded-2xl overflow-hidden shadow-xl lma-slide-up" onClick={e=>e.stopPropagation()}>
             <div className="px-4 py-3 bg-lma-accent/10 border-b border-lma-accent/20 flex items-center">
               <span className="text-sm font-extrabold text-lma-accent">{showVarStep?"Choose message":"WhatsApp chat"}</span>
-              <span className="ml-auto text-[11px] font-bold text-lma-slate-400">{showVarStep?`${vlist.length} options`:`${list.length} numbers`}</span>
+              <span className="ml-auto text-[11px] font-bold text-lma-slate-400">{showVarStep?`${items.length} options`:`${list.length} numbers`}</span>
             </div>
-            {showVarStep ? vlist.map((v,i)=>(
-              <button type="button" key={i} onClick={()=>pickVariant(v.text)} className="flex items-center gap-3 w-full px-4 py-3 text-left border-b border-lma-slate-100 last:border-b-0 hover:bg-lma-accent/5 active:bg-lma-accent/10">
+            {showVarStep ? items.map((v,i)=>(
+              <button type="button" key={i} disabled={loadingIdx>=0} onClick={async()=>{ if(v.getText){ setLoadingIdx(i); const t=await v.getText().catch(()=>""); setLoadingIdx(-1); if(t) pickVariant(t); } else { pickVariant(v.text); } }} className="flex items-center gap-3 w-full px-4 py-3 text-left border-b border-lma-slate-100 last:border-b-0 hover:bg-lma-accent/5 active:bg-lma-accent/10 disabled:opacity-60">
                 <span className="w-7 h-7 rounded-full bg-lma-accent/10 text-lma-accent text-xs font-extrabold flex items-center justify-center shrink-0">{i+1}</span>
-                <span className="min-w-0 flex-1"><span className="block text-sm font-bold text-lma-slate-800 truncate">{v.label}</span><span className="block text-[10px] text-lma-slate-400 whitespace-pre-wrap break-words">{v.text}</span> </span>
-                <span className="shrink-0 text-xs font-extrabold text-lma-accent">→</span>
+                <span className="min-w-0 flex-1"><span className="block text-sm font-bold text-lma-slate-800 truncate">{v.label}</span><span className="block text-[10px] text-lma-slate-400 whitespace-pre-wrap break-words">{v.text || (v.getText ? "Fetches, then send on WhatsApp" : "Just open the chat — no message")}</span></span>
+                <span className="shrink-0 text-xs font-extrabold text-lma-accent">{loadingIdx===i?"…":"→"}</span>
               </button>
             )) : list.map((l,i)=>(
               <button type="button" key={i} onClick={()=>openChat(l.number)} className="flex items-center gap-3 w-full px-4 py-3 text-left border-b border-lma-slate-100 last:border-b-0 hover:bg-lma-accent/5 active:bg-lma-accent/10">
