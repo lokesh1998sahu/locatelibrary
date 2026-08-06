@@ -86,17 +86,12 @@ function v4HalfBg(o:Occupant|null|undefined, b:BlockInfo|null|undefined):string{
 function SeatToken({ cell }:{ cell:BoardCell }){
   const bi = cell.block_info || { morning:null, evening:null, fullday:null };
   const isFull = !!(cell.fullday || bi.fullday) || (!cell.morning && !cell.evening && !bi.morning && !bi.evening);
-  const band = (
-    <div style={{ background:"#fff", padding:"8px 0 7px", textAlign:"center", boxShadow:"0 0 0 1px rgba(31,28,84,.05)" }}>
-      <div style={{ fontFamily:"'JetBrains Mono',ui-monospace,monospace", fontSize:20, fontWeight:700, lineHeight:1, color:"#1b1d2e" }}>{cell.display_label}</div>
-    </div>
-  );
-  const field = (bg:string) => <div style={{ flex:1, minHeight:30, background:bg }}/>;
+  const num = <span style={{ fontFamily:"'JetBrains Mono',ui-monospace,monospace", fontSize:19, fontWeight:700, color:"#1b1d2e", background:"rgba(255,255,255,.85)", borderRadius:7, padding:"2px 7px", lineHeight:1.15, boxShadow:"0 1px 2px rgba(31,28,84,.10)" }}>{cell.display_label}</span>;
   return (
-    <div style={{ width:58, height:88, flexShrink:0, borderRadius:15, overflow:"hidden", display:"flex", flexDirection:"column", boxShadow:"inset 0 0 0 1px rgba(31,28,84,.07)" }}>
+    <div style={{ width:56, height:88, flexShrink:0, borderRadius:14, overflow:"hidden", display:"flex", flexDirection:"column", position:"relative", boxShadow:"inset 0 0 0 1px rgba(31,28,84,.08)" }}>
       {isFull
-        ? <>{band}{field(v4HalfBg(cell.fullday, bi.fullday))}</>
-        : <>{field(v4HalfBg(cell.morning, bi.morning))}{band}{field(v4HalfBg(cell.evening, bi.evening))}</>}
+        ? <div style={{ flex:1, background:v4HalfBg(cell.fullday, bi.fullday), display:"flex", alignItems:"center", justifyContent:"center" }}>{num}</div>
+        : <><div style={{ flex:1, background:v4HalfBg(cell.morning, bi.morning) }}/><div style={{ flex:1, background:v4HalfBg(cell.evening, bi.evening) }}/><div style={{ position:"absolute", inset:0, display:"flex", alignItems:"center", justifyContent:"center" }}>{num}</div></>}
     </div>
   );
 }
@@ -736,42 +731,8 @@ function MoneyTrailInline({ receiptNo }:{ receiptNo:string }){
 }
 
 function DetailCopyRow({ occupant, lib, branch, showToast }:{ occupant:Occupant; lib:string; branch:string; showToast:(m:string,t?:"success"|"error")=>void }){
-  const [loading,setLoading]=useState<""|"student"|"group"|"contact">("");
-  const [sendText,setSendText]=useState("");
-  const fetchReceipt=async()=>{
-    const scope=branch||lib;
-    const params=new URLSearchParams({action:"getReceiptLog",q:occupant.receipt_no,search_type:"RECEIPT_NO",limit:"5"});
-    if(scope) params.set("library",scope);
-    const r=await fetch(`${API}?${params}`).then(x=>x.json());
-    if(r&&r.receipts&&r.receipts.length){
-      const exact=r.receipts.find((x:any)=>String(x.receipt_no).toUpperCase()===String(occupant.receipt_no).toUpperCase())||r.receipts[0];
-      return exact;
-    }
-    return null;
-  };
-  const copyStudent=async()=>{ setLoading("student"); const rec=await fetchReceipt(); setLoading(""); if(rec&&rec.receipt_text){ setSendText(rec.receipt_text); } else showToast("No receipt text","error"); };
-  const copyGroup=async()=>{ setLoading("group"); const rec=await fetchReceipt(); setLoading(""); if(rec&&rec.registration_text){ navigator.clipboard.writeText(rec.registration_text); showToast("Group copy"); } else showToast("No group text (renewal?)","error"); };
-  
   return (
-    <div className={`grid ${occupant.receipt_type==="RENEWAL"?"grid-cols-3":"grid-cols-4"} gap-2 mt-3`}>
-      <button disabled={!!loading} onClick={copyStudent} className="py-2 rounded-[10px] bg-lma-slate-100 text-lma-slate-600 font-semibold text-xs disabled:opacity-50">{loading==="student"?"…":"📋 Student"}</button>
-      {occupant.receipt_type!=="RENEWAL"&&<button disabled={!!loading} onClick={copyGroup} className="py-2 rounded-[10px] bg-lma-slate-100 text-lma-slate-600 font-semibold text-xs disabled:opacity-50">{loading==="group"?"…":"📢 Group"}</button>}
-      <ContactCopyButton name={occupant.name} library={branch||lib} studentId={occupant.student_id} phones={occupant.phones} onCopied={showToast} className="w-full py-2 rounded-[10px] bg-lma-slate-100 text-lma-slate-600 font-semibold text-xs whitespace-nowrap"/><WhatsAppButton phones={occupant.phones} className="w-full py-2 rounded-[10px] bg-lma-slate-100 text-lma-slate-600 font-semibold text-xs disabled:opacity-40"/>
-      {sendText&&(
-        <div className="fixed inset-0 z-[10002] flex items-center justify-center px-6" onClick={()=>setSendText("")}>
-          <div className="absolute inset-0 bg-black/40"/>
-          <div className="relative w-full max-w-xs bg-white rounded-2xl p-5 lma-slide-up" onClick={e=>e.stopPropagation()}>
-            <h4 className="text-sm font-extrabold text-lma-slate-900 mb-1">Student receipt</h4>
-            <p className="text-[12px] text-lma-slate-500 mb-3">Copy the text, or send it on WhatsApp.</p>
-            <div className="grid grid-cols-3 gap-2">
-              <button onClick={()=>setSendText("")} className="py-2.5 rounded-xl bg-lma-slate-100 text-lma-slate-600 font-bold text-xs">Cancel</button>
-              <button onClick={()=>{ navigator.clipboard.writeText(sendText); showToast("Student copy"); setSendText(""); }} className="py-2.5 rounded-xl bg-lma-slate-100 text-lma-slate-600 font-bold text-xs">Copy</button>
-              <WhatsAppButton phones={occupant.phones} text={sendText} label="Send" className="w-full py-2.5 rounded-xl bg-lma-accent text-white font-bold text-xs text-center disabled:opacity-40"/>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
+    <ContactCopyButton name={occupant.name} library={branch||lib} studentId={occupant.student_id} phones={occupant.phones} onCopied={showToast} wrapperClassName="w-full" className="w-full py-2 rounded-[10px] bg-lma-slate-100 text-lma-slate-600 font-semibold text-xs whitespace-nowrap"/>
   );
 }
 
