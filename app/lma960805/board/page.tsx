@@ -93,7 +93,7 @@ function SeatToken({ cell }:{ cell:BoardCell }){
   );
   const field = (bg:string) => <div style={{ flex:1, minHeight:30, background:bg }}/>;
   return (
-    <div style={{ width:58, flexShrink:0, borderRadius:15, overflow:"hidden", display:"flex", flexDirection:"column", boxShadow:"inset 0 0 0 1px rgba(31,28,84,.07)" }}>
+    <div style={{ width:58, height:88, flexShrink:0, borderRadius:15, overflow:"hidden", display:"flex", flexDirection:"column", boxShadow:"inset 0 0 0 1px rgba(31,28,84,.07)" }}>
       {isFull
         ? <>{band}{field(v4HalfBg(cell.fullday, bi.fullday))}</>
         : <>{field(v4HalfBg(cell.morning, bi.morning))}{band}{field(v4HalfBg(cell.evening, bi.evening))}</>}
@@ -754,9 +754,9 @@ function DetailCopyRow({ occupant, lib, branch, showToast }:{ occupant:Occupant;
   
   return (
     <div className={`grid ${occupant.receipt_type==="RENEWAL"?"grid-cols-3":"grid-cols-4"} gap-2 mt-3`}>
-      <button disabled={!!loading} onClick={copyStudent} className="py-2 rounded-lg bg-lma-accent/10 text-lma-accent font-bold text-xs disabled:opacity-50">{loading==="student"?"…":"📋 Student"}</button>
-      {occupant.receipt_type!=="RENEWAL"&&<button disabled={!!loading} onClick={copyGroup} className="py-2 rounded-lg bg-lma-primary/10 text-lma-primary font-bold text-xs disabled:opacity-50">{loading==="group"?"…":"📢 Group"}</button>}
-      <ContactCopyButton name={occupant.name} library={branch||lib} studentId={occupant.student_id} phones={occupant.phones} onCopied={showToast} className="w-full py-2 rounded-lg bg-lma-warn/10 text-lma-warn font-bold text-xs whitespace-nowrap"/><WhatsAppButton phones={occupant.phones} className="w-full py-2 rounded-lg bg-lma-accent/10 text-lma-accent font-bold text-xs disabled:opacity-40"/>
+      <button disabled={!!loading} onClick={copyStudent} className="py-2 rounded-[10px] bg-lma-slate-100 text-lma-slate-600 font-semibold text-xs disabled:opacity-50">{loading==="student"?"…":"📋 Student"}</button>
+      {occupant.receipt_type!=="RENEWAL"&&<button disabled={!!loading} onClick={copyGroup} className="py-2 rounded-[10px] bg-lma-slate-100 text-lma-slate-600 font-semibold text-xs disabled:opacity-50">{loading==="group"?"…":"📢 Group"}</button>}
+      <ContactCopyButton name={occupant.name} library={branch||lib} studentId={occupant.student_id} phones={occupant.phones} onCopied={showToast} className="w-full py-2 rounded-[10px] bg-lma-slate-100 text-lma-slate-600 font-semibold text-xs whitespace-nowrap"/><WhatsAppButton phones={occupant.phones} className="w-full py-2 rounded-[10px] bg-lma-slate-100 text-lma-slate-600 font-semibold text-xs disabled:opacity-40"/>
       {sendText&&(
         <div className="fixed inset-0 z-[10002] flex items-center justify-center px-6" onClick={()=>setSendText("")}>
           <div className="absolute inset-0 bg-black/40"/>
@@ -862,7 +862,7 @@ function DetailSheet({ cell, panel, onClose, scope, lib, branch, post, showToast
     return (
       <div className="rounded-[14px] p-3 border" style={{ background:"#fff", borderColor:"#e7e9f3" }}>
         <div className="flex items-center gap-2">
-          <button onClick={()=>onViewStudent(o.student_id, o.is_cross_library)} className="text-[15.5px] font-bold text-lma-slate-900 hover:underline text-left truncate">{o.name}</button>
+          <button onClick={()=>onViewStudent(o.student_id, o.is_cross_library)} className="min-w-0 text-[15.5px] font-bold text-lma-slate-900 hover:underline text-left truncate">{o.name}</button>
           {o.gender&&<span className="inline-flex items-center justify-center w-[15px] h-[15px] rounded-[5px] text-[9px] font-extrabold text-white shrink-0" style={{ background:normGender(o.gender)==="F"?"#ec4899":"#3b82f6" }}>{normGender(o.gender)}</span>}
         </div>
         <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
@@ -887,24 +887,24 @@ function DetailSheet({ cell, panel, onClose, scope, lib, branch, post, showToast
         <div className="flex gap-2 mt-3">
           {o.fees_due_balance>0&&<button disabled={busy} onClick={()=>tglLane(o.receipt_no,"collect")} className="flex-1 h-[42px] rounded-[12px] text-white text-[13px] font-bold flex items-center justify-center disabled:opacity-50" style={{ background:"#4f46e5" }}>Collect ₹{o.fees_due_balance}</button>}
           <button onClick={()=>onRenew(o.receipt_no, cell.display_label, o.shift)} className="flex-1 h-[42px] rounded-[12px] text-[13px] font-bold flex items-center justify-center" style={{ background:"#eef0fe", color:"#4f46e5" }}>Renew</button>
-          <WhatsAppButton phones={o.phones} label="💬" chat className="w-[42px] h-[42px] rounded-[12px] flex items-center justify-center shrink-0 text-base bg-[#e7f6ef] text-[#0d9488]" variants={[...(o.fees_due_balance>0&&o.dues_status==="PENDING"?[{label:"Dues reminder",text:duesReminder(o)}]:[]),...((o.color==="EXPIRING"||o.color==="EXPIRED")?[{label:"Renewal reminder",text:remind(o)}]:[]),...(o.color==="EXPIRED"?[{label:"Follow-up · deposit fees",text:followUpPay(o)},{label:"Follow-up · confirm continuing",text:followUpAsk(o)}]:[]),...(o.receipt_no?[{label:"📋 Student copy",text:"",getText:()=>fetchCopy("student")}]:[]),...(o.receipt_type!=="RENEWAL"?[{label:"📢 Group copy",text:"",getText:()=>fetchCopy("group")}]:[])]}/>
+          <WhatsAppButton phones={o.phones} label="💬" chat className="w-[42px] h-[42px] rounded-[12px] flex items-center justify-center shrink-0 text-base bg-[#e7f6ef] text-[#0d9488]" variants={[...(o.fees_due_balance>0&&o.dues_status==="PENDING"?[{label:"Dues reminder",text:duesReminder(o)}]:[]),...((o.color==="EXPIRING"||o.color==="EXPIRED")?[{label:"Renewal reminder",text:remind(o)}]:[]),...(o.color==="EXPIRED"?[{label:"Follow-up · deposit fees",text:followUpPay(o)},{label:"Follow-up · confirm continuing",text:followUpAsk(o)}]:[]),...(o.receipt_no?[{label:"📋 Student copy",text:"",getText:()=>fetchCopy("student")}]:[]),...(o.receipt_type!=="RENEWAL"?[{label:"📢 Group copy",text:"",getText:()=>fetchCopy("group"),pick:true}]:[])]}/>
           <button onClick={()=>tglLane(o.receipt_no,"more")} className="w-[42px] h-[42px] rounded-[12px] flex items-center justify-center text-lg shrink-0" style={{ background:"#f1f2fa", color:"#646882" }}>⋯</button>
         </div>
         {laneUI.rno===o.receipt_no&&laneUI.sec==="collect"&&o.fees_due_balance>0&&<div className="mt-2"><CollectDueInline receiptNo={o.receipt_no} balance={o.fees_due_balance} post={post} showToast={showToast} onChanged={onChanged} onEvent={(t)=>onShare(t,"Due collected",o.phones)}/></div>}
         {laneUI.rno===o.receipt_no&&laneUI.sec==="more"&&<div className="mt-2 space-y-2 pt-2 border-t" style={{ borderColor:"#eef0f8" }}>
           <div className="grid grid-cols-2 gap-2">
             {o.color==="EXPIRED"
-              ? <button disabled={busy} onClick={()=>doNotRenew(o)} className="py-2 rounded-lg bg-lma-slate-100 text-lma-slate-600 font-bold text-xs disabled:opacity-50">Do Not Renew</button>
-              : <button disabled={busy} onClick={()=>setConfirmCancel(o)} className="py-2 rounded-lg bg-lma-slate-100 text-lma-slate-600 font-bold text-xs disabled:opacity-50">Cancel</button>}
+              ? <button disabled={busy} onClick={()=>doNotRenew(o)} className="py-2 rounded-[10px] bg-lma-slate-100 text-lma-slate-600 font-semibold text-xs disabled:opacity-50">Do not renew</button>
+              : <button disabled={busy} onClick={()=>setConfirmCancel(o)} className="py-2 rounded-[10px] font-semibold text-xs disabled:opacity-50" style={{ background:"#fdf2f4", color:"#be123c" }}>Cancel</button>}
             {o.temporary_seat
               ? <div className="py-2 rounded-lg bg-lma-warn/10 text-lma-warn font-bold text-xs text-center">Floating · was {o.temporary_seat}</div>
-              : <button disabled={busy} onClick={()=>setConfirmVacate(o)} className="py-2 rounded-lg bg-lma-warn/10 text-lma-warn font-bold text-xs disabled:opacity-50">Temp-Vacate</button>}
-            <button disabled={busy} onClick={()=>onReAllot(o)} className="py-2 rounded-lg bg-lma-slate-100 text-lma-slate-600 font-bold text-xs disabled:opacity-50">{o.temporary_seat?"Re-Allot (restore)":"Re-Allot"}</button>
+              : <button disabled={busy} onClick={()=>setConfirmVacate(o)} className="py-2 rounded-[10px] bg-lma-slate-100 text-lma-slate-600 font-semibold text-xs disabled:opacity-50">Temp-Vacate</button>}
+            <button disabled={busy} onClick={()=>onReAllot(o)} className="py-2 rounded-[10px] bg-lma-slate-100 text-lma-slate-600 font-semibold text-xs disabled:opacity-50">{o.temporary_seat?"Re-Allot (restore)":"Re-Allot"}</button>
           </div>
           <MoneyTrailInline receiptNo={o.receipt_no}/>
           <RefundInline receiptNo={o.receipt_no} post={post} showToast={showToast} onChanged={onChanged} onEvent={(t)=>onShare(t,"Refund issued",o.phones)}/>
           <DetailCopyRow occupant={o} lib={lib} branch={branch} showToast={showToast}/>
-          <button onClick={()=>loadHist(o.shift)} className="w-full py-2 rounded-lg bg-lma-slate-100 text-lma-slate-600 font-bold text-xs">{histBusy===shKey(o.shift)?"…":`🕘 Past 5 on this seat · ${shKey(o.shift)}`}</button>
+          <button onClick={()=>loadHist(o.shift)} className="w-full py-2 rounded-[10px] bg-lma-slate-100 text-lma-slate-600 font-semibold text-xs">{histBusy===shKey(o.shift)?"…":`🕘 Past 5 on this seat · ${shKey(o.shift)}`}</button>
           {histBlock(o.shift)}
         </div>}
       </div>
@@ -1044,7 +1044,7 @@ const BlockPanel=(blk:BlockInfo)=>{
             <span>{((init?.libraries||[]).find(l=>l.library_code===lib)?.emoji)||"📚"}</span><span>{branch||lib}</span>
           </span>
         </div>
-        <div className="flex gap-3 items-stretch">
+        <div className="flex gap-3 items-start">
           <SeatToken cell={cell}/>
           <div className="flex-1 min-w-0">{body}</div>
         </div>

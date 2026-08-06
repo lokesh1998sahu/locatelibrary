@@ -8,7 +8,7 @@ import { parsePhone10 } from "../_lib/phone";
 // With no variants the behavior is exactly as before.
 export default function WhatsAppButton({ phones, className, label, text, variants, chat }:{
   phones?:ContactPhone[]; className?:string; label?:string; text?:string;
-  variants?:{label:string;text:string;getText?:()=>Promise<string>}[]; chat?:boolean;
+  variants?:{label:string;text:string;getText?:()=>Promise<string>;pick?:boolean}[]; chat?:boolean;
 }){
   const [open,setOpen]=useState(false);
   const [chosen,setChosen]=useState<string|null>(null);
@@ -42,7 +42,7 @@ export default function WhatsAppButton({ phones, className, label, text, variant
               <span className="ml-auto text-[11px] font-bold text-lma-slate-400">{showVarStep?`${items.length} options`:`${list.length} numbers`}</span>
             </div>
             {showVarStep ? items.map((v,i)=>(
-              <button type="button" key={i} disabled={loadingIdx>=0} onClick={async()=>{ if(v.getText){ setLoadingIdx(i); const t=await v.getText().catch(()=>""); setLoadingIdx(-1); if(t) pickVariant(t); } else { pickVariant(v.text); } }} className="flex items-center gap-3 w-full px-4 py-3 text-left border-b border-lma-slate-100 last:border-b-0 hover:bg-lma-accent/5 active:bg-lma-accent/10 disabled:opacity-60">
+              <button type="button" key={i} disabled={loadingIdx>=0} onClick={async()=>{ if(v.getText){ setLoadingIdx(i); const t=await v.getText().catch(()=>""); setLoadingIdx(-1); if(t){ if(v.pick){ window.open(`https://wa.me/?text=${encodeURIComponent(t)}`,"_blank"); setOpen(false); } else { pickVariant(t); } } } else { pickVariant(v.text); } }} className="flex items-center gap-3 w-full px-4 py-3 text-left border-b border-lma-slate-100 last:border-b-0 hover:bg-lma-accent/5 active:bg-lma-accent/10 disabled:opacity-60">
                 <span className="w-7 h-7 rounded-full bg-lma-accent/10 text-lma-accent text-xs font-extrabold flex items-center justify-center shrink-0">{i+1}</span>
                 <span className="min-w-0 flex-1"><span className="block text-sm font-bold text-lma-slate-800 truncate">{v.label}</span><span className="block text-[10px] text-lma-slate-400 whitespace-pre-wrap break-words">{v.text || (v.getText ? "Fetches, then send on WhatsApp" : "Just open the chat — no message")}</span></span>
                 <span className="shrink-0 text-xs font-extrabold text-lma-accent">{loadingIdx===i?"…":"→"}</span>
