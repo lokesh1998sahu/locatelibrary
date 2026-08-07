@@ -88,7 +88,7 @@ function SeatToken({ cell }:{ cell:BoardCell }){
   const isFull = !!(cell.fullday || bi.fullday) || (!cell.morning && !cell.evening && !bi.morning && !bi.evening);
   const num = <span style={{ fontFamily:"'JetBrains Mono',ui-monospace,monospace", fontSize:19, fontWeight:700, color:"#1b1d2e", background:"rgba(255,255,255,.85)", borderRadius:7, padding:"2px 7px", lineHeight:1.15, boxShadow:"0 1px 2px rgba(31,28,84,.10)" }}>{cell.display_label}</span>;
   return (
-    <div style={{ width:56, height:88, flexShrink:0, borderRadius:14, overflow:"hidden", display:"flex", flexDirection:"column", position:"relative", boxShadow:"inset 0 0 0 1px rgba(31,28,84,.08)" }}>
+    <div style={{ width:56, flexShrink:0, borderRadius:14, overflow:"hidden", display:"flex", flexDirection:"column", position:"relative", boxShadow:"inset 0 0 0 1px rgba(31,28,84,.08)" }}>
       {isFull
         ? <div style={{ flex:1, background:v4HalfBg(cell.fullday, bi.fullday), display:"flex", alignItems:"center", justifyContent:"center" }}>{num}</div>
         : <><div style={{ flex:1, background:v4HalfBg(cell.morning, bi.morning) }}/><div style={{ flex:1, background:v4HalfBg(cell.evening, bi.evening) }}/><div style={{ position:"absolute", inset:0, display:"flex", alignItems:"center", justifyContent:"center" }}>{num}</div></>}
@@ -822,9 +822,8 @@ function DetailSheet({ cell, panel, onClose, scope, lib, branch, post, showToast
     };
     return (
       <div className="rounded-[14px] p-3 border" style={{ background:"#fff", borderColor:"#e7e9f3" }}>
-        <div className="flex items-center gap-2">
-          <button onClick={()=>onViewStudent(o.student_id, o.is_cross_library)} className="min-w-0 text-[15.5px] font-bold text-lma-slate-900 hover:underline text-left truncate">{o.name}</button>
-          {o.gender&&<span className="inline-flex items-center justify-center w-[15px] h-[15px] rounded-[5px] text-[9px] font-extrabold text-white shrink-0" style={{ background:normGender(o.gender)==="F"?"#ec4899":"#3b82f6" }}>{normGender(o.gender)}</span>}
+        <div>
+          <button onClick={()=>onViewStudent(o.student_id, o.is_cross_library)} className="inline-block max-w-full -ml-1.5 text-[15.5px] font-bold text-lma-slate-900 hover:underline truncate rounded-md px-1.5 py-0.5" style={{ background:o.gender?(normGender(o.gender)==="F"?"#fbe4ef":"#d3e4ff"):"transparent" }}>{o.name}</button>
         </div>
         <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
           {cross
@@ -846,10 +845,10 @@ function DetailSheet({ cell, panel, onClose, scope, lib, branch, post, showToast
         {o.fees_due_balance>0&&<div className="inline-flex items-center gap-1 mt-2 px-2.5 py-1 rounded-lg text-[12px] font-extrabold" style={{ background:"#fcecca", color:"#b45309", boxShadow:"inset 0 0 0 1px rgba(180,83,9,.18)", fontFamily:mono }}>₹{o.fees_due_balance} due</div>}
         {o.remark&&<div className="text-[11px] mt-1.5 italic" style={{ color:"#646882" }}>📝 {o.remark}</div>}
         <div className="flex gap-2 mt-3">
-          {o.fees_due_balance>0&&<button disabled={busy} onClick={()=>tglLane(o.receipt_no,"collect")} className="flex-1 h-[42px] rounded-[12px] text-white text-[13px] font-bold flex items-center justify-center disabled:opacity-50" style={{ background:"#4f46e5" }}>Collect ₹{o.fees_due_balance}</button>}
-          <button onClick={()=>onRenew(o.receipt_no, cell.display_label, o.shift)} className="flex-1 h-[42px] rounded-[12px] text-[13px] font-bold flex items-center justify-center" style={{ background:"#eef0fe", color:"#4f46e5" }}>Renew</button>
-          <WhatsAppButton phones={o.phones} label="💬" chat className="w-[42px] h-[42px] rounded-[12px] flex items-center justify-center shrink-0 text-base bg-[#e7f6ef] text-[#0d9488]" variants={[...(o.fees_due_balance>0&&o.dues_status==="PENDING"?[{label:"Dues reminder",text:duesReminder(o)}]:[]),...((o.color==="EXPIRING"||o.color==="EXPIRED")?[{label:"Renewal reminder",text:remind(o)}]:[]),...(o.color==="EXPIRED"?[{label:"Follow-up · deposit fees",text:followUpPay(o)},{label:"Follow-up · confirm continuing",text:followUpAsk(o)}]:[]),...(o.receipt_no?[{label:"📋 Student copy",text:"",getText:()=>fetchCopy("student")}]:[]),...(o.receipt_type!=="RENEWAL"?[{label:"📢 Group copy",text:"",getText:()=>fetchCopy("group"),pick:true}]:[])]}/>
-          <button onClick={()=>tglLane(o.receipt_no,"more")} className="w-[42px] h-[42px] rounded-[12px] flex items-center justify-center text-lg shrink-0" style={{ background:"#f1f2fa", color:"#646882" }}>⋯</button>
+          {o.fees_due_balance>0&&<button disabled={busy} onClick={()=>tglLane(o.receipt_no,"collect")} className="flex-1 h-11 rounded-[12px] text-white text-[13.5px] font-bold flex items-center justify-center disabled:opacity-50" style={{ background:"#4f46e5" }}>Collect ₹{o.fees_due_balance}</button>}
+          <button onClick={()=>onRenew(o.receipt_no, cell.display_label, o.shift)} className="flex-1 h-11 rounded-[12px] text-[13.5px] font-bold flex items-center justify-center" style={{ background:"#eef0fe", color:"#4f46e5" }}>Renew</button>
+          <WhatsAppButton phones={o.phones} label="💬" chat className="h-11 px-3 rounded-[12px] flex items-center justify-center shrink-0 text-[15px] bg-[#e7f6ef] text-[#0d9488]" variants={[...(o.fees_due_balance>0&&o.dues_status==="PENDING"?[{label:"Dues reminder",text:duesReminder(o)}]:[]),...((o.color==="EXPIRING"||o.color==="EXPIRED")?[{label:"Renewal reminder",text:remind(o)}]:[]),...(o.color==="EXPIRED"?[{label:"Follow-up · deposit fees",text:followUpPay(o)},{label:"Follow-up · confirm continuing",text:followUpAsk(o)}]:[]),...(o.receipt_no?[{label:"📋 Student copy",text:"",getText:()=>fetchCopy("student")}]:[]),...(o.receipt_type!=="RENEWAL"?[{label:"📢 Group copy",text:"",getText:()=>fetchCopy("group"),pick:true}]:[])]}/>
+          <button onClick={()=>tglLane(o.receipt_no,"more")} className="w-11 h-11 rounded-[12px] flex items-center justify-center text-[20px] shrink-0" style={{ background:"#f1f2fa", color:"#646882" }}>⋯</button>
         </div>
         {laneUI.rno===o.receipt_no&&laneUI.sec==="collect"&&o.fees_due_balance>0&&<div className="mt-2"><CollectDueInline receiptNo={o.receipt_no} balance={o.fees_due_balance} post={post} showToast={showToast} onChanged={onChanged} onEvent={(t)=>onShare(t,"Due collected",o.phones)}/></div>}
         {laneUI.rno===o.receipt_no&&laneUI.sec==="more"&&<div className="mt-2 space-y-2 pt-2 border-t" style={{ borderColor:"#eef0f8" }}>
@@ -1005,7 +1004,7 @@ const BlockPanel=(blk:BlockInfo)=>{
             <span>{((init?.libraries||[]).find(l=>l.library_code===lib)?.emoji)||"📚"}</span><span>{branch||lib}</span>
           </span>
         </div>
-        <div className="flex gap-3 items-start">
+        <div className="flex gap-3 items-stretch">
           <SeatToken cell={cell}/>
           <div className="flex-1 min-w-0">{body}</div>
         </div>
