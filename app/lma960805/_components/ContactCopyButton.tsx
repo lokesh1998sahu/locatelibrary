@@ -1,5 +1,6 @@
 "use client";
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef } from "react";
+import { createPortal } from "react-dom";
 import { contactLabels, type ContactPhone } from "../_lib/contact";
 
 export default function ContactCopyButton({ name, library, studentId, phones, className, wrapperClassName, label, onCopied }:{
@@ -12,12 +13,6 @@ export default function ContactCopyButton({ name, library, studentId, phones, cl
   const wrap=useRef<HTMLDivElement>(null);
   const labels=contactLabels(name, library, studentId, phones);
   const multi=labels.length>1;
-  useEffect(()=>{
-    if(!open) return;
-    const h=(e:MouseEvent)=>{ if(wrap.current && !wrap.current.contains(e.target as Node)) setOpen(false); };
-    document.addEventListener("mousedown",h);
-    return ()=>document.removeEventListener("mousedown",h);
-  },[open]);
   const copyOne=(i:number)=>{
     navigator.clipboard.writeText(labels[i].label);
     setCopied(true); setIdx(i); if(onCopied) onCopied("Contact copied");
@@ -29,7 +24,7 @@ export default function ContactCopyButton({ name, library, studentId, phones, cl
   return (
     <div ref={wrap} className={wrapperClassName||"relative"}>
       <button type="button" onClick={onClick} className={className||"w-full py-2 rounded-lg bg-lma-warn/10 text-lma-warn font-bold text-xs"}>{txt}{multi?" ▾":""}</button>
-      {open && multi && (
+      {open && multi && typeof document!=="undefined" && createPortal((
         <div className="fixed inset-0 z-[10002] flex items-center justify-center px-8" onClick={()=>setOpen(false)}>
           <div className="absolute inset-0 bg-black/40"/>
           <div className="relative w-full max-w-xs bg-white rounded-2xl overflow-hidden shadow-xl lma-slide-up" onClick={e=>e.stopPropagation()}>
@@ -47,7 +42,7 @@ export default function ContactCopyButton({ name, library, studentId, phones, cl
             <button type="button" onClick={()=>setOpen(false)} className="w-full py-2.5 text-xs font-bold text-lma-slate-500 bg-lma-slate-50">Close</button>
           </div>
         </div>
-      )}
+      ), document.body)}
     </div>
   );
 }
