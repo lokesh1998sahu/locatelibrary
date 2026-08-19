@@ -45,6 +45,7 @@ async function callAppsScript(
         { status: 502 }
       );
     }
+    
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     const isTimeout = msg.includes("aborted") || msg.includes("AbortError");
@@ -75,3 +76,5 @@ export async function POST(req: NextRequest) {
   }
   return callAppsScript("POST", "", body);
 }
+
+// just to redeploy
