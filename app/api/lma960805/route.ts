@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { PG_ACTIONS, runPg } from "./_handlers";
+import { isSessionValid, PUBLIC_ACTIONS } from "./_auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -88,6 +89,9 @@ async function runPostgres(
 export async function GET(req: NextRequest) {
   const url = new URL(req.url);
   const action = url.searchParams.get("action") || "";
+  if (!PUBLIC_ACTIONS.has(action) && !isSessionValid(req)) {
+    return NextResponse.json({ ok: false, error: "Not signed in." }, { status: 401 });
+  }
   if (PG_ACTIONS.has(action)) {
     return runPostgres(action, Object.fromEntries(url.searchParams.entries()), "GET");
   }
@@ -102,6 +106,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: "Invalid JSON body." }, { status: 400 });
   }
   const action = body?.action || "";
+  if (!PUBLIC_ACTIONS.has(action) && !isSessionValid(req)) {
+    return NextResponse.json({ ok: false, error: "Not signed in." }, { status: 401 });
+  }
   if (PG_ACTIONS.has(action)) {
     return runPostgres(action, body?.payload ?? {}, "POST");
   }

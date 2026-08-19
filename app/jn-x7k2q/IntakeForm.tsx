@@ -35,6 +35,9 @@ const S: Record<string, React.CSSProperties> = {
   btnOff:{ opacity:.4, cursor:"not-allowed" },
   err:   { fontSize:13.5, fontWeight:600, color:C.err, background:C.errBg, border:"1px solid #fecaca", borderRadius:10, padding:"10px 12px", lineHeight:1.45 },
   note:  { fontSize:12.5, color:C.muted, textAlign:"center", margin:"14px 0 0", lineHeight:1.55 },
+  priv:    { margin:"14px 0 0" },
+  privSum: { fontSize:12, color:C.muted, cursor:"pointer", padding:"2px 0" },
+  privTxt: { fontSize:12, color:C.muted, lineHeight:1.6, margin:"6px 0 0" },
   eyebrow:{ fontSize:10.5, fontWeight:800, letterSpacing:".14em", color:C.gold, lineHeight:1.45 },
 };
 
@@ -201,6 +204,16 @@ export default function IntakeForm(){
             <label style={S.label}>Studying / preparing for</label>
             <input value={f.preparing_for} onChange={e=>set("preparing_for",e.target.value)}
               placeholder="e.g. NEET, RAS, B.Com" style={S.input}/>
+
+            <details style={S.priv}>
+              <summary style={S.privSum}>Why we ask for this</summary>
+              <p style={S.privTxt}>
+                We use these details to create and manage your admission
+                and seat. Your number is used only to contact you about your seat and
+                fees. We do not share your details with anyone else. Records are kept
+                while you are a member and afterwards for our accounts.
+              </p>
+            </details>
 
             <button onClick={submit} disabled={busy||!ready} style={{...S.btn, ...((busy||!ready)?S.btnOff:{})}}>
               {busy?"Submitting…":"Submit details"}

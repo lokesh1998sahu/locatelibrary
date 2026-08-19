@@ -1,7 +1,9 @@
 "use client";
 
 // LMA shared shell (client):
-//   1) Single password gate for everything under /lma960805
+//   1) Single password gate for everything under /lma960805 — the password is
+//      now verified SERVER-SIDE (POST /api/lma960805/auth) and the session is a
+//      signed httpOnly cookie. Nothing secret ships in the browser bundle.
 //   2) Single getInitData() fetch shared via React context (LMAProvider)
 //   3) Pages call `useLMA()` to read libraries/branches/fees/shifts/etc.
 //   4) Shared toast + post() + duplicate-action guard (was duplicated in every page)
@@ -19,7 +21,7 @@
 import { createContext, useContext, useEffect, useState, useCallback, useRef, useMemo, ReactNode } from "react";
 
 const API      = "/api/lma960805";
-const PASSWORD = process.env.NEXT_PUBLIC_LMA_PASSWORD!;
+const AUTH_API = API + "/auth";
 
 // ── Types ──────────────────────────────────────────────────────────
 // Superset of every shape used by individual pages. Pages destructure
@@ -101,21 +103,43 @@ export default function LMAProvider({ children }: { children: ReactNode }) {
   const [unlocked, setUnlocked] = useState(false);
   const [pwInput, setPwInput] = useState("");
   const [pwErr, setPwErr]     = useState("");
+  const [pwBusy, setPwBusy]   = useState(false);
   const [init, setInit]       = useState<LMAInitData|null>(null);
   const [loading, setLoading] = useState(false);
   const [toast, setToast]     = useState<ToastState>(null);
 
+  // Ask the SERVER whether the httpOnly session cookie is still valid.
+  // (The cookie is httpOnly by design, so JS cannot read it directly.)
   useEffect(() => {
-    setHydrated(true);
-    if (typeof window !== "undefined" && sessionStorage.getItem("lma_ok") === "1") {
-      setUnlocked(true);
-    }
+    let cancelled = false;
+    fetch(AUTH_API, { cache: "no-store" })
+      .then(r => r.json())
+      .then(j => { if (!cancelled && j && j.authed) setUnlocked(true); })
+      .catch(() => { /* treat any failure as "not signed in" */ })
+      .finally(() => { if (!cancelled) setHydrated(true); });
+    return () => { cancelled = true; };
+  }, []);
+
+  // Session died server-side (expired / logged out elsewhere / cookie cleared).
+  // Drop straight back to the login screen instead of leaving a dead page.
+  const handleUnauthorized = useCallback(() => {
+    setUnlocked(false);
+    setInit(null);
+    setPwInput("");
+    setPwErr("Session expired. Please sign in again.");
   }, []);
 
   const refreshInit = useCallback(async () => {
     setLoading(true);
     try {
-      const r = await fetch(`${API}?action=getInitData`).then(r => r.json());
+      const res = await fetch(`${API}?action=getInitData`, { cache: "no-store" });
+      if (res.status === 401) { handleUnauthorized(); return; }
+      const r = await res.json();
+      if (r && r.ok === false) {
+        // Keep prior init so the UI stays usable.
+        console.error("LMA init fetch failed:", r.error);
+        return;
+      }
       // Backend returns the fields directly (no `ok` flag); normalise it.
       const merged: LMAInitData = {
         ok: true,
@@ -134,7 +158,7 @@ export default function LMAProvider({ children }: { children: ReactNode }) {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [handleUnauthorized]);
 
   // First fetch when unlocked
   useEffect(() => {
@@ -157,11 +181,13 @@ export default function LMAProvider({ children }: { children: ReactNode }) {
     inflightRef.current.add(key);
     try {
       try {
-        const res = await fetch(API, {
+        const r = await fetch(API, {
           method: "POST",
           headers: { "Content-Type": "text/plain;charset=utf-8" },
           body: JSON.stringify({ action, payload }),
-        }).then(r => r.json());
+        });
+        if (r.status === 401) { handleUnauthorized(); return null; }
+        const res = await r.json();
         if (!res.ok) {
           showToast(res.error || "Operation failed", "error");
           return null;
@@ -174,24 +200,42 @@ export default function LMAProvider({ children }: { children: ReactNode }) {
     } finally {
       inflightRef.current.delete(key);
     }
-  }, [showToast]);
+  }, [showToast, handleUnauthorized]);
 
-  const tryUnlock = () => {
-    if (pwInput && pwInput === PASSWORD) {
-      sessionStorage.setItem("lma_ok", "1");
-      setUnlocked(true);
-      setPwErr("");
-    } else {
-      setPwErr("Incorrect password.");
+  const tryUnlock = async () => {
+    if (!pwInput || pwBusy) return;
+    setPwBusy(true);
+    setPwErr("");
+    try {
+      const r = await fetch(AUTH_API, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password: pwInput }),
+      });
+      const res = await r.json().catch(() => ({ ok: false }));
+      if (r.ok && res.ok) {
+        setUnlocked(true);
+        setPwInput("");
+        setPwErr("");
+      } else {
+        setPwErr(res.error || "Incorrect password.");
+      }
+    } catch (e) {
+      setPwErr("Could not reach the server. Check your connection.");
+    } finally {
+      setPwBusy(false);
     }
   };
-  const lock = () => {
-    sessionStorage.removeItem("lma_ok");
+
+  const lock = useCallback(() => {
+    // Clear the cookie server-side; the UI locks immediately either way.
+    fetch(AUTH_API, { method: "DELETE" }).catch(() => {});
     setUnlocked(false);
     setInit(null);
     setPwInput("");
+    setPwErr("");
     setToast(null);
-  };
+  }, []);
 
   if (!hydrated) return null;
 
@@ -208,18 +252,20 @@ export default function LMAProvider({ children }: { children: ReactNode }) {
             <input
               type="password"
               autoFocus
+              disabled={pwBusy}
               value={pwInput}
               onChange={e => { setPwInput(e.target.value); setPwErr(""); }}
               onKeyDown={e => { if (e.key === "Enter") tryUnlock(); }}
               placeholder="Password"
-              className="w-full px-4 py-3 rounded-xl border-[1.5px] border-lma-slate-200 bg-lma-slate-50 focus:bg-white focus:border-lma-primary outline-none text-[15px] font-medium"
+              className="w-full px-4 py-3 rounded-xl border-[1.5px] border-lma-slate-200 bg-lma-slate-50 focus:bg-white focus:border-lma-primary outline-none text-[15px] font-medium disabled:opacity-60"
             />
             {pwErr && <p className="text-sm text-lma-danger mt-2 font-medium">{pwErr}</p>}
             <button
               onClick={tryUnlock}
-              className="w-full mt-4 py-3 rounded-xl bg-gradient-to-br from-lma-primary to-lma-primary-2 text-white font-bold text-[15px] shadow-md"
+              disabled={pwBusy}
+              className="w-full mt-4 py-3 rounded-xl bg-gradient-to-br from-lma-primary to-lma-primary-2 text-white font-bold text-[15px] shadow-md disabled:opacity-60"
             >
-              Unlock
+              {pwBusy ? "Signing in…" : "Unlock"}
             </button>
           </div>
         </div>
