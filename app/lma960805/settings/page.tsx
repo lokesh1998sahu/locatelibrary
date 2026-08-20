@@ -5,7 +5,7 @@ import Link from "next/link";
 import SeatLayoutEditor from "../_components/SeatLayoutEditor";
 
 const API = "/api/lma960805";
-const PASSWORD = process.env.NEXT_PUBLIC_LMA_PASSWORD!;
+const PASSWORD = "";  // gate disabled - this page already sits behind the LMAProvider login
 
 // ── TYPES ─────────────────────────────────────────────────────────
 interface Library    { library_code:string; library_name:string; display_name:string; active:boolean; has_branches:boolean; emoji:string; color?:string; address?:string; contact?:string; }
@@ -21,7 +21,7 @@ type Section = "libraries"|"branches"|"shifts"|"tags"|"fees"|"counters"|"seatlay
 
 // ── PAGE ──────────────────────────────────────────────────────────
 export default function LmaSettingsPage() {
-  const [unlocked, setUnlocked] = useState(false);
+  const [unlocked, setUnlocked] = useState(true);  // no second gate; LMAProvider already authenticated
   const [pwInput, setPwInput] = useState("");
   const [pwErr, setPwErr] = useState("");
 
