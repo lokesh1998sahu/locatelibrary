@@ -12,8 +12,9 @@ interface Library    { library_code:string; library_name:string; display_name:st
 interface Branch     { library_code:string; branch_code:string; branch_display:string; active:boolean; emoji?:string; color?:string; address?:string; contact?:string; }
 interface Shift      { shift_key:string; shift_name:string; shift_time:string; active:boolean; }
 interface PaymentTag { tag_name:string; fees_mode:string; active:boolean; created_at:string; settlement_days?:number; }
+interface FinAccount { bank_code:string; bank_name:string; owner_name:string; acct_type:string; }
 interface LibSettings { library:string; last_student_id:number; last_receipt_no:number; cutoff_student_id:number; cutoff_receipt_no:number; renewal_alert_days:number; renewal_alert_days_primary:number; }
-interface InitData   { ok:boolean; libraries:Library[]; branches:Branch[]; fees:Record<string,Record<string,number>>; shifts:Shift[]; paymentTags:PaymentTag[]; activeTags:string[]; settings:Record<string,LibSettings>; }
+interface InitData   { ok:boolean; libraries:Library[]; branches:Branch[]; fees:Record<string,Record<string,number>>; shifts:Shift[]; paymentTags:PaymentTag[]; activeTags:string[]; settings:Record<string,LibSettings>; accounts?:FinAccount[]; }
 
 type Toast = { msg:string; type:"success"|"error" } | null;
 // ✅ Fixed — add "seatlayouts"
@@ -281,11 +282,11 @@ export default function LmaSettingsPage() {
             const r = await post("updateShift", { ...p, shift_key: modal.payload.shift_key });
             if (r) { setModal(null); showToast("Updated"); fetchData(); }
           }}/>}
-          {modal.kind==="tag-add" && <TagForm onCancel={()=>setModal(null)} onSubmit={async (p)=>{
+          {modal.kind==="tag-add" && <TagForm accounts={data?.accounts} onCancel={()=>setModal(null)} onSubmit={async (p)=>{
             const r = await post("addPaymentTag", p);
             if (r) { setModal(null); showToast("Tag added"); fetchData(); }
           }}/>}
-          {modal.kind==="tag-edit" && <TagForm initial={modal.payload} onCancel={()=>setModal(null)} onSubmit={async (p)=>{
+          {modal.kind==="tag-edit" && <TagForm accounts={data?.accounts} initial={modal.payload} onCancel={()=>setModal(null)} onSubmit={async (p)=>{
             const r = await post("updatePaymentTag", { ...p, tag_name: modal.payload.tag_name });
             if (r) { setModal(null); showToast("Updated"); fetchData(); }
           }}/>}
@@ -555,7 +556,7 @@ function ShiftForm({ initial, onCancel, onSubmit }:{ initial?:Shift; onCancel:()
   );
 }
 
-function TagForm({ initial, onCancel, onSubmit }:{ initial?:PaymentTag; onCancel:()=>void; onSubmit:(p:any)=>void }) {
+function TagForm({ initial, accounts, onCancel, onSubmit }:{ initial?:PaymentTag; accounts?:FinAccount[]; onCancel:()=>void; onSubmit:(p:any)=>void }) {
   const [f, setF] = useState({
     tag_name: initial?.tag_name || "",
     fees_mode: initial?.fees_mode || "",
@@ -568,8 +569,23 @@ function TagForm({ initial, onCancel, onSubmit }:{ initial?:PaymentTag; onCancel
       <Label>Tag Name</Label>
       <Input value={f.tag_name} onChange={e=>setF({...f, tag_name:e.target.value.toUpperCase()})} placeholder="CASH, LSP, KDP-UPI..." disabled={isEdit} required/>
       <Label>Fees Mode (Bank)</Label>
-      <Input value={f.fees_mode} onChange={e=>setF({...f, fees_mode:e.target.value})} placeholder="HDFC-KD, ICICI-LS, CASH..."/>
-      <p className="text-[11px] text-lma-slate-500 mt-2">The bank/mode this tag's money goes into.</p>
+      <select
+        value={f.fees_mode}
+        onChange={e=>setF({...f, fees_mode:e.target.value})}
+        required
+        className="w-full px-3.5 py-2.5 rounded-xl border-[1.5px] border-lma-slate-200 bg-lma-slate-50 focus:bg-white focus:border-lma-primary outline-none text-[14px] font-medium"
+      >
+        <option value="">Choose an account…</option>
+        {!!f.fees_mode && !(accounts ?? []).some(a => a.bank_code === f.fees_mode) && (
+          <option value={f.fees_mode}>{f.fees_mode} (no longer active)</option>
+        )}
+        {(accounts ?? []).map(a => (
+          <option key={a.bank_code} value={a.bank_code}>
+            {a.bank_name}{a.owner_name ? " · " + a.owner_name : ""} — {a.bank_code}
+          </option>
+        ))}
+      </select>
+      <p className="text-[11px] text-lma-slate-500 mt-2">The account this tag&apos;s money lands in. Add new accounts in My Financials &rarr; Accounts.</p>
       <div className="mt-3">
         <Label>Settlement Days</Label>
         <Input type="number" inputMode="numeric" min={0} max={90} value={f.settlement_days} onChange={e=>setF({...f, settlement_days:Number(e.target.value)})}/>

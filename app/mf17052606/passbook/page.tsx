@@ -115,7 +115,10 @@ export default function Passbook() {
 
               {openId != null && r.entry_id === openId && (
                 <div style={{ padding: "0 0 12px" }}>
-                  <div style={{ display: "flex", gap: 6, marginBottom: 10 }}>
+                  {/* Only expenses can be edited: the Add screen is an expense
+                      form, and loading anything else into it would rewrite the
+                      entry as an expense on save. */}
+                  <div style={{ display: r.kind === "EXPENSE" ? "flex" : "none", gap: 6, marginBottom: 10 }}>
                     <button onClick={() => router.push(`/mf17052606/add?edit=${r.entry_id}`)} className="mf-tap"
                       style={{ border: "none", borderRadius: 999, padding: "6px 13px", fontSize: 12.5,
                         background: "var(--mf-have)", color: "var(--mf-have-bg)" }}>
@@ -123,7 +126,7 @@ export default function Passbook() {
                     </button>
                   </div>
                   <div style={{ fontSize: 12, color: "var(--mf-ink-2)", marginBottom: 7 }}>
-                    Or remove it — why?
+                    {r.kind === "EXPENSE" ? "Or remove it — why?" : "Remove this entry — why?"}
                   </div>
                   <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
                     {REASONS.map(x => (

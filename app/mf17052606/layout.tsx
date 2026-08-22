@@ -4,6 +4,7 @@
 
 import type { Metadata, Viewport } from "next";
 import MFProvider from "./_components/MFProvider";
+import MFPwaRegister from "./_components/MFPwaRegister";
 
 export const metadata: Metadata = {
   title: "My Financials",
@@ -20,5 +21,10 @@ export const viewport: Viewport = {
 };
 
 export default function MFLayout({ children }: { children: React.ReactNode }) {
-  return <MFProvider>{children}</MFProvider>;
+  return (
+    <>
+      <MFPwaRegister />
+      <MFProvider>{children}</MFProvider>
+    </>
+  );
 }
