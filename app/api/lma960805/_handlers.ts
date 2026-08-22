@@ -200,7 +200,7 @@ async function getInitData() {
   const branches     = (await sql`select * from library_branches order by s_no`) as any[];
   const fees         = (await sql`select * from library_fees`) as any[];
   const shifts       = (await sql`select * from shifts           order by s_no`) as any[];
-  const tags         = (await sql`select * from payment_tags     order by s_no`) as any[];
+  const tags         = (await sql`select r.display_code as tag_name, r.bank_code as fees_mode, r.settlement_days, (r.active_lma and a.active) as active, to_char(r.created_at,'YYYY-MM-DD HH24:MI:SS') as created_at from fin.routes r join fin.accounts a on a.bank_code = r.bank_code order by r.id`) as any[];
   const settingsRows = (await sql`select * from settings`) as any[];
 
   return {
@@ -1737,7 +1737,7 @@ function _buildReceiptTextW(d: any): string {
 // ── reference-data loaders (read-only; run before the write txn) ──
 type TagInfo = { fees_mode: string; settlement_days: number };
 async function _loadTagMap(): Promise<Map<string, TagInfo>> {
-  const rows = (await sql`select tag_name, fees_mode, settlement_days from payment_tags`) as any[];
+  const rows = (await sql`select r.display_code as tag_name, r.bank_code as fees_mode, r.settlement_days from fin.routes r`) as any[];
   const m = new Map<string, TagInfo>();
   for (const r of rows) {
     m.set(up(r.tag_name), { fees_mode: String(r.fees_mode ?? "").trim(), settlement_days: Math.max(0, num(r.settlement_days)) });
@@ -3595,10 +3595,13 @@ async function addPaymentTag(p: any): Promise<any> {
   const name = String(p.tag_name).toUpperCase().trim();
   if (!/^[A-Z0-9_\-]+$/.test(name)) throw new Error("tag_name: only A-Z, 0-9, _, - allowed.");
   return await sql.begin(async (tx: any) => {
-    const dup = (await tx`select 1 from payment_tags where upper(tag_name)=${name} limit 1`) as any[];
+    const dup = (await tx`select 1 from fin.routes where upper(display_code)=${name} limit 1`) as any[];
+    const bankCode = String(p.fees_mode || "").trim().toUpperCase();
+    const bankOk = (await tx`select 1 from fin.accounts where upper(bank_code)=${bankCode} limit 1`) as any[];
+    if (!bankOk.length) return { ok: false, error: "Unknown account code: " + bankCode + ". Add the account first." };
     if (dup.length) return { ok: false, error: "tag_name already exists: " + name };
-    await tx`insert into payment_tags (tag_name, fees_mode, settlement_days, active, created_at)
-      values (${name}, ${String(p.fees_mode || "").trim()}, ${Number(p.settlement_days || 0)}, ${p.active === false ? false : true}, ${nowTsIst()})`;
+    await tx`insert into fin.routes (display_code, bank_code, settlement_days, active_lma)
+      values (${name}, ${bankCode}, ${Number(p.settlement_days || 0)}, ${p.active === false ? false : true})`;
     return { added: true, tag_name: name };
   });
 }
@@ -3606,10 +3609,14 @@ async function updatePaymentTag(p: any): Promise<any> {
   if (!p || !p.tag_name) throw new Error("tag_name is required.");
   const target = up(p.tag_name);
   const upd: Record<string, any> = {};
-  if (p.fees_mode !== undefined) upd.fees_mode = String(p.fees_mode).trim();
+  if (p.fees_mode !== undefined) upd.bank_code = String(p.fees_mode).trim().toUpperCase();
   if (p.settlement_days !== undefined) upd.settlement_days = Number(p.settlement_days) || 0;
   if (!Object.keys(upd).length) return { updated: true };
-  const r = (await sql`update payment_tags set ${sql(upd)} where upper(tag_name)=${target}`) as any;
+  if (upd.bank_code !== undefined) {
+    const bankOk = (await sql`select 1 from fin.accounts where upper(bank_code)=${upd.bank_code} limit 1`) as any[];
+    if (!bankOk.length) return { ok: false, error: "Unknown account code: " + upd.bank_code + ". Add the account first." };
+  }
+  const r = (await sql`update fin.routes set ${sql(upd)} where upper(display_code)=${target}`) as any;
   if (!r.count) return { ok: false, error: "Payment tag not found: " + target };
   return { updated: true };
 }
@@ -3617,10 +3624,10 @@ async function togglePaymentTag(p: any): Promise<any> {
   if (!p || !p.tag_name) throw new Error("tag_name is required.");
   const target = up(p.tag_name);
   return await sql.begin(async (tx: any) => {
-    const rows = (await tx`select active from payment_tags where upper(tag_name)=${target} limit 1 for update`) as any[];
+    const rows = (await tx`select active_lma as active from fin.routes where upper(display_code)=${target} limit 1 for update`) as any[];
     if (!rows.length) return { ok: false, error: "Payment tag not found: " + target };
     const newVal = !rows[0].active;
-    await tx`update payment_tags set active=${newVal} where upper(tag_name)=${target}`;
+    await tx`update fin.routes set active_lma=${newVal} where upper(display_code)=${target}`;
     return { toggled: true, active: newVal };
   });
 }
