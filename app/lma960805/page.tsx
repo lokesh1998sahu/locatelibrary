@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { useLMA, useScopeChips } from "./_components/LMAProvider";
 import { buildVacancyText, type VacPlan } from "./_lib/vacancy";
+import OccupancyCard from "./_components/OccupancyCard";
 
 const API = "/api/lma960805";
 
@@ -36,7 +37,8 @@ export default function LmaHomePage() {
   const [badges,setBadges]=useState<{renewals:number;dues:number}>({renewals:0,dues:0});
   const [statsLoading,setStatsLoading]=useState(false);
   const [loaded,setLoaded]=useState(false);          // C: nothing hits GAS until the user taps "Load live data"
-  const [loadedScope,setLoadedScope]=useState("");   // which chip the shown numbers belong to
+    const [loadedScope,setLoadedScope]=useState("");   // which chip the shown numbers belong to
+  const [occKey,setOccKey]=useState(0);              // 0 = dormant; bumped by "Load live data" / ↻
 
   // Mark connected once init lands (or stay loading if still null)
   useEffect(()=>{ if(init) setConnected(true); },[init]);
@@ -57,7 +59,7 @@ export default function LmaHomePage() {
       setBadges({ renewals:expiredCount, dues:(dues?.pending?.length||dues?.total||0) });
     }catch{ setToday({net:0,receipts:0,dues:0}); setConnected(false); }
     setStatsLoading(false);
-    setLoaded(true);
+       setLoaded(true); setOccKey(k=>k+1);
     setLoadedScope(scope);
   },[scope]);
   // C: NO auto-run on mount or scope change — GAS is only hit when the button is tapped.
@@ -105,10 +107,13 @@ export default function LmaHomePage() {
           <div className="grid grid-cols-3 gap-2">
             <CockpitCell label="Collected" value={today?fmtINR(today.net):"…"}/>
             <CockpitCell label="Receipts" value={today?String(today.receipts):"…"}/>
-            <CockpitCell label="Dues (live)" value={today?fmtINR(today.dues):"…"}/>
+                       <CockpitCell label="Dues (live)" value={today?fmtINR(today.dues):"…"}/>
+
           </div>
         </div>
       )}
+
+      <OccupancyCard scope={scope} reloadKey={occKey}/>
 
       <VacantSeatsCard scope={scope}/>
 

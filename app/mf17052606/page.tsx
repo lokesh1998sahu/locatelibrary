@@ -1,14 +1,13 @@
 "use client";
 
 // MF 2.0 — Dashboard. "Where you stand", then the accounts behind it.
-// Every figure here comes from fin.v_account_balance via initData; this page
-// never computes a balance of its own.
+// Opening the app costs nothing: the net-worth figures come from initLive,
+// which runs only when the owner taps for them. Every figure still comes from
+// fin.v_account_balance server-side; this page never computes a balance.
 
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import Link from "next/link";
 import { useMF, money, MFAccount } from "./_components/MFProvider";
-
-type World = "ALL" | "PERSONAL" | "LIBRARY";
 
 type Tile = { href: string; label: string; emoji: string; desc: string };
 const TILES: Tile[] = [
@@ -29,8 +28,7 @@ const TYPE_LABEL: Record<string, string> = {
 };
 
 export default function MFDashboard() {
-  const { init, loading, lock } = useMF();
-  const [world, setWorld] = useState<World>("ALL");
+  const { init, live, loadLive, liveLoading, lock } = useMF();
 
   const today = useMemo(
     () => new Date().toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "short" }),
@@ -57,42 +55,45 @@ export default function MFDashboard() {
         </button>
       </header>
 
-      <div role="tablist" aria-label="Filter" style={{ display: "flex", gap: 6, marginBottom: 14 }}>
-        {(["ALL", "PERSONAL", "LIBRARY"] as World[]).map((w) => (
-          <button
-            key={w} role="tab" aria-selected={world === w} onClick={() => setWorld(w)}
-            className="mf-tap"
-            style={{
-              border: "none", borderRadius: 999, padding: "7px 14px", fontSize: 13,
-              background: world === w ? "var(--mf-have)" : "var(--mf-surface)",
-              color: world === w ? "var(--mf-have-bg)" : "var(--mf-ink-2)",
-              boxShadow: world === w ? "none" : "inset 0 0 0 1px var(--mf-line)",
-            }}
-          >
-            {w === "ALL" ? "All" : w === "PERSONAL" ? "Personal" : "Library"}
-          </button>
-        ))}
-      </div>
-
-      {loading && !init ? (
-        <div className="mf-card" style={{ padding: 20, color: "var(--mf-ink-3)", fontSize: 14 }}>Loading…</div>
-      ) : !init ? null : (
+      {!live ? (
+        <button
+          onClick={loadLive} disabled={liveLoading} className="mf-tap"
+          style={{
+            width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 9,
+            border: "none", borderRadius: "var(--mf-radius)", padding: "22px 16px",
+            background: "var(--mf-have)", color: "var(--mf-have-bg)",
+            fontSize: 15, fontWeight: 600, opacity: liveLoading ? 0.65 : 1,
+            boxShadow: "0 4px 14px rgba(15,110,86,.18)",
+          }}
+        >
+          <span aria-hidden="true" style={{ fontSize: 18 }}>💰</span>
+          {liveLoading ? "Counting…" : "Show where you stand"}
+        </button>
+      ) : (
         <>
           <section aria-label="Net worth" className="mf-card" style={{ padding: "16px 18px", borderLeft: "3px solid var(--mf-have)", borderRadius: "var(--mf-radius)" }}>
-            <div style={{ fontSize: 12, color: "var(--mf-ink-2)" }}>Net worth</div>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <span style={{ fontSize: 12, color: "var(--mf-ink-2)" }}>Net worth</span>
+              <button
+                onClick={loadLive} disabled={liveLoading} className="mf-tap" aria-label="Refresh"
+                style={{ border: "none", background: "none", padding: 0, fontSize: 11, fontWeight: 600, color: "var(--mf-ink-3)" }}
+              >
+                {liveLoading ? "updating…" : "↻ refresh"}
+              </button>
+            </div>
             <div className="mf-num" style={{ fontSize: 30, fontWeight: 600, marginTop: 2 }}>
-              {money(init.totals.net)}
+              {money(live.totals.net)}
             </div>
           </section>
 
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 10 }}>
             <div className="mf-card" style={{ padding: "12px 14px" }}>
               <div style={{ fontSize: 11, color: "var(--mf-have)" }}>You have</div>
-              <div className="mf-num" style={{ fontSize: 18, fontWeight: 600, marginTop: 2 }}>{money(init.totals.haves)}</div>
+              <div className="mf-num" style={{ fontSize: 18, fontWeight: 600, marginTop: 2 }}>{money(live.totals.haves)}</div>
             </div>
             <div className="mf-card" style={{ padding: "12px 14px" }}>
               <div style={{ fontSize: 11, color: "var(--mf-owe)" }}>You owe</div>
-              <div className="mf-num" style={{ fontSize: 18, fontWeight: 600, marginTop: 2 }}>{money(init.totals.owes)}</div>
+              <div className="mf-num" style={{ fontSize: 18, fontWeight: 600, marginTop: 2 }}>{money(live.totals.owes)}</div>
             </div>
           </div>
 
@@ -124,28 +125,28 @@ export default function MFDashboard() {
               </div>
             </>
           )}
-        </>
-      )}
 
-      {init && (init as any).alerts && (
-        <Link href="/mf17052606/scheduled" className="mf-card mf-tap"
-          style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 14px", marginTop: 16,
-            textDecoration: "none",
-            background: (init as any).alerts.overdue > 0 ? "var(--mf-owe-bg)" : "var(--mf-surface)" }}>
-          <span aria-hidden="true" style={{ fontSize: 20 }}>🔁</span>
-          <span style={{ flex: 1, minWidth: 0 }}>
-            <span style={{ display: "block", fontSize: 13.5,
-              color: (init as any).alerts.overdue > 0 ? "var(--mf-owe)" : "var(--mf-ink)" }}>
-              {(init as any).alerts.overdue > 0
-                ? `${(init as any).alerts.overdue} payment${(init as any).alerts.overdue === 1 ? " is" : "s are"} overdue`
-                : `${(init as any).alerts.due_soon} payment${(init as any).alerts.due_soon === 1 ? "" : "s"} due this week`}
-            </span>
-            <span style={{ display: "block", fontSize: 11.5, color: "var(--mf-ink-3)", marginTop: 2 }}>
-              next: {(init as any).alerts.next_name} on {(init as any).alerts.next_due}
-            </span>
-          </span>
-          <span style={{ fontSize: 18, color: "var(--mf-ink-3)" }}>›</span>
-        </Link>
+          {live.alerts && (
+            <Link href="/mf17052606/scheduled" className="mf-card mf-tap"
+              style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 14px", marginTop: 16,
+                textDecoration: "none",
+                background: live.alerts.overdue > 0 ? "var(--mf-owe-bg)" : "var(--mf-surface)" }}>
+              <span aria-hidden="true" style={{ fontSize: 20 }}>🔁</span>
+              <span style={{ flex: 1, minWidth: 0 }}>
+                <span style={{ display: "block", fontSize: 13.5,
+                  color: live.alerts.overdue > 0 ? "var(--mf-owe)" : "var(--mf-ink)" }}>
+                  {live.alerts.overdue > 0
+                    ? `${live.alerts.overdue} payment${live.alerts.overdue === 1 ? " is" : "s are"} overdue`
+                    : `${live.alerts.due_soon} payment${live.alerts.due_soon === 1 ? "" : "s"} due this week`}
+                </span>
+                <span style={{ display: "block", fontSize: 11.5, color: "var(--mf-ink-3)", marginTop: 2 }}>
+                  next: {live.alerts.next_name} on {live.alerts.next_due}
+                </span>
+              </span>
+              <span style={{ fontSize: 18, color: "var(--mf-ink-3)" }}>›</span>
+            </Link>
+          )}
+        </>
       )}
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 18 }}>

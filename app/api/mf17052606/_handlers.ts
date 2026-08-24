@@ -15,9 +15,11 @@ function isoDate(v: unknown): string {
   return s;
 }
 
-// ── reference data + balances, one round trip ────────────────────────
+// ── reference data: cheap indexed lookups, safe on every app open ─────
+// Deliberately excludes anything that scans fin.entry_lines without a date
+// bound. That lives in initLive() and runs only when the owner asks.
 async function initData() {
-  const [accounts, categories, people, routes, libraries, extra] = await Promise.all([
+  const [accounts, categories, people, routes, libraries] = await Promise.all([
     sql`select account_id, bank_code, bank_name, owner_name, acct_type, is_liability,
                active, opening_balance, opening_date, is_set_up, balance, lma_income_all_time
         from fin.v_account_balance where active order by is_liability, balance desc nulls last`,
@@ -32,6 +34,41 @@ async function initData() {
                on b.library_code = l.library_code and coalesce(b.active, true)
         where coalesce(l.active, true)
         order by l.s_no, b.s_no`,
+  ]) as any[][];
+
+  return {
+    accounts: accounts.map((a) => ({
+      id: Number(a.account_id),
+      bank_code: a.bank_code,
+      bank_name: a.bank_name ?? a.bank_code,
+      owner_name: a.owner_name ?? "",
+      acct_type: a.acct_type,
+      is_liability: !!a.is_liability,
+      is_set_up: !!a.is_set_up,
+      opening_balance: a.opening_balance == null ? null : num(a.opening_balance),
+      opening_date: a.opening_date ?? null,
+      balance: a.balance == null ? null : num(a.balance),
+    })),
+    categories: categories.map((c) => ({ id: Number(c.id), code: c.code, name: c.name, kind: c.kind, quick: !!c.quick })),
+    people: people.map((p) => ({ id: Number(p.id), name: p.name, quick: !!p.quick })),
+    routes: routes.map((r) => ({ code: r.display_code, bank_code: r.bank_code, settlement_days: Number(r.settlement_days ?? 0) })),
+    libraries: libraries.map((l) => ({
+      library_code: up(l.library_code),
+      label: String(l.label ?? l.library_code),
+      branch_code: l.branch_code ? up(l.branch_code) : null,
+      branch_label: l.branch_display ? String(l.branch_display) : null,
+    })),
+  };
+}
+
+// ── the live half: net worth + scheduled-payment alerts ───────────────
+// These aggregates scan every entry line ever written, so they run only when
+// the owner taps "Show where you stand" on Home. All money maths stays here;
+// the client never sums a balance of its own.
+async function initLive() {
+  const [balances, extra] = await Promise.all([
+    sql`select is_liability, balance from fin.v_account_balance
+        where active and balance is not null`,
     sql`select
       coalesce((select sum(l.amount) from fin.entry_lines l join fin.entries e on e.id = l.entry_id
                 where l.line_kind = 'RECEIVABLE' and e.voided = false), 0) as receivable,
@@ -60,53 +97,27 @@ async function initData() {
   ]) as any[][];
 
   let haves = 0, owes = 0;
-  for (const a of accounts) {
-    if (a.balance == null) continue;
+  for (const a of balances) {
     if (a.is_liability) owes += num(a.balance); else haves += num(a.balance);
   }
 
+  const x = (extra as any[])[0] ?? {};
+  const due = Number(x.due_soon ?? 0);
+  const h = haves + num(x.receivable) + num(x.assets_have) + num(x.res_have);
+  const o = owes  + num(x.payable)    + num(x.assets_owe)  + num(x.res_owe);
+
   return {
-    accounts: accounts.map((a) => ({
-      id: Number(a.account_id),
-      bank_code: a.bank_code,
-      bank_name: a.bank_name ?? a.bank_code,
-      owner_name: a.owner_name ?? "",
-      acct_type: a.acct_type,
-      is_liability: !!a.is_liability,
-      is_set_up: !!a.is_set_up,
-      opening_balance: a.opening_balance == null ? null : num(a.opening_balance),
-      opening_date: a.opening_date ?? null,
-      balance: a.balance == null ? null : num(a.balance),
-    })),
-    categories: categories.map((c) => ({ id: Number(c.id), code: c.code, name: c.name, kind: c.kind, quick: !!c.quick })),
-    people: people.map((p) => ({ id: Number(p.id), name: p.name, quick: !!p.quick })),
-    routes: routes.map((r) => ({ code: r.display_code, bank_code: r.bank_code, settlement_days: Number(r.settlement_days ?? 0) })),
-    libraries: libraries.map((l) => ({
-      library_code: up(l.library_code),
-      label: String(l.label ?? l.library_code),
-      branch_code: l.branch_code ? up(l.branch_code) : null,
-      branch_label: l.branch_display ? String(l.branch_display) : null,
-    })),
-    alerts: (() => {
-      const x = (extra as any[])[0] ?? {};
-      const due = Number(x.due_soon ?? 0);
-      return due > 0 ? {
-        due_soon: due,
-        overdue: Number(x.overdue ?? 0),
-        next_name: x.next_name ?? null,
-        next_due: x.next_due ?? null,
-      } : null;
-    })(),
-    totals: (() => {
-      const x = (extra as any[])[0] ?? {};
-      const h = haves + num(x.receivable) + num(x.assets_have) + num(x.res_have);
-      const o = owes + num(x.payable) + num(x.assets_owe) + num(x.res_owe);
-      return {
-        haves: money(h), owes: money(o), net: money(h - o),
-        in_accounts: money(haves), owed_to_you: money(x.receivable),
-        you_owe_people: money(x.payable), in_assets: money(x.assets_have),
-      };
-    })(),
+    alerts: due > 0 ? {
+      due_soon: due,
+      overdue: Number(x.overdue ?? 0),
+      next_name: x.next_name ?? null,
+      next_due: x.next_due ?? null,
+    } : null,
+    totals: {
+      haves: money(h), owes: money(o), net: money(h - o),
+      in_accounts: money(haves), owed_to_you: money(x.receivable),
+      you_owe_people: money(x.payable), in_assets: money(x.assets_have),
+    },
   };
 }
 
@@ -1342,6 +1353,7 @@ export async function handle(action: string, payload: any): Promise<any> {
   switch (action) {
     case "ping":                  return { pong: true };
     case "initData":              return await initData();
+    case "initLive":              return await initLive();
 
     // entries
     case "addExpense":            return await addExpense(payload);

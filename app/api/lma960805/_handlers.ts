@@ -1,4 +1,5 @@
   import sql from "./_db";
+import { occupancyStats } from "../../lma960805/_lib/vacancy";
 
   // ── ACTION TOGGLE ────────────────────────────────────────────────────
   // Actions listed here are served by Postgres. EVERY action NOT listed here
@@ -20,6 +21,7 @@
     "getSeatBlocks",
     // 15_SeatBoard (reads)
     "getBoardOccupancy",
+  "getOccupancySummary",
     "getVacantSeats",
     "getSeatHistory",
     // 05_Receipts (reads)
@@ -678,6 +680,117 @@
     };
   }
 
+  // ════════════════════════════════════════════════════════════════════
+// OCCUPANCY SUMMARY — every library / branch in ONE request.
+// Rebuilding the board 5× from the browser would be 5 full payloads per
+// refresh; this pulls receipt_log ONCE and re-uses it for every scope.
+// It re-implements NO rule: each scope is fed through the very same
+// shared computer the seat chart uses (occupancyStats, _lib/vacancy.ts),
+// so the board, the home tile and the report can never disagree.
+//   occupancy % = occupied seat-halves ÷ (non-DEAD seats × 2)
+//   • BLOCKED halves stay in capacity, exactly like a vacant half
+//   • off-chart bookings (floating / unassigned / other-shift / temp-held)
+//     are NOT occupancy — returned separately as `offboard`
+// ════════════════════════════════════════════════════════════════════
+async function getOccupancySummary() {
+  const layoutRows = (await sql`select * from seat_layouts`) as any[];
+  const receipts = (await sql`select *, to_char(booking_to,'YYYY-MM-DD') as booking_to_ymd from receipt_log`) as any[];
+  const libs = (await sql`select * from libraries order by s_no`) as any[];
+  const branchRows = (await sql`select * from library_branches order by s_no`) as any[];
+
+  // Scope list built exactly like the app's chip builder (useScopeChips):
+  // active libraries; a library with branches expands into its active branches.
+  const scopes: { key: string; library_code: string; branch_code: string }[] = [];
+  for (const l of libs) {
+    const lc = up(l.library_code);
+    if (!lc || !tobool(l.active)) continue;
+    if (tobool(l.has_branches)) {
+      for (const b of branchRows) {
+        if (up(b.library_code) !== lc || !tobool(b.active)) continue;
+        scopes.push({ key: up(b.branch_code), library_code: lc, branch_code: up(b.branch_code) });
+      }
+    } else {
+      scopes.push({ key: lc, library_code: lc, branch_code: "" });
+    }
+  }
+
+  const rows: any[] = [];
+  for (const sc of scopes) {
+    const { occ, floating, unassigned, otherShift, tempHeld } = buildOccupancy(receipts, sc.library_code, sc.branch_code);
+    const blocks = await buildBlocks(sc.library_code, sc.branch_code);
+    const seats = layoutRows
+      .filter((r) => r.active === true && up(r.library_code) === sc.library_code && up(r.branch_code ?? "") === sc.branch_code)
+      .map((r) => {
+        const label = String(r.display_label ?? "");
+        const o = occ[label] || { morning: null, evening: null, fullday: null };
+        const b = blocks[label] || {};
+        const th = tempHeld[label] || {};
+        return {
+          cell_type: up(r.cell_type || "SEAT"),
+          display_label: label,
+          morning: o.morning,
+          evening: o.evening,
+          fullday: o.fullday,
+          blocked: {
+            morning: !!(b["FULL DAY"] || b["MORNING"]),
+            evening: !!(b["FULL DAY"] || b["EVENING"]),
+            fullday: !!b["FULL DAY"],
+          },
+          temp_held: {
+            morning: th.morning && !o.morning && !o.fullday ? true : null,
+            evening: th.evening && !o.evening && !o.fullday ? true : null,
+            fullday: th.fullday && !o.fullday && !o.morning && !o.evening ? true : null,
+          },
+        };
+      });
+    if (!seats.length) continue; // scope has no seat layout → nothing to report
+    const lib = libs.find((x: any) => up(x.library_code) === sc.library_code);
+    const st = occupancyStats({ sections: [{ section_name: "ALL", seats: seats as any }] });
+    rows.push({
+      key: sc.key,
+      library_code: sc.library_code,
+      branch_code: sc.branch_code,
+      library_name: String(lib?.display_name || lib?.library_name || sc.library_code),
+      ...st,
+      offboard: {
+        floating: floating.length,
+        unassigned: unassigned.length,
+        other: otherShift.length,
+        total: floating.length + unassigned.length + otherShift.length,
+      },
+    });
+  }
+
+  // Totals are SUMMED then re-percentaged — never an average of percentages.
+  const T: any = {
+    seats: 0, lanes: 0, occLanes: 0, bookings: 0, fdSeats: 0,
+    seatsFull: 0, seatsHalf: 0, seatsEmpty: 0, blockedLanes: 0, heldLanes: 0,
+  };
+  const P: any = {
+    "MORNING": { occ: 0, vac: 0, total: 0, pct: 0 },
+    "EVENING": { occ: 0, vac: 0, total: 0, pct: 0 },
+    "FULL DAY": { occ: 0, vac: 0, total: 0, pct: 0 },
+  };
+  const OB: any = { floating: 0, unassigned: 0, other: 0, total: 0 };
+  for (const r of rows) {
+    for (const k of Object.keys(r)) { if (typeof r[k] === "number") T[k] = num(T[k]) + num(r[k]); }
+    for (const k of Object.keys(P)) {
+      P[k].occ += num(r.plan[k].occ);
+      P[k].vac += num(r.plan[k].vac);
+      P[k].total += num(r.plan[k].total);
+    }
+    for (const k of Object.keys(OB)) OB[k] += num(r.offboard[k]);
+  }
+  const pct = (n: number, d: number) => (d ? Math.round((n / d) * 100) : 0);
+  for (const k of Object.keys(P)) P[k].pct = pct(P[k].occ, P[k].total);
+
+  return {
+    ok: true,
+    generated_at: nowTsIst(),
+    total: { ...T, occPct: pct(T.occLanes, T.lanes), plan: P, offboard: OB },
+    libraries: rows,
+  };
+}
   async function getVacantSeats(params: any) {
     const library_code = up(params.library_code);
     if (!library_code) throw new Error("library_code is required.");
@@ -3897,7 +4010,9 @@
         return await getAllSeatLayouts();
       case "getSeatBlocks":
         return await getSeatBlocks(params);
-      case "getBoardOccupancy":
+      case "getOccupancySummary":
+      return await getOccupancySummary();
+    case "getBoardOccupancy":
         return await getBoardOccupancy(params);
       case "getVacantSeats":
         return await getVacantSeats(params);

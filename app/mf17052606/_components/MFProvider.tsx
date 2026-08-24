@@ -31,7 +31,13 @@ export interface MFInitData {
   people: MFPerson[];
   routes: MFRoute[];
   libraries: MFLibrary[];
-  totals: { haves: number; owes: number; net: number };
+}
+export interface MFLiveData {
+  alerts: { due_soon: number; overdue: number; next_name: string | null; next_due: string | null } | null;
+  totals: {
+    haves: number; owes: number; net: number;
+    in_accounts: number; owed_to_you: number; you_owe_people: number; in_assets: number;
+  };
 }
 
 export type ToastKind = "success" | "error";
@@ -41,6 +47,9 @@ interface MFContextValue {
   init: MFInitData | null;
   refreshInit: () => Promise<void>;
   loading: boolean;
+  live: MFLiveData | null;
+  loadLive: () => Promise<void>;
+  liveLoading: boolean;
   lock: () => void;
   showToast: (msg: string, type?: ToastKind) => void;
   post: (action: string, payload?: any) => Promise<any | null>;
@@ -88,6 +97,8 @@ export default function MFProvider({ children }: { children: ReactNode }) {
   const [busy, setBusy] = useState(false);
   const [init, setInit] = useState<MFInitData | null>(null);
   const [loading, setLoading] = useState(false);
+  const [live, setLive] = useState<MFLiveData | null>(null);
+  const [liveLoading, setLiveLoading] = useState(false);
   const [toast, setToast] = useState<ToastState>(null);
   const inflight = useRef<Set<string>>(new Set());
   const toastTimer = useRef<any>(null);
@@ -107,7 +118,7 @@ export default function MFProvider({ children }: { children: ReactNode }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action, payload }),
       });
-      if (r.status === 401) { setAuthed(false); setInit(null); return null; }
+      if (r.status === 401) { setAuthed(false); setInit(null); setLive(null); return null; }
       const j = await r.json();
       if (!j?.ok) { showToast(j?.error || "That didn't work.", "error"); return null; }
       return j;
@@ -140,6 +151,14 @@ export default function MFProvider({ children }: { children: ReactNode }) {
     })();
   }, []);
 
+  // The heavy half. Only Home calls this, and only when the owner taps for it.
+  const loadLive = useCallback(async () => {
+    setLiveLoading(true);
+    const j = await post("initLive");
+    if (j) setLive(j as MFLiveData);
+    setLiveLoading(false);
+  }, [post]);
+
   useEffect(() => { if (authed) refreshInit(); }, [authed, refreshInit]);
 
   const signIn = useCallback(async () => {
@@ -166,7 +185,7 @@ export default function MFProvider({ children }: { children: ReactNode }) {
         body: JSON.stringify({ action: "logout" }),
       });
     } catch { /* locking locally is still correct */ }
-    setAuthed(false); setInit(null);
+    setAuthed(false); setInit(null); setLive(null);
   }, []);
 
   if (authed === null) {
@@ -217,7 +236,7 @@ export default function MFProvider({ children }: { children: ReactNode }) {
   }
 
   return (
-    <MFContext.Provider value={{ init, refreshInit, loading, lock, showToast, post }}>
+    <MFContext.Provider value={{ init, refreshInit, loading, live, loadLive, liveLoading, lock, showToast, post }}>
       <style>{TOKENS}</style>
       <div className="lma-app lma-page-body" style={{ minHeight: "100dvh", color: "var(--mf-ink)" }}>
         {children}

@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { useLMA, useScopeChips } from "../_components/LMAProvider";
+import OccupancyCard from "../_components/OccupancyCard";
 
 const API = "/api/lma960805";
 
@@ -52,7 +53,8 @@ export default function DashboardPage(){
   const [to,setTo]=useState<Date>(presetRange("today").to);
   const [data,setData]=useState<Dash|null>(null);
   const [loading,setLoading]=useState(false);
-  const [customOpen,setCustomOpen]=useState(false);
+    const [customOpen,setCustomOpen]=useState(false);
+  const [occKey,setOccKey]=useState(1);   // live seat state: loads with the page, refreshes on ↻
 
   const applyPreset=(p:Preset)=>{ const r=presetRange(p); setPreset(p); setFrom(r.from); setTo(r.to); setCustomOpen(false); };
 
@@ -84,7 +86,7 @@ export default function DashboardPage(){
           <h1 className="text-xl font-extrabold tracking-tight text-lma-slate-900">Dashboard</h1>
           <p className="text-[11px] text-lma-slate-500 font-medium">{data?`${data.range.from} → ${data.range.to}`:"…"} · {scope||"All"}</p>
         </div>
-        <button onClick={load} disabled={loading} className="text-xs font-bold px-3 py-2 rounded-lg bg-lma-slate-100 text-lma-slate-600 disabled:opacity-50">{loading?"...":"↻"}</button>
+        <button onClick={()=>{load();setOccKey(k=>k+1);}} disabled={loading} className="text-xs font-bold px-3 py-2 rounded-lg bg-lma-slate-100 text-lma-slate-600 disabled:opacity-50">{loading?"...":"↻"}</button>
       </header>
 
       {/* library/branch chips */}
@@ -115,6 +117,8 @@ export default function DashboardPage(){
         </div>
       )}
 
+      <OccupancyCard scope={scope} reloadKey={occKey}/>
+
       {!data&&loading&&<div className="text-center text-sm text-lma-slate-500 py-12">Loading…</div>}
       {!data&&!loading&&<div className="text-center text-sm text-lma-slate-500 py-12">No data for this range.</div>}
 
@@ -142,6 +146,8 @@ export default function DashboardPage(){
             <span className="flex-1 bg-white rounded-lg py-1.5 text-center shadow-sm">{data.counts.misc_entries} misc</span>
             <span className="flex-1 bg-white rounded-lg py-1.5 text-center shadow-sm">{data.counts.refunds} refunds</span>
           </div>
+
+          
 
           {/* DAILY CHART */}
           <Card title="Daily Collection" subtitle="net per day">
