@@ -692,11 +692,56 @@ import { occupancyStats } from "../../lma960805/_lib/vacancy";
 //   • off-chart bookings (floating / unassigned / other-shift / temp-held)
 //     are NOT occupancy — returned separately as `offboard`
 // ════════════════════════════════════════════════════════════════════
+// ── seat worth (list rates) ──────────────────────────────────────────
+// Values the SAME five-bucket partition occupancyStats() already produces,
+// at the SAME rates BookingFlow charges (library_fees keyed by
+// branch || library — BookingFlow line 462). The board, the tile and this
+// number can never disagree.
+//
+// A seat sold to two students earns MORNING + EVENING, which is usually MORE
+// than one FULL DAY. That gap is the point of this metric — occupancy counts
+// both as "1 seat sold" and can never show it.
+// Blocked seats stay in the baseline, exactly as they stay in capacity.
+type SeatRate = { fd: number; m: number; e: number; missing: boolean };
+
+function buildRateMap(rows: any[]): Record<string, SeatRate> {
+  const g: Record<string, Record<string, number>> = {};
+  for (const r of rows) {
+    const fk = up(r.fee_key), sk = normShift(r.shift_key);
+    if (!fk || !sk) continue;
+    const amt = num(r.fee_amount);
+    if (amt > 0) (g[fk] ??= {})[sk] = amt;
+  }
+  const out: Record<string, SeatRate> = {};
+  for (const fk of Object.keys(g)) {
+    const fd = num(g[fk]["FULL DAY"]), m = num(g[fk]["MORNING"]), e = num(g[fk]["EVENING"]);
+    out[fk] = { fd, m, e, missing: !(fd > 0) || !(m > 0) || !(e > 0) };
+  }
+  return out;
+}
+
+function seatWorth(rate: SeatRate | undefined, st: any) {
+  if (!rate) return { worthSold: 0, worthFullDay: 0, worthCeiling: 0, ratesMissing: 1 };
+  const half = rate.m + rate.e;
+  const sold = num(st.fdSeats)          * rate.fd
+             + num(st.pairSeats)        * half
+             + num(st.morningOnlySeats) * rate.m
+             + num(st.eveningOnlySeats) * rate.e;
+  return {
+    worthSold: Math.round(sold),
+    worthFullDay: Math.round(num(st.seats) * rate.fd),
+    worthCeiling: Math.round(num(st.seats) * Math.max(rate.fd, half)),
+    ratesMissing: rate.missing ? 1 : 0,
+  };
+}
+
 async function getOccupancySummary() {
   const layoutRows = (await sql`select * from seat_layouts`) as any[];
   const receipts = (await sql`select *, to_char(booking_to,'YYYY-MM-DD') as booking_to_ymd from receipt_log`) as any[];
   const libs = (await sql`select * from libraries order by s_no`) as any[];
   const branchRows = (await sql`select * from library_branches order by s_no`) as any[];
+  const feeRows = (await sql`select fee_key, shift_key, fee_amount from library_fees`) as any[];
+  const rates = buildRateMap(feeRows);
 
   // Scope list built exactly like the app's chip builder (useScopeChips):
   // active libraries; a library with branches expands into its active branches.
@@ -746,11 +791,13 @@ async function getOccupancySummary() {
     if (!seats.length) continue; // scope has no seat layout → nothing to report
     const lib = libs.find((x: any) => up(x.library_code) === sc.library_code);
     const st = occupancyStats({ sections: [{ section_name: "ALL", seats: seats as any }] });
+    const worth = seatWorth(rates[up(sc.key)], st);
     rows.push({
       key: sc.key,
       library_code: sc.library_code,
       branch_code: sc.branch_code,
       library_name: String(lib?.display_name || lib?.library_name || sc.library_code),
+      ...worth,
       ...st,
       offboard: {
         floating: floating.length,
@@ -765,6 +812,7 @@ async function getOccupancySummary() {
   const T: any = {
     seats: 0, lanes: 0, occLanes: 0, bookings: 0, fdSeats: 0,
     seatsFull: 0, seatsHalf: 0, seatsEmpty: 0, blockedLanes: 0, heldLanes: 0,
+    worthSold: 0, worthFullDay: 0, worthCeiling: 0, ratesMissing: 0,
   };
   const P: any = {
     "MORNING": { occ: 0, vac: 0, total: 0, pct: 0 },

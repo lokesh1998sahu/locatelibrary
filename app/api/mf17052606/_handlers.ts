@@ -326,6 +326,11 @@ async function savePerson(p: any) {
 async function ledger(p: any) {
   const accountId = Number(p?.account_id) || 0;
   const limit = Math.min(400, Math.max(20, Number(p?.limit) || 120));
+  // World filter is offered ONLY on the all-accounts "recent" view, which has
+  // no running balance. Never on a single account: filtering rows there would
+  // make the balance column skip transactions and stop matching the bank.
+  const wWorld = up(p?.world);
+  const wScoped = wWorld === "PERSONAL" || wWorld === "LIBRARY";
 
   if (!accountId) {
     const rows = (await sql`
@@ -334,6 +339,7 @@ async function ledger(p: any) {
                where cl.entry_id = e.id limit 1) as category
       from fin.entries e
       where e.voided = false
+        and (${!wScoped} or e.world = ${wScoped ? wWorld : "PERSONAL"})
       order by e.entry_date desc, e.id desc
       limit ${limit}
     `) as any[];
@@ -364,14 +370,14 @@ async function ledger(p: any) {
                       (select c.name from fin.entry_lines cl join fin.categories c on c.id = cl.category_id
                         where cl.entry_id = e.id limit 1),
                       e.entry_type) as label,
-             'MF' as source
+             e.world::text as world, 'MF' as source
       from fin.entry_lines l
       join fin.entries e on e.id = l.entry_id
       where l.line_kind = 'ACCOUNT' and l.account_id = ${accountId} and e.voided = false
     ),
     lma as (
       select i.on_date, i.amount, i.src as kind, null::bigint as entry_id,
-             i.src || ' ' || i.ref as label, 'LMA' as source
+             i.src || ' ' || i.ref as label, 'LIBRARY'::text as world, 'LMA' as source
       from fin.v_lma_income i
       where i.bank_code = ${acc.bank_code}
     )
@@ -386,7 +392,7 @@ async function ledger(p: any) {
     return {
       entry_id: r.entry_id == null ? null : Number(r.entry_id),
       on_date: r.on_date, kind: r.kind, label: r.label,
-      amount: money(r.amount), balance: run, source: r.source,
+      amount: money(r.amount), balance: run, source: r.source, world: r.world,
     };
   });
 

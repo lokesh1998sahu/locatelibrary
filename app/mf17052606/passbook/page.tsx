@@ -22,6 +22,7 @@ type Row = {
   amount: number;
   balance: number | null;
   source: "MF" | "LMA";
+  world?: string | null;
 };
 
 const REASONS: { v: string; label: string }[] = [
@@ -39,13 +40,14 @@ export default function Passbook() {
   const [meta, setMeta] = useState<{ needs_setup?: boolean; total?: number; shown?: number } | null>(null);
   const [busy, setBusy] = useState(false);
   const [openId, setOpenId] = useState<number | null>(null);
+  const [world, setWorld] = useState<"" | "PERSONAL" | "LIBRARY">("");
 
   const load = useCallback(async () => {
     setBusy(true);
-    const j = await post("ledger", { account_id: accountId ?? 0 });
+    const j = await post("ledger", { account_id: accountId ?? 0, world });
     setBusy(false);
     if (j) { setRows(j.rows ?? []); setMeta({ needs_setup: j.needs_setup, total: j.total, shown: j.shown }); }
-  }, [accountId, post]);
+  }, [accountId, world, post]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -69,6 +71,14 @@ export default function Passbook() {
           <Chip key={a.id} on={accountId === a.id} onClick={() => setAccountId(a.id)}>{a.bank_name}</Chip>
         ))}
       </div>
+
+      {accountId === null && (
+        <div style={{ display: "flex", gap: 6, marginBottom: 14 }}>
+          <Chip on={world === ""} onClick={() => setWorld("")}>All</Chip>
+          <Chip on={world === "PERSONAL"} onClick={() => setWorld("PERSONAL")}>Personal</Chip>
+          <Chip on={world === "LIBRARY"} onClick={() => setWorld("LIBRARY")}>Library</Chip>
+        </div>
+      )}
 
       {busy && rows.length === 0 ? (
         <Muted>Loading…</Muted>
@@ -97,7 +107,9 @@ export default function Passbook() {
                     {r.label}
                   </span>
                   <span style={{ display: "block", fontSize: 11, color: "var(--mf-ink-3)", marginTop: 2 }}>
-                    {r.on_date}{r.source === "LMA" ? " · from LMA" : ""}
+                    {r.on_date}
+                    {r.world ? <span style={{ marginLeft: 6, fontSize: 10, fontWeight: 600, padding: "1px 6px", borderRadius: 999, border: "1px solid var(--mf-line)", color: r.world === "LIBRARY" ? "var(--mf-have)" : "var(--mf-ink-3)" }}>{r.world === "LIBRARY" ? "Library" : "Personal"}</span> : null}
+                    {r.source === "LMA" ? " · from LMA" : ""}
                   </span>
                 </span>
                 <span style={{ textAlign: "right", whiteSpace: "nowrap" }}>

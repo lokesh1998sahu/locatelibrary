@@ -37,6 +37,7 @@ interface OccBase {
   fdSeats:number; pairSeats:number; morningOnlySeats:number; eveningOnlySeats:number; seatsEmpty:number;
   seatsFull:number; seatsHalf:number;
   blockedLanes:number; heldLanes:number; blockedSeats:number; heldSeats:number;
+  worthSold:number; worthFullDay:number; worthCeiling:number; ratesMissing:number;
   plan:Record<"MORNING"|"EVENING"|"FULL DAY",PlanStat>;
   offboard:{ floating:number; unassigned:number; other:number; total:number };
 }
@@ -45,6 +46,8 @@ interface OccSummary { ok:boolean; generated_at:string; total:OccBase; libraries
 
 // 208 -> "208", 25.5 -> "25.5"
 const n1 = (v:number|undefined|null)=> !Number.isFinite(v as number) ? "—" : (Number.isInteger(v) ? String(v) : (v as number).toFixed(1));
+const inr = (v:number|undefined|null)=> !Number.isFinite(v as number) ? "—" : "₹"+Math.round(v as number).toLocaleString("en-IN");
+const wPct = (n:number,d:number)=> d>0 ? Math.round((n/d)*100) : 0;
 // slots left on seats that are ALREADY earning in the other shift
 const morningSlots = (r:OccBase)=> Math.max(r.plan.MORNING.vac - r.plan["FULL DAY"].vac, 0);
 const eveningSlots = (r:OccBase)=> Math.max(r.plan.EVENING.vac - r.plan["FULL DAY"].vac, 0);
@@ -97,6 +100,14 @@ export default function OccupancyCard({ scope, reloadKey }:{ scope:string; reloa
             <div className="h-2 rounded-full bg-lma-slate-100 overflow-hidden mt-2">
               <div className="h-full rounded-full bg-lma-primary transition-all" style={{width:`${Math.min(shown.occPct,100)}%`}}/>
             </div>
+            <div className="flex items-baseline gap-1.5 mt-2.5">
+              <span className="text-[15px] font-extrabold text-lma-slate-900">{inr(shown.worthSold)}</span>
+              <span className="text-[10px] font-semibold text-lma-slate-500">/mo at list rates</span>
+            </div>
+            <div className="text-[10px] font-semibold text-lma-slate-500 mt-0.5">
+              {wPct(shown.worthSold,shown.worthFullDay)}% of full-day base · {wPct(shown.worthSold,shown.worthCeiling)}% of split ceiling
+              {shown.ratesMissing>0 && <span className="text-lma-warn"> · {shown.ratesMissing} rate set{shown.ratesMissing===1?"":"s"} missing</span>}
+            </div>
             <div className="grid grid-cols-3 gap-1.5 mt-2.5">
               <MiniCell n={shown.plan["FULL DAY"].vac} t="whole seats free"/>
               <MiniCell n={morningSlots(shown)}        t="morning slots"/>
@@ -121,6 +132,7 @@ function buildText(d:OccSummary):string{
   const L:string[]=[
     "\u{1F4CA} OCCUPANCY REPORT", d.generated_at, "",
     `OVERALL ${T.occPct}%  \u2014  ${n1(T.soldSeats)} of ${T.seats} seats' worth sold`,
+    `WORTH ${inr(T.worthSold)}/mo${dot}${wPct(T.worthSold,T.worthFullDay)}% of full-day base${dot}${wPct(T.worthSold,T.worthCeiling)}% of split ceiling`,
     "",
     `SEATS (${T.seats})`,
     `  full-day ${T.fdSeats}${dot}shared ${T.pairSeats}${dot}morning only ${T.morningOnlySeats}${dot}evening only ${T.eveningOnlySeats}${dot}nothing booked ${T.seatsEmpty}`,
@@ -132,7 +144,7 @@ function buildText(d:OccSummary):string{
     L.push(`  not sellable: ${T.blockedSeats} blocked${dot}${T.heldSeats} held`);
   L.push("", "BY SHIFT", `  morning ${T.plan.MORNING.occ}/${T.seats} (${T.plan.MORNING.pct}%)${dot}evening ${T.plan.EVENING.occ}/${T.seats} (${T.plan.EVENING.pct}%)`);
   d.libraries.forEach(r=>{
-    L.push("", `${r.key} \u2014 ${r.occPct}%  (${n1(r.soldSeats)} of ${r.seats})`);
+    L.push("", `${r.key} \u2014 ${r.occPct}%  (${n1(r.soldSeats)} of ${r.seats})${dot}${inr(r.worthSold)}/mo`);
     L.push(`  full-day ${r.fdSeats}${dot}shared ${r.pairSeats}${dot}mor-only ${r.morningOnlySeats}${dot}eve-only ${r.eveningOnlySeats}${dot}free ${r.seatsEmpty}`);
     L.push(`  to sell: ${r.plan["FULL DAY"].vac} whole${dot}${morningSlots(r)} morning${dot}${eveningSlots(r)} evening` +
       (r.blockedSeats?`${dot}${r.blockedSeats} blocked`:"") + (r.offboard.total?`${dot}${r.offboard.total} off-chart`:""));
@@ -186,6 +198,8 @@ function OccReport({ data, scope, onClose, showToast }:{ data:OccSummary; scope:
             <div className="text-[10px] font-bold uppercase tracking-wide opacity-80">Overall · all libraries</div>
             <div className="text-[38px] font-extrabold leading-none mt-0.5">{T.occPct}%</div>
             <div className="text-[12px] font-semibold opacity-90 mt-1">{n1(T.soldSeats)} of {T.seats} seats&rsquo; worth sold</div>
+            <div className="text-[15px] font-extrabold mt-2">{inr(T.worthSold)}<span className="text-[11px] font-semibold opacity-80"> /mo at list rates</span></div>
+            <div className="text-[11px] font-semibold opacity-80 mt-0.5">{wPct(T.worthSold,T.worthFullDay)}% of full-day base · {wPct(T.worthSold,T.worthCeiling)}% of split ceiling</div>
             <div className="h-2 rounded-full bg-white/25 overflow-hidden mt-2">
               <div className="h-full rounded-full bg-white" style={{width:`${Math.min(T.occPct,100)}%`}}/>
             </div>
@@ -278,6 +292,7 @@ function OccReport({ data, scope, onClose, showToast }:{ data:OccSummary; scope:
                       <div className="h-full rounded-full" style={{width:`${Math.max(Math.min(r.occPct,100),1)}%`,background:c}}/>
                     </div>
                     <div className="text-[10px] font-semibold text-lma-slate-500 mt-1">{n1(r.soldSeats)} of {r.seats} sold · to sell: {r.plan["FULL DAY"].vac} whole · {morningSlots(r)} mor · {eveningSlots(r)} eve</div>
+                    <div className="text-[10px] mt-0.5"><span className="font-extrabold text-lma-slate-900">{inr(r.worthSold)}/mo</span><span className="font-semibold text-lma-slate-500"> · {wPct(r.worthSold,r.worthFullDay)}% of full-day base</span></div>
                   </button>
                   {on&&(
                     <div className="px-3 pb-3">
