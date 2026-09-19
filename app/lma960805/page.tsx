@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useLMA, useScopeChips } from "./_components/LMAProvider";
 import { buildVacancyText, type VacPlan } from "./_lib/vacancy";
 import OccupancyCard from "./_components/OccupancyCard";
+import { ledgerHref, periodOf } from "./_lib/period";
 
 const API = "/api/lma960805";
 
@@ -20,6 +21,7 @@ const CARDS: Card[] = [
   { href:"/lma960805/refunds",     label:"Refunds",     emoji:"↩️", desc:"Issue & track" },
   { href:"/lma960805/receipts",    label:"Receipts",    emoji:"🧾", desc:"Full log & edits" },
   { href:"/lma960805/dashboard",   label:"Dashboard",   emoji:"📊", desc:"Collection & analytics" },
+  { href:"/lma960805/dashboard/ledger", label:"Ledger", emoji:"📒", desc:"Money in & out, by bank & tag" },
   { href:"/lma960805/settings",    label:"Settings",    emoji:"⚙️", desc:"Libraries, fees, layouts" },
 ];
 
@@ -105,7 +107,7 @@ export default function LmaHomePage() {
           </div>
           {loadedScope!==scope&&<div className="text-[10px] font-semibold opacity-80 mb-2">Showing {loadedScope||"All"} — tap ↻ to load {scope||"All"}</div>}
           <div className="grid grid-cols-3 gap-2">
-            <CockpitCell label="Collected" value={today?fmtINR(today.net):"…"}/>
+            <Link href={ledgerHref({ period:periodOf("today"), lib:loadedScope })} className="block active:scale-[0.97] transition"><CockpitCell label="Collected ›" value={today?fmtINR(today.net):"…"}/></Link>
             <CockpitCell label="Receipts" value={today?String(today.receipts):"…"}/>
                        <CockpitCell label="Dues (live)" value={today?fmtINR(today.dues):"…"}/>
 

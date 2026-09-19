@@ -14,7 +14,7 @@
 
 import ContactCopyButton from "./ContactCopyButton";
 import WhatsAppButton from "./WhatsAppButton";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useLMA } from "./LMAProvider";
 import CancelRefundSheet from "./CancelRefundSheet";
 import { fmtDMY, fmtDMYT, toIsoInput, toDmy } from "../_lib/dates";
@@ -560,19 +560,25 @@ function EditEventCard({ev,phones}:{ev:EditEvent;phones?:PhoneEntry[]}){
 }
 
 // ── MONEY TRAIL — click-to-load (never auto-fetched) ──
-function MoneyTrail({receiptNo}:{receiptNo:string}){
-  const [open,setOpen]=useState(false);
+// autoOpen: loads straight away (used by the Ledger's entry sheet). Default false = unchanged behaviour.
+export function MoneyTrail({receiptNo, autoOpen=false}:{receiptNo:string; autoOpen?:boolean}){
+  const [open,setOpen]=useState(autoOpen);
   const [t,setT]=useState<any>(null);
   const [loading,setLoading]=useState(false);
   const [err,setErr]=useState("");
-  const toggle=async()=>{
-    if(t || open){ setOpen(o=>!o); return; }
-    setOpen(true); setLoading(true); setErr("");
+  const fetchTrail=useCallback(async()=>{
+    setLoading(true); setErr("");
     try{
       const r=await fetch(`${API}?action=getReceiptMoneyTrail&receipt_no=${encodeURIComponent(receiptNo)}`).then(x=>x.json());
       if(r&&r.ok) setT(r); else setErr(r&&r.error?r.error:"Could not load money trail (redeploy backend?).");
     }catch{ setErr("Network error loading money trail."); }
     setLoading(false);
+  },[receiptNo]);
+  useEffect(()=>{ if(autoOpen) fetchTrail(); },[autoOpen,fetchTrail]);
+  const toggle=async()=>{
+    if(t || open){ setOpen(o=>!o); return; }
+    setOpen(true);
+    await fetchTrail();
   };
   const inr=(n:number)=>"₹"+Math.round(n).toLocaleString("en-IN");
   return (

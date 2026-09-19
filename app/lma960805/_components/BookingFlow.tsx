@@ -58,6 +58,7 @@ export default function BookingFlow({ renewReceiptNo, addMode, libCode, presetSe
   const [bookingCtx,setBookingCtx] = useState<BookingCtx|null>(null);
   const [result,setResult] = useState<ResultData|null>(null);
   const bookingDraft = useRef<any>(null);
+  const studentDraft = useRef<any>(null);
 
   // renewal mode: fetch the receipt by number (self-sufficient)
   useEffect(()=>{ if(!renewReceiptNo) return; let alive=true; (async()=>{
@@ -116,16 +117,17 @@ export default function BookingFlow({ renewReceiptNo, addMode, libCode, presetSe
             </div>
           </>
         ) : step==="type" ? (
-          <StepType onPick={t=>{ setAdmitType(t); setStep("student"); }} onBack={onClose}/>
+          <StepType onPick={t=>{ if(studentDraft.current && studentDraft.current.admitType!==t) studentDraft.current=null; setAdmitType(t); setStep("student"); }} onBack={onClose}/>
         ) : step==="student" && admitType ? (
-          <StepStudent init={init} resolvedLib={resolved.lib} resolvedBranch={resolved.branch} admitType={admitType} post={post} showToast={showToast}
+           <StepStudent init={init} resolvedLib={resolved.lib} resolvedBranch={resolved.branch} admitType={admitType} post={post} showToast={showToast}
+            draft={studentDraft}
             onBack={()=>setStep("type")}
             onReady={(ctx)=>{ setBookingCtx({ ...ctx, preload:{ seat:presetSeat||"", shift:presetShift||"", fee:"", from:"", to:"" } }); setStep("form"); }}/>
         ) : step==="form" && formCtx ? (
           <StepBooking init={init} resolvedLib={resolved.lib} resolvedBranch={resolved.branch} ctx={formCtx} post={post} showToast={showToast}
             draft={bookingDraft}
             onBack={()=>setStep(renewReceiptNo?"confirm":"student")}
-            onDone={(r)=>{ bookingDraft.current=null; setResult(r); setStep("done"); onComplete(); }}/>
+           onDone={(r)=>{ bookingDraft.current=null; studentDraft.current=null; setResult(r); setStep("done"); onComplete(); }}/>
         ) : step==="done" && result ? (
           <DoneView result={result} onClose={onClose}/>
         ) : null}
@@ -188,10 +190,10 @@ function StepType({ onPick, onBack }:{ onPick:(t:"NEW"|"RENEWAL")=>void; onBack:
 }
 
 // ── STEP: STUDENT (new details OR renewal search) — copied ──
-function StepStudent({ init, resolvedLib, resolvedBranch, admitType, post, showToast, onBack, onReady }:{
+function StepStudent({ init, resolvedLib, resolvedBranch, admitType, post, showToast, onBack, onReady, draft }:{
   init:any; resolvedLib:string; resolvedBranch:string; admitType:"NEW"|"RENEWAL";
   post:(a:string,p:any)=>Promise<any>; showToast:(m:string,t?:"success"|"error")=>void;
-  onBack:()=>void; onReady:(ctx:BookingCtx)=>void;
+  onBack:()=>void; onReady:(ctx:BookingCtx)=>void; draft?:{current:any};
 }){
   const [name,setName]=useState("");
   const [phones,setPhones]=useState<PhoneEntry[]>([{number:"",tag:"SELF"}]);
@@ -237,8 +239,40 @@ function StepStudent({ init, resolvedLib, resolvedBranch, admitType, post, showT
   const [rcptPage,setRcptPage]=useState(0);
   const [stuPage,setStuPage]=useState(0);
   const [isCross,setIsCross]=useState(false);
-  const [crossOrigin,setCrossOrigin]=useState("");
+   const [crossOrigin,setCrossOrigin]=useState("");
 
+  // Draft: everything typed/searched here survives a trip forward to booking and
+
+  // back. Restored in a layout effect so it lands before paint (no blank flash).
+
+  const restoredRef=useRef(false);
+  if(!restoredRef.current){
+    restoredRef.current=true;
+
+    const d=draft?.current;
+
+    if(d&&d.admitType===admitType){
+
+    setName(d.name||""); setPhones(d.phones&&d.phones.length?d.phones:[{number:"",tag:"SELF"}]);
+
+    setAddress(d.address||""); setPreparingFor(d.preparingFor||""); setAadhaar(d.aadhaar||"");
+
+    setDob(d.dob||""); setGender(d.gender||""); setIntakeCode(d.intakeCode||"");
+
+    setIntakeOk(d.intakeOk||""); setIntakeRemark(d.intakeRemark||""); setIntakeMobile(d.intakeMobile||""); setIntakeAlt(d.intakeAlt||"");
+
+    setSearch(d.search||""); setStudentResults(d.studentResults||[]); setReceiptResults(d.receiptResults||[]);
+
+    setHasSearched(!!d.hasSearched); setRcptPage(d.rcptPage||0); setStuPage(d.stuPage||0);
+
+    setIsCross(!!d.isCross); setCrossOrigin(d.crossOrigin||"");
+
+    }
+  }
+
+  // mirror current state into the draft after every render — no exit path can miss it
+
+  useEffect(()=>{ if(draft) draft.current={ admitType, name, phones, address, preparingFor, aadhaar, dob, gender, intakeCode, intakeOk, intakeRemark, intakeMobile, intakeAlt, search, studentResults, receiptResults, hasSearched, rcptPage, stuPage, isCross, crossOrigin }; });
   const searchScope = isCross ? crossOrigin : resolvedBranch || resolvedLib;
 
   // O11(b): in RENEWAL search only, show just the LATEST receipt per student.

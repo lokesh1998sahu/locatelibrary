@@ -1,4 +1,4 @@
-  import sql from "./_db";
+import sql from "./_db";
 import { occupancyStats } from "../../lma960805/_lib/vacancy";
 
   // ── ACTION TOGGLE ────────────────────────────────────────────────────
@@ -42,6 +42,7 @@ import { occupancyStats } from "../../lma960805/_lib/vacancy";
     "getReceiptMoneyTrail",
     // 11_Dashboard / health
     "getDashboard",
+    "getMoneyLedger",
     "ping",
     // ══ CUTOVER: writes enabled ══
     // 05_Receipts (writes)
@@ -1683,8 +1684,37 @@ async function getOccupancySummary() {
     return d + "-" + m + "-" + y;
   }
 
-  async function getDashboard(params: any) {
-    params = params || {};
+  // ════════════════════════════════════════════════════════════════════
+  // MONEY LINES — the ONE place that decides which money counts, on which
+  // date, for which library / payment tag / bank. getDashboard() only
+  // TOTALS these lines and getMoneyLedger() only LISTS them, so a Dashboard
+  // figure and its Ledger can never disagree. The four loops below are the
+  // former getDashboard loops, unchanged in order and in every check.
+  // ════════════════════════════════════════════════════════════════════
+  type MoneyTables = { rcpts: any[]; dues: any[]; misc: any[]; refunds: any[]; branches: any[] };
+  type MoneyLine = {
+    src: "RECEIPTS" | "DUES" | "MISC" | "REFUNDS";
+    dir: "IN" | "OUT";
+    amt: number; // always positive; dir says in or out
+    day: string | null; // YYYY-MM-DD payment date (the Dashboard's date)
+    sday: string | null; // YYYY-MM-DD bank credit date
+    lib: string; // branch || library (same key as by_library)
+    tag: string; // payment tag, upper-case, "" when blank
+    bank: string; // fees mode / bank code, upper-case, "" when blank
+    ref: string; // receipt no / dues payment id / MISC-<s_no> / refund id
+    rno: string; // receipt the money belongs to ("" for misc)
+    sid: string;
+    name: string;
+    rtype: string; // NEW / RENEWAL (receipt payments only)
+    part: number; // which paid slot of a split receipt payment
+    parts: number; // how many paid slots that receipt has
+    cat: string; // misc category
+    note: string; // misc remark / refund reason / dues notes
+    xlib: boolean; // cross-library receipt
+    sno: number;
+  };
+
+  function _moneyRange(params: any): { fromYmd: number; toYmd: number } {
     let fromYmd = params.from ? _ymd(params.from) : null;
     let toYmd = params.to ? _ymd(params.to) : null;
     if (!fromYmd || !toYmd) {
@@ -1699,65 +1729,244 @@ async function getOccupancySummary() {
       fromYmd = toYmd;
       toYmd = t;
     }
-    const scope = up(params.library || "");
+    return { fromYmd: fromYmd!, toYmd: toYmd! };
+  }
 
-    // Sequential on purpose (see getInitData): avoids grabbing six connections at once.
+  // Sequential on purpose (see getInitData): avoids grabbing many connections at once.
+  async function _loadMoneyTables(): Promise<MoneyTables> {
     const rcpts    = (await sql`select * from receipt_log`) as any[];
     const dues     = (await sql`select * from fees_due_log`) as any[];
     const misc     = (await sql`select * from misc_income`) as any[];
     const refunds  = (await sql`select * from refund_log`) as any[];
-    const students = (await sql`select * from students`) as any[];
     const branches = (await sql`select * from library_branches`) as any[];
-    const inScope = makeScopeMatcher(branches, scope);
-    const inRange = (ymd: number | null) => ymd !== null && ymd >= fromYmd! && ymd <= toYmd!;
-    const A = _mkAgg();
+    return { rcpts, dues, misc, refunds, branches };
+  }
 
-    // 1) RECEIPT payments
-    for (const row of rcpts) {
+  function _isXlib(v: unknown): boolean {
+    const s = up(v);
+    return !!s && s !== "NO";
+  }
+
+  // Bank credit date: the stored settlement date, else payment date + the
+  // tag's settlement days (the same rule used when entries are saved).
+  function _creditDay(stored: unknown, payDate: unknown, tag: unknown, tagMap: Map<string, TagInfo> | null): string | null {
+    const s = _ymdKeyStr(stored);
+    if (s) return s;
+    const p = _ymdKeyStr(payDate);
+    if (!p || !tagMap) return p;
+    return _addSettlementDaysW(p, tag, tagMap);
+  }
+
+  // basis "pay"    → range tested on the payment date (the Dashboard's rule)
+  // basis "credit" → range tested on the bank credit date (refunds: refund date)
+  function _moneyLines(T: MoneyTables, fromYmd: number, toYmd: number, scope: string, basis: "pay" | "credit", tagMap: Map<string, TagInfo> | null) {
+    const inScope = makeScopeMatcher(T.branches, scope);
+    const inRange = (ymd: number | null) => ymd !== null && ymd >= fromYmd && ymd <= toYmd;
+    const byCredit = basis === "credit";
+    const lines: MoneyLine[] = [];
+    const counts = { receipts: 0, dues_payments: 0, misc_entries: 0, refunds: 0 };
+
+    // 1) RECEIPT payments (each paid slot on its own date)
+    for (const row of T.rcpts) {
       if (!row.receipt_no) continue;
       if (!inScope(row.library, row.branch)) continue;
       const rcptDate = row.receipt_date;
       const libKey = _libKeyFor(row.library, row.branch);
+      let parts = 0;
+      for (let n = 1; n <= 3; n++) if (num(row["pay_amount_" + n])) parts++;
+      let part = 0;
       let touched = false;
       for (let n = 1; n <= 3; n++) {
         const amt = num(row["pay_amount_" + n]);
         if (!amt) continue;
+        part++;
         const md = row["pay_mode_" + n + "_date"];
         const payDate = md ? md : rcptDate;
-        if (!inRange(_ymd(payDate))) continue;
-        _addInflow(A, amt, libKey, row["pay_fees_mode_" + n], row["pay_mode_" + n], _ymdKeyStr(payDate), "RECEIPTS");
+        let sday: string | null;
+        if (byCredit) {
+          sday = _creditDay(row["pay_mode_" + n + "_s_date"], payDate, row["pay_mode_" + n], tagMap);
+          if (!inRange(_ymd(sday))) continue;
+        } else {
+          if (!inRange(_ymd(payDate))) continue;
+          sday = _creditDay(row["pay_mode_" + n + "_s_date"], payDate, row["pay_mode_" + n], tagMap);
+        }
+        lines.push({
+          src: "RECEIPTS", dir: "IN", amt, day: _ymdKeyStr(payDate), sday, lib: libKey,
+          tag: up(row["pay_mode_" + n]), bank: up(row["pay_fees_mode_" + n]),
+          ref: up(row.receipt_no), rno: up(row.receipt_no),
+          sid: composeSid(up(row.student_id), row.is_cross_library), name: up(row.name ?? ""),
+          rtype: up(row.type ?? ""), part, parts, cat: "", note: "",
+          xlib: _isXlib(row.is_cross_library), sno: num(row.s_no),
+        });
         touched = true;
       }
-      if (touched) A.counts.receipts++;
+      if (touched) counts.receipts++;
     }
     // 2) DUES payments
-    for (const row of dues) {
+    for (const row of T.dues) {
       const amt = num(row.amount_received);
       if (!amt) continue;
       if (!inScope(row.library, row.branch)) continue;
-      if (!inRange(_ymd(row.received_on))) continue;
-      _addInflow(A, amt, _libKeyFor(row.library, row.branch), row.payment_fees_mode, row.payment_mode, _ymdKeyStr(row.received_on), "DUES");
-      A.counts.dues_payments++;
+      let sday: string | null;
+      if (byCredit) {
+        sday = _creditDay(row.settlement_date, row.received_on, row.payment_mode, tagMap);
+        if (!inRange(_ymd(sday))) continue;
+      } else {
+        if (!inRange(_ymd(row.received_on))) continue;
+        sday = _creditDay(row.settlement_date, row.received_on, row.payment_mode, tagMap);
+      }
+      lines.push({
+        src: "DUES", dir: "IN", amt, day: _ymdKeyStr(row.received_on), sday, lib: _libKeyFor(row.library, row.branch),
+        tag: up(row.payment_mode), bank: up(row.payment_fees_mode),
+        ref: up(row.payment_id ?? ""), rno: up(row.receipt_no ?? ""),
+        sid: up(row.student_id ?? ""), name: up(row.name ?? ""),
+        rtype: "", part: 0, parts: 0, cat: "", note: String(row.notes ?? ""),
+        xlib: false, sno: num(row.s_no),
+      });
+      counts.dues_payments++;
     }
     // 3) MISC income
-    for (const row of misc) {
+    for (const row of T.misc) {
       const amt = num(row.amount);
       if (!amt) continue;
       if (!inScope(row.library, row.branch)) continue;
-      if (!inRange(_ymd(row.date))) continue;
+      let sday: string | null;
+      if (byCredit) {
+        sday = _creditDay(row.settlement_date, row.date, row.payment_tag, tagMap);
+        if (!inRange(_ymd(sday))) continue;
+      } else {
+        if (!inRange(_ymd(row.date))) continue;
+        sday = _creditDay(row.settlement_date, row.date, row.payment_tag, tagMap);
+      }
       if (up(row.status || "") === "DELETED") continue;
-      _addInflow(A, amt, _libKeyFor(row.library, row.branch), row.fees_mode, row.payment_tag, _ymdKeyStr(row.date), "MISC");
-      A.counts.misc_entries++;
+      lines.push({
+        src: "MISC", dir: "IN", amt, day: _ymdKeyStr(row.date), sday, lib: _libKeyFor(row.library, row.branch),
+        tag: up(row.payment_tag), bank: up(row.fees_mode),
+        ref: "MISC-" + num(row.s_no), rno: "", sid: "", name: "",
+        rtype: "", part: 0, parts: 0, cat: up(row.category ?? ""), note: String(row.remark ?? ""),
+        xlib: false, sno: num(row.s_no),
+      });
+      counts.misc_entries++;
     }
-    // 4) REFUNDS (outflow)
-    for (const row of refunds) {
+    // 4) REFUNDS (outflow) — money leaves on the refund date under both bases
+    for (const row of T.refunds) {
       const amt = Math.abs(num(row.amount));
       if (!amt) continue;
       if (!inScope(row.library, row.branch)) continue;
       if (!inRange(_ymd(row.refund_date))) continue;
-      _addOutflow(A, amt, _libKeyFor(row.library, row.branch), row.refund_fees_mode, row.refund_mode, _ymdKeyStr(row.refund_date));
-      A.counts.refunds++;
+      const rday = _ymdKeyStr(row.refund_date);
+      lines.push({
+        src: "REFUNDS", dir: "OUT", amt, day: rday, sday: rday, lib: _libKeyFor(row.library, row.branch),
+        tag: up(row.refund_mode), bank: up(row.refund_fees_mode),
+        ref: up(row.refund_id ?? ""), rno: up(row.original_receipt_no ?? ""),
+        sid: composeSid(up(row.student_id ?? ""), row.is_cross_library), name: up(row.name ?? ""),
+        rtype: "", part: 0, parts: 0, cat: "", note: String(row.refund_reason ?? ""),
+        xlib: _isXlib(row.is_cross_library), sno: num(row.s_no),
+      });
+      counts.refunds++;
     }
+    return { lines, counts };
+  }
+
+  // ════════════════════════════════════════════════════════════════════
+  // LEDGER — lists the money lines behind any Dashboard figure. Read-only.
+  //   from, to  d-m-yyyy (default = this month, same as getDashboard)
+  //   library   scope chip (same matcher as getDashboard)
+  //   dim       all | bank | tag | library     key  e.g. YESB-LS / CASH / YAL-1 ("—" = blank)
+  //   basis     pay (default, matches the Dashboard) | credit (bank credit date)
+  // ════════════════════════════════════════════════════════════════════
+  async function getMoneyLedger(params: any) {
+    params = params || {};
+    const { fromYmd, toYmd } = _moneyRange(params);
+    const scope = up(params.library || "");
+    const dimIn = String(params.dim || "").toLowerCase();
+    const dim: "all" | "bank" | "tag" | "library" = dimIn === "bank" || dimIn === "tag" || dimIn === "library" ? dimIn : "all";
+    const basis: "pay" | "credit" = String(params.basis || "").toLowerCase() === "credit" ? "credit" : "pay";
+
+    const T = await _loadMoneyTables();
+    const tagMap = await _loadTagMap();
+    const all = _moneyLines(T, fromYmd, toYmd, scope, basis, tagMap).lines;
+
+    // every key of this dimension, totalled exactly like the Dashboard breakdowns
+    const keyOf = (L: MoneyLine) => (dim === "bank" ? L.bank : dim === "tag" ? L.tag : L.lib) || "—";
+    const agg: any = {};
+    if (dim !== "all") for (const L of all) _bump(agg, keyOf(L), L.dir === "IN" ? "gross" : "refund", L.amt);
+    const switcher = dim === "all" ? [] : _finalizeBreakdown(agg);
+    const key = dim === "all" ? "" : up(params.key || "") || (switcher.length ? switcher[0].key : "");
+    const lines = dim === "all" ? all : all.filter((L) => keyOf(L) === key);
+
+    // Same arithmetic (order + rounding) as the Dashboard, so the totals equal the tapped figure.
+    let g = 0,
+      r = 0;
+    const rset = new Set<string>();
+    for (const L of lines) {
+      if (L.dir === "IN") g += L.amt;
+      else r += L.amt;
+      if (L.src === "RECEIPTS") rset.add(L.rno);
+    }
+    const totals = {
+      gross: Math.round(g),
+      refund: Math.round(r),
+      net: dim === "all" ? Math.round(g) - Math.round(r) : Math.round(g - r),
+      entries: lines.length,
+      receipts: rset.size,
+    };
+
+    let meta: any = null;
+    if (dim === "bank" && key && key !== "—") {
+      const acc = (await sql`select bank_name, owner_name, acct_type from fin.accounts where upper(bank_code)=${key} limit 1`) as any[];
+      const routes = (await sql`select display_code, settlement_days from fin.routes where upper(bank_code)=${key} order by id`) as any[];
+      meta = {
+        bank_name: String(acc[0]?.bank_name ?? ""),
+        owner_name: String(acc[0]?.owner_name ?? ""),
+        acct_type: String(acc[0]?.acct_type ?? ""),
+        tags: routes.map((x) => ({ tag: up(x.display_code), days: num(x.settlement_days) })),
+      };
+    } else if (dim === "tag" && key && key !== "—") {
+      const ti = tagMap.get(key);
+      const bank = up(ti?.fees_mode ?? "");
+      const acc = bank ? ((await sql`select bank_name, owner_name from fin.accounts where upper(bank_code)=${bank} limit 1`) as any[]) : [];
+      meta = {
+        bank,
+        days: ti ? ti.settlement_days : null,
+        bank_name: String(acc[0]?.bank_name ?? ""),
+        owner_name: String(acc[0]?.owner_name ?? ""),
+      };
+    }
+
+    return {
+      ok: true,
+      range: { from: _isoToDmy(fromYmd), to: _isoToDmy(toYmd), from_ymd: fromYmd, to_ymd: toYmd },
+      scope: scope || "ALL",
+      dim,
+      key,
+      basis,
+      today: _ymdKeyStr(todayMidnightIST()),
+      meta,
+      switcher,
+      totals,
+      lines: lines.map((L) => ({ ...L, amt: Math.round(L.amt * 100) / 100 })),
+    };
+  }
+
+  async function getDashboard(params: any) {
+    params = params || {};
+    const { fromYmd, toYmd } = _moneyRange(params);
+    const scope = up(params.library || "");
+
+    const T = await _loadMoneyTables();
+    const students = (await sql`select * from students`) as any[];
+    const rcpts = T.rcpts;
+    const inScope = makeScopeMatcher(T.branches, scope);
+    const A = _mkAgg();
+
+    // 1–4) receipt payments, dues, misc, refunds — totalled from the shared money lines
+    const M = _moneyLines(T, fromYmd, toYmd, scope, "pay", null);
+    for (const L of M.lines) {
+      if (L.dir === "IN") _addInflow(A, L.amt, L.lib, L.bank, L.tag, L.day, L.src);
+      else _addOutflow(A, L.amt, L.lib, L.bank, L.tag, L.day);
+    }
+    A.counts = M.counts;
 
     // live (not date-bound)
     let outstanding = 0;
@@ -4092,6 +4301,8 @@ async function getOccupancySummary() {
         return await getReceiptMoneyTrail(params);
       case "getDashboard":
         return await getDashboard(params);
+      case "getMoneyLedger":
+        return await getMoneyLedger(params);
       case "ping":
         return lmaPing();
       case "createReceipt":
