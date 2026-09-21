@@ -12,7 +12,7 @@ import DateRangeFilter from "../_components/DateRangeFilter";
 import Pager, { PAGE_SIZE } from "../_components/Pager";
 import WhatsAppButton from "../_components/WhatsAppButton";
 import { buildDuesReminder } from "../_lib/reminderText";
-import { useTagText } from "../_components/TagBank";
+import { TagBankNote } from "../_components/TagBank";
 
 const API = "/api/lma960805";
 
@@ -190,7 +190,7 @@ export default function DuesPage(){
                   {p.name&&<span className="text-[11px] text-lma-slate-500 truncate">{p.name}</span>}
                   <span className="text-sm font-extrabold text-lma-accent ml-auto">+₹{p.amount_received}</span>
                 </div>
-                <div className="text-[11px] text-lma-slate-500">{p.payment_mode}{p.payment_fees_mode?` → ${p.payment_fees_mode}`:""} · {fmtDMYT(p.received_on)} · ₹{p.balance_before}→₹{p.balance_after}</div>
+                <div className="text-[11px] text-lma-slate-500">{p.payment_mode} · {fmtDMYT(p.received_on)} · ₹{p.balance_before}→₹{p.balance_after}</div>
                 {p.notes&&<div className="text-[11px] text-lma-slate-400 mt-0.5">{p.notes}</div>}
                 {p.whatsapp_text&&<button onClick={()=>{navigator.clipboard.writeText(p.whatsapp_text);showToast("Copied receipt message");}} className="mt-2 py-1.5 px-3 rounded-lg bg-lma-accent/10 text-lma-accent font-bold text-xs">Copy WhatsApp</button>}
               </div>
@@ -252,7 +252,6 @@ export default function DuesPage(){
 }
 
 function PaymentSheet({ due, init, onClose, post, onDone }:{ due:PendingDue; init:InitData; onClose:()=>void; post:(a:string,p:any)=>Promise<any>; onDone:(text:string)=>void }){
-  const tagText=useTagText();
   const [mode,setMode]=useState("");
   const [amount,setAmount]=useState(String(due.fees_due_balance));
   const [date,setDate]=useState((()=>{const d=new Date();return `${d.getDate()}-${d.getMonth()+1}-${d.getFullYear()}`;})());
@@ -276,8 +275,9 @@ function PaymentSheet({ due, init, onClose, post, onDone }:{ due:PendingDue; ini
       <L>Payment Mode</L>
       <select value={mode} onChange={e=>setMode(e.target.value)} className="w-full px-3 py-2.5 rounded-xl border-[1.5px] border-lma-slate-200 bg-lma-slate-50 text-sm font-medium mb-2">
         <option value="">Select…</option>
-        {init.paymentTags.filter(t=>t.active).map(t=><option key={t.tag_name} value={t.tag_name}>{tagText(t.tag_name)}</option>)}
+        {init.paymentTags.filter(t=>t.active).map(t=><option key={t.tag_name} value={t.tag_name}>{t.tag_name}</option>)}
       </select>
+      <TagBankNote tag={mode}/>
       <L>Amount Received (₹)</L>
       <I type="number" value={amount} onChange={e=>setAmount(e.target.value)} max={due.fees_due_balance}/>
       <p className="text-[11px] text-lma-slate-500 mt-1">New balance will be ₹{Math.max(0,due.fees_due_balance-(Number(amount)||0))}.</p>

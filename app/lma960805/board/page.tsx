@@ -14,7 +14,7 @@ import StudentModal from "../_components/StudentModal";
 import BookingFlow from "../_components/BookingFlow";
 import { toIsoInput, fmtDMY, fmtDMYT, daysFromToday } from "../_lib/dates";
 import { normGender } from "../_lib/genderTheme";
-import { useTagText } from "../_components/TagBank";
+import { TagBankNote } from "../_components/TagBank";
 
 const API = "/api/lma960805";
 
@@ -615,7 +615,6 @@ function SeatTile({ cell, shiftView, onOpen, genderM, genderF, colorFilter }:{ c
 function CollectDueInline({ receiptNo, balance, post, showToast, onChanged, onEvent }:{ receiptNo:string; balance:number; post:(a:string,p:any)=>Promise<any>; showToast:(m:string,t?:"success"|"error")=>void; onChanged:()=>void; onEvent?:(text:string)=>void }){
   const { init }=useLMA();
   const modes=(init?.paymentTags||[]).filter(t=>t.active).map(t=>t.tag_name);
-  const tagText=useTagText();
   const [open,setOpen]=useState(false);
   const [amt,setAmt]=useState(String(balance||""));
   const [date,setDate]=useState(new Date().toISOString().slice(0,10));
@@ -637,8 +636,9 @@ function CollectDueInline({ receiptNo, balance, post, showToast, onChanged, onEv
       <input type="date" value={date} onChange={e=>setDate(e.target.value)} className="w-full px-2 py-1.5 rounded-md border border-lma-slate-300 text-sm bg-white"/>
       <div className="flex gap-2">
         <input type="number" inputMode="decimal" value={amt} onChange={e=>setAmt(e.target.value)} placeholder="Amount" className="flex-1 min-w-0 px-2 py-1.5 rounded-md border border-lma-slate-300 text-sm"/>
-        <select value={mode} onChange={e=>setMode(e.target.value)} className="px-2 py-1.5 rounded-md border border-lma-slate-300 text-sm bg-white"><option value="">Mode…</option>{modes.map(m=><option key={m} value={m}>{tagText(m)}</option>)}</select>
+        <select value={mode} onChange={e=>setMode(e.target.value)} className="px-2 py-1.5 rounded-md border border-lma-slate-300 text-sm bg-white"><option value="">Mode…</option>{modes.map(m=><option key={m} value={m}>{m}</option>)}</select>
       </div>
+      {mode&&<TagBankNote tag={mode} right/>}
       {err&&<div className="text-[11px] font-bold text-lma-danger">{err}</div>}
       <div className="flex gap-2">
         <button disabled={busy} onClick={()=>{setOpen(false);setErr("");}} className="flex-1 py-1.5 rounded-md bg-lma-slate-100 text-lma-slate-600 font-bold text-xs disabled:opacity-50">Cancel</button>
@@ -651,7 +651,6 @@ function CollectDueInline({ receiptNo, balance, post, showToast, onChanged, onEv
 function RefundInline({ receiptNo, post, showToast, onChanged, onEvent }:{ receiptNo:string; post:(a:string,p:any)=>Promise<any>; showToast:(m:string,t?:"success"|"error")=>void; onChanged:()=>void; onEvent?:(text:string)=>void }){
   const { init }=useLMA();
   const modes=(init?.paymentTags||[]).filter(t=>t.active).map(t=>t.tag_name);
-  const tagText=useTagText();
   const [open,setOpen]=useState(false);
   const [amt,setAmt]=useState("");
   const [mode,setMode]=useState("");
@@ -674,8 +673,9 @@ function RefundInline({ receiptNo, post, showToast, onChanged, onEvent }:{ recei
       <input type="date" value={date} onChange={e=>setDate(e.target.value)} className="w-full px-2 py-1.5 rounded-md border border-lma-slate-300 text-sm bg-white"/>
       <div className="flex gap-2">
         <input type="number" inputMode="decimal" value={amt} onChange={e=>setAmt(e.target.value)} placeholder="Refund amount" className="flex-1 min-w-0 px-2 py-1.5 rounded-md border border-lma-slate-300 text-sm"/>
-        <select value={mode} onChange={e=>setMode(e.target.value)} className="px-2 py-1.5 rounded-md border border-lma-slate-300 text-sm bg-white"><option value="">Mode…</option>{modes.map(m=><option key={m} value={m}>{tagText(m)}</option>)}</select>
+        <select value={mode} onChange={e=>setMode(e.target.value)} className="px-2 py-1.5 rounded-md border border-lma-slate-300 text-sm bg-white"><option value="">Mode…</option>{modes.map(m=><option key={m} value={m}>{m}</option>)}</select>
       </div>
+      {mode&&<TagBankNote tag={mode} right/>}
       <input value={reason} onChange={e=>setReason(e.target.value)} placeholder="Reason (optional)" className="w-full px-2 py-1.5 rounded-md border border-lma-slate-300 text-sm"/>
       {err&&<div className="text-[11px] font-bold text-lma-danger">{err}</div>}
       <div className="flex gap-2">

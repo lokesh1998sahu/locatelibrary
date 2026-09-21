@@ -7,7 +7,7 @@
 // zero visual change on any surface. A new cancel surface is one <CancelRefundSheet/>.
 import { useState } from "react";
 import { useLMA } from "./LMAProvider";
-import { useTagText } from "./TagBank";
+import { TagBankNote } from "./TagBank";
 
 export interface CancelTarget {
   receipt_no: string;
@@ -69,7 +69,6 @@ export default function CancelRefundSheet({
     : `${target.name||""} · Seat ${target.seat_no||"—"} · ${target.shift_name||target.shift||""}`;
 
   const modes=(init?.paymentTags||[]).filter((t:any)=>t.active);
-  const tagText=useTagText();
 
   const inner = (
     <>
@@ -88,8 +87,9 @@ export default function CancelRefundSheet({
             <CLabel>Refund Mode</CLabel>
             <select value={refundMode} onChange={e=>setRefundMode(e.target.value)} className="w-full px-3 py-2.5 rounded-xl border-[1.5px] border-lma-slate-200 bg-white text-sm font-medium">
               <option value="">Select…</option>
-              {modes.map((t:any)=><option key={t.tag_name} value={t.tag_name}>{tagText(t.tag_name)}</option>)}
+              {modes.map((t:any)=><option key={t.tag_name} value={t.tag_name}>{t.tag_name}</option>)}
             </select>
+            <TagBankNote tag={refundMode}/>
           </div>
           <div><CLabel>Refund Amount (₹)</CLabel><CInput type="number" value={refundAmount} onChange={e=>setRefundAmount(e.target.value)} placeholder="rupees handed back"/></div>
           <div><CLabel>Refund Reason</CLabel><CInput value={refundReason} onChange={e=>setRefundReason(e.target.value)} placeholder="optional"/></div>
