@@ -15,6 +15,7 @@
 import ContactCopyButton from "./ContactCopyButton";
 import WhatsAppButton from "./WhatsAppButton";
 import { useState, useEffect, useCallback } from "react";
+import { useTagText, BankCheck } from "./TagBank";
 import { useLMA } from "./LMAProvider";
 import CancelRefundSheet from "./CancelRefundSheet";
 import { fmtDMY, fmtDMYT, toIsoInput, toDmy } from "../_lib/dates";
@@ -41,6 +42,7 @@ interface Receipt {
   booking_from:string; booking_to:string; receipt_date:string; fee:number;
   pay_mode_1:string; pay_amount_1:number; pay_mode_2:string; pay_amount_2:number; pay_mode_3:string; pay_amount_3:number;
   pay_mode_1_date?:string; pay_mode_2_date?:string; pay_mode_3_date?:string;
+  pay_fees_mode_1?:string; pay_fees_mode_2?:string; pay_fees_mode_3?:string;
   fees_due:number; fees_due_balance:number; type:string; is_cross_library:string;
   status:string; dues_status:string; renewed_from:string; gender:string; cancelled_on:string;
   receipt_text:string; registration_text:string; generated_at:string; remark:string;
@@ -228,9 +230,9 @@ function EditForm({ receipt, init, onCancel, onSave }:{ receipt:Receipt; init:an
   const [fee,setFee]=useState(String(receipt.fee));
   const _amt=(v:number)=>(v===undefined||v===null||(v as any)==="")?"":String(v);
   const [pays,setPays]=useState([
-    {mode:receipt.pay_mode_1,amount:_amt(receipt.pay_amount_1),date:normDateR(receipt.pay_mode_1_date||"")},
-    {mode:receipt.pay_mode_2,amount:_amt(receipt.pay_amount_2),date:normDateR(receipt.pay_mode_2_date||"")},
-    {mode:receipt.pay_mode_3,amount:_amt(receipt.pay_amount_3),date:normDateR(receipt.pay_mode_3_date||"")},
+    {mode:receipt.pay_mode_1,amount:_amt(receipt.pay_amount_1),date:normDateR(receipt.pay_mode_1_date||""),savedMode:receipt.pay_mode_1||"",savedBank:receipt.pay_fees_mode_1||"",move:false},
+    {mode:receipt.pay_mode_2,amount:_amt(receipt.pay_amount_2),date:normDateR(receipt.pay_mode_2_date||""),savedMode:receipt.pay_mode_2||"",savedBank:receipt.pay_fees_mode_2||"",move:false},
+    {mode:receipt.pay_mode_3,amount:_amt(receipt.pay_amount_3),date:normDateR(receipt.pay_mode_3_date||""),savedMode:receipt.pay_mode_3||"",savedBank:receipt.pay_fees_mode_3||"",move:false},
   ].filter(p=>p.mode));
   const [feesDue,setFeesDue]=useState(String(receipt.fees_due));
   const [phones,setPhones]=useState<PhoneEntry[]>(()=>{
@@ -264,11 +266,13 @@ function EditForm({ receipt, init, onCancel, onSave }:{ receipt:Receipt; init:an
 
   const activeShifts=init.shifts.filter((s:any)=>s.active);
   const setPay=(i:number,f:"mode"|"amount"|"date",v:string)=>{const n=[...pays];n[i]={...n[i],[f]:v};setPays(n);};
+  const setMove=(i:number,v:boolean)=>{const n=[...pays];n[i]={...n[i],move:v};setPays(n);};
+  const tagText=useTagText();
   const libObj=init.libraries.find((l:any)=>l.library_code===library);
   const libBranches=init.branches.filter((b:any)=>b.library_code===library&&b.active);
 
   const save=()=>{
-    const validPays=pays.filter(p=>p.mode&&p.amount!=="").map(p=>({mode:p.mode,amount:Number(p.amount),date:p.date||""}));
+    const validPays=pays.filter(p=>p.mode&&p.amount!=="").map(p=>({mode:p.mode,amount:Number(p.amount),date:p.date||"",...(p.move?{move_bank:true}:{})}));
     const shiftObj=activeShifts.find((s:any)=>s.shift_key.toUpperCase()===shift.toUpperCase());
     const cleanPhones=phones.filter(p=>p.number.trim()).map(p=>({number:normalizePhoneR(p.number),tag:(p.tag||"").toUpperCase()}));
     const nameChanged=(name||"").trim().toUpperCase()!==(receipt.name||"").trim().toUpperCase();
@@ -336,7 +340,7 @@ function EditForm({ receipt, init, onCancel, onSave }:{ receipt:Receipt; init:an
           <div className="flex gap-2">
             <select value={p.mode} onChange={e=>setPay(i,"mode",e.target.value)} className="flex-1 px-2.5 py-2.5 rounded-xl border-[1.5px] border-lma-slate-200 bg-lma-slate-50 text-sm font-medium">
               <option value="">Mode…</option>
-              {init.paymentTags.filter((t:any)=>t.active).map((t:any)=><option key={t.tag_name} value={t.tag_name}>{t.tag_name}</option>)}
+              {init.paymentTags.filter((t:any)=>t.active).map((t:any)=><option key={t.tag_name} value={t.tag_name}>{tagText(t.tag_name)}</option>)}
             </select>
             <input type="number" value={p.amount} onChange={e=>setPay(i,"amount",e.target.value)} placeholder="₹" className="w-24 px-3 py-2.5 rounded-xl border-[1.5px] border-lma-slate-200 bg-lma-slate-50 text-sm font-medium"/>
             {pays.length>1&&<button onClick={()=>setPays(pays.filter((_,j)=>j!==i))} className="px-2 text-lma-danger font-bold">✕</button>}
@@ -346,9 +350,10 @@ function EditForm({ receipt, init, onCancel, onSave }:{ receipt:Receipt; init:an
             <input type="date" value={toIsoInput(p.date||"")} onChange={e=>setPay(i,"date",normDateR(e.target.value))} className="flex-1 px-2.5 py-2 rounded-lg border-[1.5px] border-lma-slate-200 bg-lma-slate-50 text-xs font-medium"/>
             {p.date&&<span className="text-[10px] font-bold text-lma-slate-500 shrink-0">{fmtDMY(p.date)}</span>}
           </div>}
+          {p.mode&&<BankCheck tag={p.mode} savedTag={p.savedMode} savedBank={p.savedBank} move={p.move} onMove={v=>setMove(i,v)}/>}
         </div>
       ))}
-      {pays.length<3&&<button onClick={()=>setPays([...pays,{mode:"",amount:"",date:""}])} className="text-xs font-bold text-lma-primary">+ Add payment</button>}
+      {pays.length<3&&<button onClick={()=>setPays([...pays,{mode:"",amount:"",date:"",savedMode:"",savedBank:"",move:false}])} className="text-xs font-bold text-lma-primary">+ Add payment</button>}
       <L>Fees Due (₹)</L><I type="number" value={feesDue} onChange={e=>setFeesDue(e.target.value)}/>
 
       <L>Phones</L>
@@ -419,6 +424,7 @@ function MoreActions({ children }:{ children:React.ReactNode }){
 function CollectDueInline({ receiptNo, balance, post, showToast, onChanged, onEvent }:{ receiptNo:string; balance:number; post:(a:string,p:any)=>Promise<any>; showToast:(m:string,t?:"success"|"error")=>void; onChanged:()=>void; onEvent?:(text:string)=>void }){
   const { init }=useLMA();
   const modes=(init?.paymentTags||[]).filter(t=>t.active).map(t=>t.tag_name);
+  const tagText=useTagText();
   const [open,setOpen]=useState(false);
   const [amt,setAmt]=useState(String(balance||""));
   const [date,setDate]=useState(new Date().toISOString().slice(0,10));
@@ -440,7 +446,7 @@ function CollectDueInline({ receiptNo, balance, post, showToast, onChanged, onEv
       <input type="date" value={date} onChange={e=>setDate(e.target.value)} className="w-full px-3 py-2 rounded-lg border border-lma-slate-300 text-sm bg-white"/>
       <div className="flex gap-2">
         <input type="number" inputMode="decimal" value={amt} onChange={e=>setAmt(e.target.value)} placeholder="Amount" className="flex-1 min-w-0 px-3 py-2 rounded-lg border border-lma-slate-300 text-sm"/>
-        <select value={mode} onChange={e=>setMode(e.target.value)} className="px-2 py-2 rounded-lg border border-lma-slate-300 text-sm bg-white"><option value="">Mode…</option>{modes.map(m=><option key={m} value={m}>{m}</option>)}</select>
+        <select value={mode} onChange={e=>setMode(e.target.value)} className="px-2 py-2 rounded-lg border border-lma-slate-300 text-sm bg-white"><option value="">Mode…</option>{modes.map(m=><option key={m} value={m}>{tagText(m)}</option>)}</select>
       </div>
       {err&&<div className="text-[11px] font-bold text-lma-danger">{err}</div>}
       <div className="flex gap-2">
@@ -454,6 +460,7 @@ function CollectDueInline({ receiptNo, balance, post, showToast, onChanged, onEv
 function RefundInline({ receiptNo, post, showToast, onChanged, onEvent }:{ receiptNo:string; post:(a:string,p:any)=>Promise<any>; showToast:(m:string,t?:"success"|"error")=>void; onChanged:()=>void; onEvent?:(text:string)=>void }){
   const { init }=useLMA();
   const modes=(init?.paymentTags||[]).filter(t=>t.active).map(t=>t.tag_name);
+  const tagText=useTagText();
   const [open,setOpen]=useState(false);
   const [amt,setAmt]=useState("");
   const [mode,setMode]=useState("");
@@ -476,7 +483,7 @@ function RefundInline({ receiptNo, post, showToast, onChanged, onEvent }:{ recei
       <input type="date" value={date} onChange={e=>setDate(e.target.value)} className="w-full px-3 py-2 rounded-lg border border-lma-slate-300 text-sm bg-white"/>
       <div className="flex gap-2">
         <input type="number" inputMode="decimal" value={amt} onChange={e=>setAmt(e.target.value)} placeholder="Refund amount" className="flex-1 min-w-0 px-3 py-2 rounded-lg border border-lma-slate-300 text-sm"/>
-        <select value={mode} onChange={e=>setMode(e.target.value)} className="px-2 py-2 rounded-lg border border-lma-slate-300 text-sm bg-white"><option value="">Mode…</option>{modes.map(m=><option key={m} value={m}>{m}</option>)}</select>
+        <select value={mode} onChange={e=>setMode(e.target.value)} className="px-2 py-2 rounded-lg border border-lma-slate-300 text-sm bg-white"><option value="">Mode…</option>{modes.map(m=><option key={m} value={m}>{tagText(m)}</option>)}</select>
       </div>
       <input value={reason} onChange={e=>setReason(e.target.value)} placeholder="Reason (optional)" className="w-full px-3 py-2 rounded-lg border border-lma-slate-300 text-sm"/>
       {err&&<div className="text-[11px] font-bold text-lma-danger">{err}</div>}
@@ -603,17 +610,17 @@ export function MoneyTrail({receiptNo, autoOpen=false}:{receiptNo:string; autoOp
                 <div className="mt-2 pt-2 border-t border-lma-slate-200 space-y-0.5">
                   <div className="text-[10px] font-bold text-lma-slate-400">Paid at receipt</div>
                   {t.initial_payments.filter((p:any)=>p.mode||p.amount).map((p:any,i:number)=>(
-                    <div key={"ip"+i} className="flex justify-between text-[10px]"><span className="text-lma-slate-500">{p.mode||"—"} · {p.date?fmtDMY(p.date):"—"}</span><span className="font-bold text-lma-slate-700">{inr(p.amount)}</span></div>
+                    <div key={"ip"+i} className="flex justify-between text-[10px]"><span className="text-lma-slate-500">{p.mode||"—"}{p.fees_mode?` → ${p.fees_mode}`:""} · {p.date?fmtDMY(p.date):"—"}</span><span className="font-bold text-lma-slate-700">{inr(p.amount)}</span></div>
                   ))}
                 </div>
               )}
               {(t.dues_payments.length>0||t.refunds.length>0)&&(
                 <div className="mt-2 pt-2 border-t border-lma-slate-200 space-y-0.5">
                   {t.dues_payments.map((d:any)=>(
-                    <div key={d.payment_id} className="flex justify-between text-[10px]"><span className="text-lma-slate-500">Dues · {d.mode} · {fmtDMYT(d.received_on)}</span><span className="font-bold text-lma-accent">{inr(d.amount)}</span></div>
+                    <div key={d.payment_id} className="flex justify-between text-[10px]"><span className="text-lma-slate-500">Dues · {d.mode}{d.fees_mode?` → ${d.fees_mode}`:""} · {fmtDMYT(d.received_on)}</span><span className="font-bold text-lma-accent">{inr(d.amount)}</span></div>
                   ))}
                   {t.refunds.map((r:any)=>(
-                    <div key={r.refund_id} className="flex justify-between text-[10px]"><span className="text-lma-slate-500">Refund · {r.mode} · {fmtDMYT(r.refund_date)}</span><span className="font-bold text-lma-danger">−{inr(r.amount)}</span></div>
+                    <div key={r.refund_id} className="flex justify-between text-[10px]"><span className="text-lma-slate-500">Refund · {r.mode}{r.fees_mode?` → ${r.fees_mode}`:""} · {fmtDMYT(r.refund_date)}</span><span className="font-bold text-lma-danger">−{inr(r.amount)}</span></div>
                   ))}
                 </div>
               )}

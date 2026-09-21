@@ -2121,6 +2121,66 @@ async function getOccupancySummary() {
     }
     return m;
   }
+  // ════════════════════════════════════════════════════════════════════
+  // EDIT RULE (banks) — an edited payment KEEPS the bank it was saved with.
+  // The bank is re-read from the tag's current setting only when the tag
+  // itself is changed, or when the user taps "Move to <bank>" on the edit
+  // screen (move_bank). Nothing moves on its own, so old money stays where
+  // it really went even after a tag is re-pointed (e.g. GSP-UPI → BOB-BITTU).
+  // ════════════════════════════════════════════════════════════════════
+  function _editedBank(savedTag: unknown, savedBank: unknown, newTag: unknown, moveBank: boolean, tagMap: Map<string, TagInfo>): string {
+    const t = up(newTag);
+    if (!t) return "";
+    if (t === up(savedTag) && !moveBank) return up(savedBank);
+    return _feesModeForTag(t, tagMap);
+  }
+  // Pairs each edited payment row with the saved payment it came from (same tag:
+  // same row first, then same date, then any), so removing a row above never
+  // hands a payment another payment's bank or dates.
+  function _matchSavedSlots(existing: any, arr: any[]): (number | null)[] {
+    const saved = [1, 2, 3].map((n) => ({ n, tag: up(existing["pay_mode_" + n] ?? ""), day: _ymdKeyStr(existing["pay_mode_" + n + "_date"]), used: false }));
+    const out: (number | null)[] = [];
+    for (let i = 0; i < 3; i++) {
+      const slot = arr[i];
+      const tag = up(slot && slot.mode ? slot.mode : "");
+      if (!tag) { out.push(null); continue; }
+      const day = slot.date ? _ymdKeyStr(toIsoDateW(slot.date)) : null;
+      const free = (x: { tag: string; used: boolean }) => !x.used && x.tag === tag;
+      const m = (free(saved[i]) ? saved[i] : null) || saved.find((x) => free(x) && x.day === day) || saved.find(free) || null;
+      if (m) { m.used = true; out.push(m.n); } else out.push(null);
+    }
+    return out;
+  }
+  // Pay-slot columns for an edited receipt, with the EDIT RULE applied per payment.
+  function _editedPaySlots(existing: any, payModes: unknown, tagMap: Map<string, TagInfo>): Record<string, any> {
+    const upd: Record<string, any> = {};
+    const arr: any[] = Array.isArray(payModes) ? payModes : [];
+    const from = _matchSavedSlots(existing, arr);
+    for (let n = 0; n < 3; n++) {
+      const slot = arr[n] || { mode: "", amount: "" };
+      const k = n + 1;
+      const modeVal = up(slot.mode || "");
+      const src = from[n]; // saved slot this payment came from (same tag), or null
+      const move = slot.move_bank === true;
+      upd["pay_mode_" + k] = modeVal;
+      upd["pay_amount_" + k] = (slot.amount === "" || slot.amount === undefined || slot.amount === null) ? null : num(slot.amount);
+      upd["pay_fees_mode_" + k] = _editedBank(src !== null ? existing["pay_mode_" + src] : "", src !== null ? existing["pay_fees_mode_" + src] : "", modeVal, move, tagMap);
+      if (!modeVal) { upd["pay_mode_" + k + "_date"] = null; upd["pay_mode_" + k + "_s_date"] = null; continue; }
+      const savedDate = src !== null ? existing["pay_mode_" + src + "_date"] : null;
+      const savedS = src !== null ? existing["pay_mode_" + src + "_s_date"] : null;
+      const newIso = slot.date ? toIsoDateW(slot.date) : null;
+      if (newIso !== null) upd["pay_mode_" + k + "_date"] = newIso;
+      else if (src !== null && src !== k) upd["pay_mode_" + k + "_date"] = savedDate ?? null; // row moved up: carry its own date
+      const dateSame = src !== null && (newIso === null || _ymdKeyStr(newIso) === _ymdKeyStr(savedDate));
+      if (src !== null && !move && dateSame && _ymdKeyStr(savedS)) {
+        if (src !== k) upd["pay_mode_" + k + "_s_date"] = savedS; // row moved up: carry its own credit date
+      } else {
+        const eff = _ymdKeyStr(newIso !== null ? newIso : src !== null ? savedDate : existing["pay_mode_" + k + "_date"]);
+        if (eff) upd["pay_mode_" + k + "_s_date"] = _addSettlementDaysW(eff, modeVal, tagMap);
+      }
+    }
+    return upd;
+  }
   function _feesModeForTag(tag: unknown, tagMap: Map<string, TagInfo>): string {
     if (!tag) return "";
     return tagMap.get(up(tag))?.fees_mode ?? "";
@@ -2680,7 +2740,12 @@ async function getOccupancySummary() {
 
       // field updates (mode/amount/notes/received_on)
       const upd: Record<string, any> = {};
-      if (p.payment_mode !== undefined) { upd.payment_mode = up(p.payment_mode); upd.payment_fees_mode = _feesModeForTag(p.payment_mode, tagMap); }
+      const moveBank = p.move_bank === true;
+      if (p.payment_mode !== undefined || moveBank) {
+        const nm = p.payment_mode !== undefined ? up(p.payment_mode) : up(cur.payment_mode ?? "");
+        upd.payment_mode = nm;
+        upd.payment_fees_mode = _editedBank(cur.payment_mode, cur.payment_fees_mode, nm, moveBank, tagMap); // EDIT RULE
+      }
       if (p.amount_received !== undefined) upd.amount_received = num(p.amount_received);
       if (p.notes !== undefined) upd.notes = up(p.notes);
       if (p.received_on !== undefined) upd.received_on = String(p.received_on);
@@ -2693,7 +2758,9 @@ async function getOccupancySummary() {
       const fresh = freshRows[0];
       const payMode = up(fresh.payment_mode ?? "");
       const cleanReceivedOn = String(fresh.received_on ?? "");
-      const settlementDate = _addSettlementDaysW(cleanReceivedOn, payMode, tagMap);
+      // EDIT RULE: keep the saved credit date unless the tag or date changed, or the bank was moved
+      const keepSettle = payMode === up(cur.payment_mode ?? "") && !moveBank && _ymdKeyStr(cleanReceivedOn) === _ymdKeyStr(cur.received_on) && !!_ymdKeyStr(cur.settlement_date);
+      const settlementDate = keepSettle ? cur.settlement_date : _addSettlementDaysW(cleanReceivedOn, payMode, tagMap);
 
       // whatsapp from full (updated) history
       const recRows = (await tx`select * from receipt_log where upper(receipt_no)=${target} limit 1`) as any[];
@@ -3223,20 +3290,8 @@ async function getOccupancySummary() {
         if (p.receipt_date !== undefined) upd.receipt_date = toIsoDateW(p.receipt_date);
         if (p.fee !== undefined) upd.fee = num(p.fee);
 
-        // pay_modes — array length authoritative; slots beyond it cleared; RULE 3 re-derive fees_mode
-        if (p.pay_modes) {
-          const arr = Array.isArray(p.pay_modes) ? p.pay_modes : [];
-          for (let n = 0; n < 3; n++) {
-            const slot = arr[n] || { mode: "", amount: "" };
-            const k = n + 1;
-            const modeVal = up(slot.mode || "");
-            upd["pay_mode_" + k] = modeVal;
-            upd["pay_amount_" + k] = (slot.amount === "" || slot.amount === undefined || slot.amount === null) ? null : num(slot.amount);
-            upd["pay_fees_mode_" + k] = modeVal ? _feesModeForTag(modeVal, tagMap) : "";
-            if (!modeVal) { upd["pay_mode_" + k + "_date"] = null; upd["pay_mode_" + k + "_s_date"] = null; }
-            else if (slot.date) { const mi = toIsoDateW(slot.date); upd["pay_mode_" + k + "_date"] = mi; upd["pay_mode_" + k + "_s_date"] = _addSettlementDaysW(mi, modeVal, tagMap); }
-          }
-        }
+        // pay_modes — array length authoritative; slots beyond it cleared; banks follow the EDIT RULE
+        if (p.pay_modes) Object.assign(upd, _editedPaySlots(existing, p.pay_modes, tagMap));
 
         // dues-aware fee/balance (balance owned by the dues ledger)
         if (p.fees_due !== undefined) {
@@ -3568,10 +3623,14 @@ async function getOccupancySummary() {
       if (p.branch !== undefined) upd.branch = up(p.branch);
       if (p.amount !== undefined) upd.amount = num(p.amount);
       let effTag = up(cur.payment_tag ?? "");
-      if (p.payment_tag !== undefined) { upd.payment_tag = up(p.payment_tag); upd.fees_mode = _feesModeForTag(p.payment_tag, tagMap); effTag = up(p.payment_tag); }
+      const moveBank = p.move_bank === true;
+      if (p.payment_tag !== undefined) effTag = up(p.payment_tag);
+      if (p.payment_tag !== undefined || moveBank) { upd.payment_tag = effTag; upd.fees_mode = _editedBank(cur.payment_tag, cur.fees_mode, effTag, moveBank, tagMap); } // EDIT RULE
       if (p.category !== undefined) upd.category = up(p.category);
       if (p.remark !== undefined) upd.remark = String(p.remark);
-      upd.settlement_date = _addSettlementDaysW(effDate, effTag, tagMap);
+      // EDIT RULE: keep the saved credit date unless the tag or date changed, or the bank was moved
+      if (effTag !== up(cur.payment_tag ?? "") || moveBank || _ymdKeyStr(effDate) !== _ymdKeyStr(cur.date) || !_ymdKeyStr(cur.settlement_date))
+        upd.settlement_date = _addSettlementDaysW(effDate, effTag, tagMap);
       const ts = String(cur.timestamp ?? "");
       if (ts && ts.indexOf("(EDITED)") < 0) upd.timestamp = ts + " (EDITED)";
       await tx`update misc_income set ${tx(upd)} where s_no=${targetSno}`;
@@ -3604,7 +3663,12 @@ async function getOccupancySummary() {
       const rows = (await tx`select * from refund_log where upper(refund_id)=${target} limit 1 for update`) as any[];
       if (!rows.length) return { ok: false, error: "Refund not found: " + p.refund_id };
       const upd: Record<string, any> = {};
-      if (p.refund_mode !== undefined) { upd.refund_mode = up(p.refund_mode); upd.refund_fees_mode = _feesModeForTag(p.refund_mode, tagMap); }
+      const moveBank = p.move_bank === true;
+      if (p.refund_mode !== undefined || moveBank) {
+        const nm = p.refund_mode !== undefined ? up(p.refund_mode) : up(rows[0].refund_mode ?? "");
+        upd.refund_mode = nm;
+        upd.refund_fees_mode = _editedBank(rows[0].refund_mode, rows[0].refund_fees_mode, nm, moveBank, tagMap); // EDIT RULE
+      }
       if (p.amount !== undefined) upd.amount = num(p.amount);
       if (p.refund_date !== undefined) upd.refund_date = String(p.refund_date);
       if (p.refund_reason !== undefined) upd.refund_reason = String(p.refund_reason);

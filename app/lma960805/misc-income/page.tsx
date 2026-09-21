@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useLMA, useScopeChips, type LMAInitData as InitData } from "../_components/LMAProvider";
 import { fmtDMY, toIsoInput } from "../_lib/dates";
 import CodePill from "../_components/CodePill";
+import { useTagText, BankCheck } from "../_components/TagBank";
 
 const API = "/api/lma960805";
 
@@ -109,7 +110,7 @@ export default function MiscIncomePage(){
               </div>
               <div className="text-[11px] text-lma-slate-500 flex items-center gap-2 flex-wrap">
                 <CodePill code={r.branch||r.library}/>
-                <span>· {r.payment_tag}</span>
+                <span>· {r.payment_tag}{r.fees_mode?` → ${r.fees_mode}`:""}</span>
                 <span>· {fmtDMY(r.date)}</span>
               </div>
               <div className="text-[11px] text-lma-danger font-semibold mt-1">Deleted{r.deleted_on?` on ${fmtDMY(r.deleted_on)}`:""}{r.delete_reason?` — ${r.delete_reason}`:""}</div>
@@ -123,7 +124,7 @@ export default function MiscIncomePage(){
               </div>
               <div className="text-[11px] text-lma-slate-500 flex items-center gap-2 flex-wrap">
                 <CodePill code={r.branch||r.library}/>
-                <span>· {r.payment_tag}</span>
+                <span>· {r.payment_tag}{r.fees_mode?` → ${r.fees_mode}`:""}</span>
                 <span>· {fmtDMY(r.date)}</span>
               </div>
               {r.remark&&<div className="text-[11px] text-lma-slate-400 mt-0.5">{r.remark}</div>}
@@ -168,6 +169,8 @@ function MiscForm({ init, mode, row, onCancel, onSave, onDelete }:{ init:InitDat
   const [category,setCategory]=useState(row?.category||"");
   const [amount,setAmount]=useState(row?String(row.amount):"");
   const [tag,setTag]=useState(row?.payment_tag||"");
+  const [move,setMove]=useState(false);
+  const tagText=useTagText();
   const [remark,setRemark]=useState(row?.remark||"");
   const [confirmDel,setConfirmDel]=useState(false);
   const [delReason,setDelReason]=useState("");  
@@ -178,7 +181,7 @@ function MiscForm({ init, mode, row, onCancel, onSave, onDelete }:{ init:InitDat
     const library=br?br.library_code:libSel;
     const branch=br?br.branch_code:"";
     // payload keys match MISC_INCOME columns the backend writes
-    onSave({ library, branch, date, category, amount:Number(amount), payment_tag:tag, remark });
+    onSave({ library, branch, date, category, amount:Number(amount), payment_tag:tag, remark, ...(move?{move_bank:true}:{}) });
   };
 
   return (
@@ -197,8 +200,9 @@ function MiscForm({ init, mode, row, onCancel, onSave, onDelete }:{ init:InitDat
       <L>Payment Tag</L>
       <select value={tag} onChange={e=>setTag(e.target.value)} className="w-full px-3 py-2.5 rounded-xl border-[1.5px] border-lma-slate-200 bg-lma-slate-50 text-sm font-medium">
         <option value="">Select…</option>
-        {init.paymentTags.filter(t=>t.active).map(t=><option key={t.tag_name} value={t.tag_name}>{t.tag_name}</option>)}
+        {init.paymentTags.filter(t=>t.active).map(t=><option key={t.tag_name} value={t.tag_name}>{tagText(t.tag_name)}</option>)}
       </select>
+      {mode==="edit"&&row?<BankCheck tag={tag} savedTag={row.payment_tag} savedBank={row.fees_mode} move={move} onMove={setMove}/>:null}
       <L>Remark (optional)</L>
       <I value={remark} onChange={e=>setRemark(e.target.value)} placeholder="optional"/>
       <div className="flex gap-2.5 mt-4">

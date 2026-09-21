@@ -23,6 +23,7 @@ import { useLMA } from "./LMAProvider";
 import { toDmy, fmtDMY, toIsoInput } from "../_lib/dates";
 import { parsePhone10 } from "../_lib/phone";
 import CodePill from "./CodePill";
+import { useTagText } from "./TagBank";
 
 const API = "/api/lma960805";
 
@@ -504,6 +505,7 @@ function StepBooking({ init, resolvedLib, resolvedBranch, ctx, post, showToast, 
   const [pays,setPays]=useState<PayMode[]>([{mode:"",amount:""}]);
   // C1: read-only settlement preview (source of truth = PAYMENT_TAGS.settlement_days via init)
   const settleDays=(mode:string)=>Number(((init?.paymentTags)||[]).find((t:any)=>t.tag_name===mode)?.settlement_days||0);
+  const tagText=useTagText();
   const settleOn=(mode:string,dmy:string)=>{
     const iso=dmyToIso(dmy); if(!iso) return "";
     const dt=new Date(iso+"T00:00:00"); if(isNaN(dt.getTime())) return "";
@@ -697,7 +699,7 @@ function StepBooking({ init, resolvedLib, resolvedBranch, ctx, post, showToast, 
               <div className="flex gap-2">
                 <select value={p.mode} onChange={e=>setPay(i,"mode",e.target.value)} className="flex-1 px-2.5 py-2.5 rounded-xl border-[1.5px] border-lma-slate-200 bg-lma-slate-50 text-sm font-medium">
                   <option value="">Mode…</option>
-                  {init.paymentTags.filter((t:any)=>t.active).map((t:any)=><option key={t.tag_name} value={t.tag_name}>{t.tag_name}</option>)}
+                  {init.paymentTags.filter((t:any)=>t.active).map((t:any)=><option key={t.tag_name} value={t.tag_name}>{tagText(t.tag_name)}</option>)}
                 </select>
                 <input type="number" inputMode="numeric" value={p.amount} onChange={e=>setPay(i,"amount",e.target.value)} placeholder="₹" className="w-24 px-3 py-2.5 rounded-xl border-[1.5px] border-lma-slate-200 bg-lma-slate-50 text-sm font-medium"/>
                 {pays.length>1&&<button onClick={()=>removeSplit(i)} className="px-2 text-lma-danger font-bold">✕</button>}

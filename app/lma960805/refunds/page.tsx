@@ -10,6 +10,7 @@ import StudentModal from "../_components/StudentModal";
 import SearchBar, { matchesSearch } from "../_components/SearchBar";
 import DateRangeFilter from "../_components/DateRangeFilter";
 import Pager, { PAGE_SIZE } from "../_components/Pager";
+import { useTagText, BankCheck } from "../_components/TagBank";
 
 const API = "/api/lma960805";
 
@@ -217,6 +218,7 @@ function autoDetectReceiptSearch(q:string):"NAME"|"PHONE"|"RECEIPT_NO"|"STUDENT_
 }
 
 function IssueForm({ init, onCancel, post, onDone }:{ init:InitData; onCancel:()=>void; post:(a:string,p:any)=>Promise<any>; onDone:(text:string)=>void }){
+  const tagText=useTagText();
   const today=(()=>{const d=new Date();return `${d.getDate()}-${d.getMonth()+1}-${d.getFullYear()}`;})();
 
   // Stage 1: find & pick the receipt
@@ -348,7 +350,7 @@ function IssueForm({ init, onCancel, post, onDone }:{ init:InitData; onCancel:()
           <L>Refund Mode</L>
           <select value={mode} onChange={e=>setMode(e.target.value)} className="w-full px-3 py-2.5 rounded-xl border-[1.5px] border-lma-slate-200 bg-lma-slate-50 text-sm font-medium">
             <option value="">Select…</option>
-            {init.paymentTags.filter(t=>t.active).map(t=><option key={t.tag_name} value={t.tag_name}>{t.tag_name}</option>)}
+            {init.paymentTags.filter(t=>t.active).map(t=><option key={t.tag_name} value={t.tag_name}>{tagText(t.tag_name)}</option>)}
           </select>
           <L>Reason (optional)</L>
           <I value={reason} onChange={e=>setReason(e.target.value)} placeholder="why refunding"/>
@@ -365,13 +367,15 @@ function IssueForm({ init, onCancel, post, onDone }:{ init:InitData; onCancel:()
 function EditForm({ init, refund, onCancel, onSave }:{ init:InitData; refund:Refund; onCancel:()=>void; onSave:(p:any)=>void }){
   const [amount,setAmount]=useState(String(refund.amount));
   const [mode,setMode]=useState(refund.refund_mode);
+  const [move,setMove]=useState(false);
+  const tagText=useTagText();
   const [date,setDate]=useState(refund.refund_date);
   const [reason,setReason]=useState(refund.refund_reason);
 
   const save=()=>{
     if(!amount||!mode) return;
     // updateRefund edits: refund_mode, amount, refund_date, refund_reason (matched by refund_id)
-    onSave({ refund_mode:mode, amount:Number(amount), refund_date:date, refund_reason:reason });
+    onSave({ refund_mode:mode, amount:Number(amount), refund_date:date, refund_reason:reason, ...(move?{move_bank:true}:{}) });
   };
 
   return (
@@ -385,8 +389,9 @@ function EditForm({ init, refund, onCancel, onSave }:{ init:InitData; refund:Ref
       <L>Refund Mode</L>
       <select value={mode} onChange={e=>setMode(e.target.value)} className="w-full px-3 py-2.5 rounded-xl border-[1.5px] border-lma-slate-200 bg-lma-slate-50 text-sm font-medium">
         <option value="">Select…</option>
-        {init.paymentTags.filter(t=>t.active).map(t=><option key={t.tag_name} value={t.tag_name}>{t.tag_name}</option>)}
+        {init.paymentTags.filter(t=>t.active).map(t=><option key={t.tag_name} value={t.tag_name}>{tagText(t.tag_name)}</option>)}
       </select>
+      <BankCheck tag={mode} savedTag={refund.refund_mode} savedBank={refund.refund_fees_mode} move={move} onMove={setMove}/>
       <L>Reason (optional)</L>
       <I value={reason} onChange={e=>setReason(e.target.value)} placeholder="why refunding"/>
       <div className="flex gap-2.5 mt-4">
