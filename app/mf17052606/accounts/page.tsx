@@ -16,7 +16,9 @@ import { useMF, money } from "../_components/MFProvider";
 type Route = {
   id: number; display_code: string; bank_code: string; settlement_days: number;
   active_lma: boolean; active_mf: boolean; description: string;
+  use?: RouteUse;
 };
+type RouteUse = { n: number; last_used: string | null; month_net: number };
 type Acct = {
   id: number; bank_code: string; bank_name: string; owner_name: string;
   acct_type: string; is_liability: boolean; active: boolean; quick: boolean;
@@ -82,7 +84,7 @@ export default function AccountsAndRoutes() {
           {a.routes.length > 0 && (
             <div style={{ marginTop: 10, paddingLeft: 10, borderLeft: "2px solid var(--mf-line)" }}>
               {a.routes.map(r => (
-                <RouteRow key={r.id} r={r} onDone={after} />
+                <RouteRow key={r.id} r={r} accounts={rows} onDone={after} />
               ))}
             </div>
           )}
@@ -94,36 +96,129 @@ export default function AccountsAndRoutes() {
   );
 }
 
-function RouteRow({ r, onDone }: { r: Route; onDone: () => Promise<void> }) {
+// ── a payment route (tag) ──
+// Tap to edit everything about it: which account it lands in, settlement
+// days, LMA/MF switches and its note — plus its change history. Moving a tag
+// to another account only affects money recorded from then on.
+type Change = {
+  id: number; at: string; action: string;
+  old_bank_code: string | null; new_bank_code: string | null;
+  old_settlement_days: number | null; new_settlement_days: number | null;
+  old_active_lma: boolean | null; new_active_lma: boolean | null;
+  old_active_mf: boolean | null; new_active_mf: boolean | null;
+};
+const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+function dmy(iso: string | null | undefined): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(iso ?? ""));
+  return m ? `${+m[3]}-${MON[+m[2] - 1]}-${m[1]}` : "—";
+}
+const daysTxt = (d: number | null) => (d === null ? "—" : d === 0 ? "same day" : `+${d}d`);
+function useLine(u?: RouteUse): string {
+  if (!u || u.n === 0) return "Not used in LMA yet";
+  return `${u.month_net ? money(u.month_net) + " this month" : "Nothing this month"} · last used ${dmy(u.last_used)}`;
+}
+function changeText(h: Change): string {
+  if (h.action === "BASELINE") return `History started · lands in ${h.new_bank_code ?? "—"} · ${daysTxt(h.new_settlement_days)}`;
+  if (h.action === "CREATED") return `Created · lands in ${h.new_bank_code ?? "—"} · ${daysTxt(h.new_settlement_days)}`;
+  const parts: string[] = [];
+  if (h.old_bank_code !== h.new_bank_code) parts.push(`Account ${h.old_bank_code ?? "—"} → ${h.new_bank_code ?? "—"}`);
+  if (h.old_settlement_days !== h.new_settlement_days) parts.push(`Settles ${daysTxt(h.old_settlement_days)} → ${daysTxt(h.new_settlement_days)}`);
+  if (h.old_active_lma !== h.new_active_lma) parts.push(`LMA ${h.new_active_lma ? "on" : "off"}`);
+  if (h.old_active_mf !== h.new_active_mf) parts.push(`MF ${h.new_active_mf ? "on" : "off"}`);
+  return parts.join(" · ") || "Changed";
+}
+
+function RouteRow({ r, accounts, onDone }: { r: Route; accounts: Acct[]; onDone: () => Promise<void> }) {
   const { post, showToast } = useMF();
   const [open, setOpen] = useState(false);
+  const [bank, setBank] = useState(r.bank_code);
   const [days, setDays] = useState(String(r.settlement_days));
   const [lma, setLma] = useState(r.active_lma);
   const [mf, setMf] = useState(r.active_mf);
+  const [desc, setDesc] = useState(r.description);
+  const [sure, setSure] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [hist, setHist] = useState<Change[] | null>(null);
+  const [histReady, setHistReady] = useState(true);
+
+  const moving = bank !== r.bank_code;
+  const target = accounts.find(a => a.bank_code === bank);
+  const changed = moving || Number(days || 0) !== r.settlement_days || lma !== r.active_lma
+    || mf !== r.active_mf || desc.trim() !== (r.description || "").trim();
+  const choices = accounts.filter(a => a.active || a.bank_code === r.bank_code);
+
+  const toggle = async () => {
+    const next = !open;
+    setOpen(next);
+    if (!next) return;
+    // every time it opens: start from what is saved, and fetch its history
+    setBank(r.bank_code); setDays(String(r.settlement_days)); setLma(r.active_lma);
+    setMf(r.active_mf); setDesc(r.description); setSure(false); setHist(null);
+    const j = await post("routeHistory", { display_code: r.display_code });
+    if (j) { setHist(j.history ?? []); setHistReady(j.ready !== false); }
+    else setHist([]);
+  };
 
   const save = async () => {
+    if (!changed || busy || (moving && !sure)) return;
     setBusy(true);
-    const j = await post("saveRoute", { id: r.id, settlement_days: Number(days || 0), active_lma: lma, active_mf: mf });
+    const j = await post("saveRoute", {
+      id: r.id, bank_code: bank, settlement_days: Number(days || 0),
+      active_lma: lma, active_mf: mf, description: desc,
+    });
     setBusy(false);
-    if (j) { showToast(r.display_code + " saved"); setOpen(false); await onDone(); }
+    if (j) {
+      showToast(moving ? `${r.display_code} now lands in ${bank}` : `${r.display_code} saved`);
+      setOpen(false);
+      await onDone();
+    }
   };
 
   return (
     <div style={{ padding: "7px 0" }}>
-      <button onClick={() => setOpen(o => !o)} className="mf-tap"
+      <button onClick={toggle} className="mf-tap"
         style={{ width: "100%", border: "none", background: "none", padding: 0, textAlign: "left",
           display: "flex", alignItems: "center", gap: 8 }}>
-        <span style={{ flex: 1, fontSize: 13, color: "var(--mf-ink-2)" }}>{r.display_code}</span>
-        <span style={{ fontSize: 11, color: "var(--mf-ink-3)" }}>
-          {r.settlement_days === 0 ? "same day" : `+${r.settlement_days}d`}
+        <span style={{ flex: 1, minWidth: 0 }}>
+          <span style={{ display: "block", fontSize: 13, color: "var(--mf-ink-2)" }}>{r.display_code}</span>
+          <span style={{ display: "block", fontSize: 11, color: "var(--mf-ink-3)", marginTop: 1 }}>{useLine(r.use)}</span>
         </span>
+        <span style={{ fontSize: 11, color: "var(--mf-ink-3)" }}>{daysTxt(r.settlement_days)}</span>
         <Dot on={r.active_lma} label="LMA" />
         <Dot on={r.active_mf} label="MF" />
       </button>
 
       {open && (
-        <div style={{ padding: "8px 0 4px" }}>
+        <div style={{ padding: "10px 0 4px" }}>
+          <Lbl>Lands in</Lbl>
+          <select value={bank} onChange={e => { setBank(e.target.value); setSure(false); }}
+            style={{ width: "100%", padding: "10px 12px", fontSize: 14, marginBottom: 10, color: "var(--mf-ink)",
+              fontFamily: "inherit", border: "1px solid var(--mf-line)", borderRadius: 9, background: "var(--mf-surface)" }}>
+            {choices.map(a => (
+              <option key={a.bank_code} value={a.bank_code}>
+                {a.bank_code} · {a.bank_name}{a.owner_name ? ` · ${a.owner_name}` : ""}{a.active ? "" : " (off)"}
+              </option>
+            ))}
+          </select>
+
+          {moving && (
+            <div style={{ background: "var(--mf-owe-bg)", color: "var(--mf-owe)", borderRadius: 9,
+              padding: "10px 12px", fontSize: 12.5, lineHeight: 1.55, marginBottom: 10 }}>
+              From the moment you save, new <b>{r.display_code}</b> payments land in <b>{bank}</b>
+              {target ? ` (${target.bank_name}${target.owner_name ? " · " + target.owner_name : ""})` : ""}.
+              Money already recorded stays in <b>{r.bank_code}</b>, because that is where it really went.
+              To move one old payment, edit it in LMA and tap “Move”.
+              {target && !target.opening_date && (
+                <div style={{ marginTop: 6 }}>{bank} has no opening balance yet, so MF 2.0 cannot show its balance. Set it on that account.</div>
+              )}
+              <label style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8, fontWeight: 600, cursor: "pointer" }}>
+                <input type="checkbox" checked={sure} onChange={e => setSure(e.target.checked)}
+                  style={{ width: 18, height: 18, accentColor: "var(--mf-owe)" }} />
+                Yes, switch {r.display_code} to {bank}
+              </label>
+            </div>
+          )}
+
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
             <span style={{ fontSize: 12, color: "var(--mf-ink-3)" }}>Settles after</span>
             <input value={days} inputMode="numeric"
@@ -133,11 +228,31 @@ function RouteRow({ r, onDone }: { r: Route; onDone: () => Promise<void> }) {
                 border: "1px solid var(--mf-line)", borderRadius: 8, background: "var(--mf-surface)" }} />
             <span style={{ fontSize: 12, color: "var(--mf-ink-3)" }}>days</span>
           </div>
-          <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
+          <div style={{ display: "flex", gap: 6, marginBottom: 10 }}>
             <Chip on={lma} onClick={() => setLma(!lma)}>Offer in LMA</Chip>
             <Chip on={mf} onClick={() => setMf(!mf)}>Offer in MF</Chip>
           </div>
-          <Btn ok={!busy} busy={busy} onClick={save}>Save route</Btn>
+          <Lbl>Note</Lbl>
+          <Inp value={desc} onChange={setDesc} placeholder="e.g. Gaurav's UPI QR at the desk" />
+          <Btn ok={changed && !busy && (!moving || sure)} busy={busy} onClick={save}>
+            {moving ? `Switch to ${bank}` : "Save route"}
+          </Btn>
+
+          <div style={{ marginTop: 14 }}>
+            <Lbl>Changes</Lbl>
+            {!histReady ? (
+              <div style={{ fontSize: 12, color: "var(--mf-ink-3)" }}>History starts once the one-time setup SQL has been run.</div>
+            ) : hist === null ? (
+              <div style={{ fontSize: 12, color: "var(--mf-ink-3)" }}>Loading…</div>
+            ) : hist.length === 0 ? (
+              <div style={{ fontSize: 12, color: "var(--mf-ink-3)" }}>No changes recorded yet.</div>
+            ) : hist.map(h => (
+              <div key={h.id} style={{ display: "flex", gap: 10, fontSize: 12, padding: "4px 0", color: "var(--mf-ink-2)" }}>
+                <span className="mf-num" style={{ flexShrink: 0, color: "var(--mf-ink-3)" }}>{dmy(h.at)} {h.at.slice(11, 16)}</span>
+                <span>{changeText(h)}</span>
+              </div>
+            ))}
+          </div>
         </div>
       )}
     </div>
@@ -159,6 +274,7 @@ function AcctPanel({ a, onDone }: { a: Acct; onDone: () => Promise<void> }) {
   const [code, setCode] = useState("");
   const [days, setDays] = useState("0");
   const [lma, setLma] = useState(true);
+  const [rdesc, setRdesc] = useState("");
 
   const [busy, setBusy] = useState(false);
 
@@ -178,10 +294,10 @@ function AcctPanel({ a, onDone }: { a: Acct; onDone: () => Promise<void> }) {
     setBusy(true);
     const j = await post("saveRoute", {
       display_code: code, bank_code: a.bank_code,
-      settlement_days: Number(days || 0), active_lma: lma, active_mf: true,
+      settlement_days: Number(days || 0), active_lma: lma, active_mf: true, description: rdesc,
     });
     setBusy(false);
-    if (j) { setCode(""); setMode("EDIT"); showToast("Route added"); await onDone(); }
+    if (j) { setCode(""); setRdesc(""); setMode("EDIT"); showToast("Route added"); await onDone(); }
   };
 
   const toggle = async () => {
@@ -244,6 +360,8 @@ function AcctPanel({ a, onDone }: { a: Acct; onDone: () => Promise<void> }) {
           <div style={{ display: "flex", gap: 6, marginBottom: 10 }}>
             <Chip on={lma} onClick={() => setLma(!lma)}>Offer in LMA</Chip>
           </div>
+          <Lbl>Note (optional)</Lbl>
+          <Inp value={rdesc} onChange={setRdesc} placeholder="e.g. Gaurav's UPI QR at the desk" />
           <div style={{ display: "flex", gap: 8 }}>
             <Btn ok={!!code.trim() && !busy} busy={busy} onClick={addRoute}>Add route</Btn>
             <GhostBtn onClick={() => setMode("EDIT")}>Cancel</GhostBtn>

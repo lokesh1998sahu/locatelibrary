@@ -246,3 +246,100 @@ button:disabled {
   to   { transform: translateY(0);    opacity: 1; }
 }
 .lma-slide-up { animation: lmaSlideUp 0.22s ease forwards; }
+
+/* ============================================
+   MF 2.0 — MY FINANCIALS — DESIGN TOKENS
+   Tailwind v4 @theme — exposes utilities like
+   bg-mf-brand, text-mf-ink, border-mf-line,
+   text-mf-in / text-mf-out, font-mf-mono,
+   rounded-mf, shadow-mf-card.
+   Nothing above this line is changed; everything
+   MF-only is named mf-* or scoped to .mf-app.
+   ============================================ */
+@theme {
+  /* Brand */
+  --color-mf-brand:        #0f6e56;
+  --color-mf-brand-strong: #0b5a46;
+  --color-mf-brand-soft:   #e1f5ee;
+
+  /* Ink + surfaces */
+  --color-mf-ink:          #0f172a;
+  --color-mf-ink-2:        #475569;
+  --color-mf-ink-3:        #8a94a6;
+  --color-mf-line:         #e6e8ee;
+  --color-mf-bg:           #f5f6f4;
+  --color-mf-surface:      #ffffff;
+
+  /* Money in / money out (same greens and reds MF already uses) */
+  --color-mf-in:           #0f6e56;
+  --color-mf-in-soft:      #e1f5ee;
+  --color-mf-out:          #993c1d;
+  --color-mf-out-soft:     #faece7;
+
+  /* Warnings */
+  --color-mf-warn:         #92400e;
+  --color-mf-warn-soft:    #fef3c7;
+
+  /* Type, shape, depth */
+  --font-mf-sans:          "DM Sans", system-ui, -apple-system, sans-serif;
+  --font-mf-mono:          "DM Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --radius-mf:             16px;
+  --shadow-mf-card:        0 1px 2px rgb(15 23 42 / 0.04), 0 1px 1px rgb(15 23 42 / 0.03);
+  --shadow-mf-float:       0 12px 32px -8px rgb(15 23 42 / 0.25);
+}
+
+/* Older MF screens (until each is redesigned) read these — same values as before. */
+:root {
+  --mf-ink:#0f172a; --mf-ink-2:#475569; --mf-ink-3:#8a94a6;
+  --mf-line:#e6e8ee; --mf-surface:#ffffff;
+  --mf-have:#0f6e56; --mf-have-bg:#e1f5ee;
+  --mf-owe:#993c1d;  --mf-owe-bg:#faece7;
+  --mf-radius:12px;
+  --mf-mono:"DM Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+}
+
+/* MF-scoped base so it never touches LMA or other pages */
+.mf-app {
+  font-family: var(--font-mf-sans);
+  color: var(--color-mf-ink);
+  background: var(--color-mf-bg);
+  min-height: 100dvh;
+  -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
+}
+body:has(.mf-app) { background: var(--color-mf-bg); }
+.mf-app *, .mf-app *::before, .mf-app *::after { box-sizing: border-box; }
+
+.mf-app button:focus-visible, .mf-app [role=button]:focus-visible, .mf-app a:focus-visible,
+.mf-app input:focus-visible, .mf-app select:focus-visible, .mf-app textarea:focus-visible {
+  outline: 2px solid var(--color-mf-brand); outline-offset: 2px;
+}
+
+/* Kept for older MF screens */
+.mf-num  { font-family: var(--mf-mono); font-variant-numeric: tabular-nums; letter-spacing: -.01em; }
+.mf-tap  { -webkit-tap-highlight-color: transparent; cursor: pointer; user-select: none;
+           transition: transform .08s ease, background .12s ease; }
+.mf-tap:active { transform: scale(.985); }
+.mf-card { background: var(--mf-surface); border: 1px solid var(--mf-line); border-radius: var(--mf-radius); }
+
+/* The site-wide button rules above (press-shrink, 50% when disabled) stay for
+   LMA and older MF screens. MF kit parts opt out where they have their own look. */
+.mf-app .mf-btn:disabled   { opacity: 1; cursor: not-allowed; }
+.mf-app .mf-noscale:active { transform: none; }
+
+/* Motion (in a layer so Tailwind utilities can still override, e.g. a skeleton colour) */
+@keyframes mfSheetUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
+@keyframes mfFadeIn  { from { opacity: 0; } to { opacity: 1; } }
+@keyframes mfToastIn { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes mfPulse   { 0%, 100% { opacity: 1; } 50% { opacity: .45; } }
+@layer components {
+  .mf-sheet-up { animation: mfSheetUp .26s cubic-bezier(.2,.8,.2,1) both; }
+  .mf-fade-in  { animation: mfFadeIn .18s ease both; }
+  .mf-toast-in { animation: mfToastIn .2s ease both; }
+  .mf-skeleton { background: var(--color-mf-line); border-radius: 8px; animation: mfPulse 1.4s ease-in-out infinite; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mf-tap { transition: none; } .mf-tap:active { transform: none; }
+  .mf-sheet-up, .mf-fade-in, .mf-toast-in, .mf-skeleton { animation: none; }
+}

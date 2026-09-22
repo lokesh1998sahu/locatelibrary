@@ -35,7 +35,12 @@ const REASONS: { v: string; label: string }[] = [
 export default function Passbook() {
   const { init, post, showToast, refreshInit } = useMF();
   const router = useRouter();
-  const [accountId, setAccountId] = useState<number | null>(null);
+  // Opens on one account when linked from Home (…/passbook?account=ID).
+  const [accountId, setAccountId] = useState<number | null>(() => {
+    if (typeof window === "undefined") return null;
+    const v = Number(new URLSearchParams(window.location.search).get("account") || 0);
+    return v > 0 ? v : null;
+  });
   const [rows, setRows] = useState<Row[]>([]);
   const [meta, setMeta] = useState<{ needs_setup?: boolean; total?: number; shown?: number } | null>(null);
   const [busy, setBusy] = useState(false);

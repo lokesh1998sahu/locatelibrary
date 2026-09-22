@@ -1,204 +1,195 @@
 "use client";
 
-// MF 2.0 — Dashboard. "Where you stand", then the accounts behind it.
-// Opening the app costs nothing: the net-worth figures come from initLive,
-// which runs only when the owner taps for them. Every figure still comes from
-// fin.v_account_balance server-side; this page never computes a balance.
+// MF 2.0 — Home. "Where you stand": net worth (loads by itself when Home opens;
+// refresh any time), anything due, quick actions, and every account with its
+// balance. Every figure comes from the server (fin.v_account_balance and
+// initLive) — this page never computes a balance.
 
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { useMF, money, MFAccount } from "./_components/MFProvider";
+import { useMF } from "./_components/MFProvider";
+import { Screen, Card, SectionTitle, Row, Amount, IconButton, Skeleton, Empty, BASE, cx } from "./_ui/kit";
+import { IconLock, IconRefresh, IconIn, IconPlus, IconRepeat, IconChevron, IconWallet } from "./_ui/icons";
+import { money, dateShort } from "./_ui/format";
 
-type Tile = { href: string; label: string; emoji: string; desc: string };
-const TILES: Tile[] = [
-  { href: "/mf17052606/money",    label: "Money in",  emoji: "💵", desc: "Income & transfers" },
-  { href: "/mf17052606/passbook", label: "Passbook",  emoji: "📖", desc: "Every line, running balance" },
-  { href: "/mf17052606/check",    label: "Check",     emoji: "✅", desc: "Does the bank agree" },
-  { href: "/mf17052606/people",   label: "People",    emoji: "🤝", desc: "Who owes what" },
-  { href: "/mf17052606/reports",  label: "Reports",   emoji: "📊", desc: "P&L and where money goes" },
-  { href: "/mf17052606/scheduled", label: "Scheduled", emoji: "🔁", desc: "Rent, EMIs, recurring bills" },
-  { href: "/mf17052606/assets",   label: "Assets",    emoji: "🏠", desc: "Property, gold, deposits" },
-  { href: "/mf17052606/setaside", label: "Set aside", emoji: "🗂️", desc: "Provisions and earmarks" },
-  { href: "/mf17052606/accounts", label: "Accounts",  emoji: "🏦", desc: "Banks, cards, payment routes" },
-  { href: "/mf17052606/setup",    label: "Set up",    emoji: "⚙️", desc: "Categories and people" },
-];
+const TYPE_LABEL: Record<string, string> = { BANK: "Bank", CASH: "Cash", WALLET: "Wallet", CREDIT_CARD: "Card" };
 
-const TYPE_LABEL: Record<string, string> = {
-  BANK: "Bank", CASH: "Cash", WALLET: "Wallet", CREDIT_CARD: "Card",
-};
-
-export default function MFDashboard() {
+export default function MFHome() {
   const { init, live, loadLive, liveLoading, lock } = useMF();
+  const [tried, setTried] = useState(!!live);
+  const started = useRef(false);
+
+  // Figures load by themselves the first time Home opens; ↻ reloads them.
+  useEffect(() => {
+    if (live || started.current) return;
+    started.current = true;
+    loadLive().finally(() => setTried(true));
+  }, [live, loadLive]);
 
   const today = useMemo(
-    () => new Date().toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "short" }),
+    () => new Date().toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "long" }),
     [],
   );
-
   const setUp = init?.accounts.filter((a) => a.is_set_up) ?? [];
   const pending = init?.accounts.filter((a) => !a.is_set_up) ?? [];
+  const t = live?.totals;
+  const alerts = live?.alerts ?? null;
 
   return (
-    <div style={{ maxWidth: 560, margin: "0 auto", padding: "0 16px 96px" }}>
-      <header style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", padding: "18px 0 14px" }}>
-        <div>
-          <div style={{ fontSize: 11, letterSpacing: ".08em", textTransform: "uppercase", color: "var(--mf-ink-3)" }}>
-            {today}
-          </div>
-          <h1 style={{ fontSize: 19, fontWeight: 600, margin: "3px 0 0" }}>Where you stand</h1>
+    <Screen>
+      <header className="flex items-start justify-between pb-4 pt-[calc(env(safe-area-inset-top)+16px)]">
+        <div className="min-w-0">
+          <p className="text-[12px] font-semibold uppercase tracking-[0.08em] text-mf-ink-3">{today}</p>
+          <h1 className="mt-0.5 text-[24px] font-bold tracking-[-0.02em] text-mf-ink">Where you stand</h1>
         </div>
-        <button
-          onClick={lock} aria-label="Lock"
-          style={{ border: "1px solid var(--mf-line)", background: "var(--mf-surface)", borderRadius: 999, padding: "7px 13px", fontSize: 13, color: "var(--mf-ink-2)" }}
-        >
-          Lock
-        </button>
+        <IconButton label="Lock the app" onClick={lock} className="-mr-2"><IconLock size={20} /></IconButton>
       </header>
 
-      {!live ? (
-        <button
-          onClick={loadLive} disabled={liveLoading} className="mf-tap"
-          style={{
-            width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 9,
-            border: "none", borderRadius: "var(--mf-radius)", padding: "22px 16px",
-            background: "var(--mf-have)", color: "var(--mf-have-bg)",
-            fontSize: 15, fontWeight: 600, opacity: liveLoading ? 0.65 : 1,
-            boxShadow: "0 4px 14px rgba(15,110,86,.18)",
-          }}
-        >
-          <span aria-hidden="true" style={{ fontSize: 18 }}>💰</span>
-          {liveLoading ? "Counting…" : "Show where you stand"}
-        </button>
-      ) : (
-        <>
-          <section aria-label="Net worth" className="mf-card" style={{ padding: "16px 18px", borderLeft: "3px solid var(--mf-have)", borderRadius: "var(--mf-radius)" }}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-              <span style={{ fontSize: 12, color: "var(--mf-ink-2)" }}>Net worth</span>
-              <button
-                onClick={loadLive} disabled={liveLoading} className="mf-tap" aria-label="Refresh"
-                style={{ border: "none", background: "none", padding: 0, fontSize: 11, fontWeight: 600, color: "var(--mf-ink-3)" }}
-              >
-                {liveLoading ? "updating…" : "↻ refresh"}
-              </button>
-            </div>
-            <div className="mf-num" style={{ fontSize: 30, fontWeight: 600, marginTop: 2 }}>
-              {money(live.totals.net)}
-            </div>
-          </section>
+      {/* Net worth */}
+      <section aria-label="Net worth"
+        className="rounded-[20px] bg-mf-brand p-5 text-white shadow-[0_14px_30px_-14px_rgb(15_110_86/0.75)]">
+        <div className="flex items-center justify-between">
+          <span className="text-[13px] font-semibold text-white/75">Net worth</span>
+          <button type="button" onClick={() => loadLive()} disabled={liveLoading} aria-label="Refresh figures"
+            className="mf-btn -mr-2 grid h-10 w-10 place-items-center rounded-full text-white/85 active:bg-white/10 disabled:opacity-60">
+            <IconRefresh size={19} className={liveLoading ? "animate-spin" : ""} />
+          </button>
+        </div>
 
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 10 }}>
-            <div className="mf-card" style={{ padding: "12px 14px" }}>
-              <div style={{ fontSize: 11, color: "var(--mf-have)" }}>You have</div>
-              <div className="mf-num" style={{ fontSize: 18, fontWeight: 600, marginTop: 2 }}>{money(live.totals.haves)}</div>
+        {t ? (
+          <>
+            <div className="mt-1 font-mf-mono text-[34px] font-medium leading-none tracking-[-0.02em]">{money(t.net)}</div>
+            <div className="mt-5 grid grid-cols-2 gap-3">
+              <Stat label="You have" value={t.haves} />
+              <Stat label="You owe" value={t.owes} />
             </div>
-            <div className="mf-card" style={{ padding: "12px 14px" }}>
-              <div style={{ fontSize: 11, color: "var(--mf-owe)" }}>You owe</div>
-              <div className="mf-num" style={{ fontSize: 18, fontWeight: 600, marginTop: 2 }}>{money(live.totals.owes)}</div>
+            <dl className="mt-4 grid grid-cols-2 gap-x-4 gap-y-1.5 border-t border-white/15 pt-3 text-[12.5px]">
+              <Pair k="In accounts" v={t.in_accounts} />
+              <Pair k="Owed to you" v={t.owed_to_you} />
+              <Pair k="You owe people" v={t.you_owe_people} />
+              <Pair k="In assets" v={t.in_assets} />
+            </dl>
+          </>
+        ) : tried && !liveLoading ? (
+          <div className="mt-2">
+            <p className="text-[14px] text-white/85">Couldn’t load your figures.</p>
+            <button type="button" onClick={() => loadLive()}
+              className="mf-btn mt-3 h-10 rounded-[12px] bg-white/15 px-4 text-[14px] font-semibold text-white active:bg-white/25">
+              Try again
+            </button>
+          </div>
+        ) : (
+          <div className="mt-2" aria-label="Loading">
+            <Skeleton className="h-9 w-48 bg-white/20" />
+            <div className="mt-5 grid grid-cols-2 gap-3">
+              <Skeleton className="h-10 bg-white/15" />
+              <Skeleton className="h-10 bg-white/15" />
             </div>
           </div>
+        )}
+      </section>
 
-          <SectionLabel>Accounts</SectionLabel>
-          <div className="mf-card" style={{ padding: "2px 14px" }}>
-            {setUp.length === 0 ? (
-              <div style={{ padding: "16px 0", fontSize: 14, color: "var(--mf-ink-2)" }}>
-                No account has a starting balance yet. Set one and this page comes alive.
-              </div>
-            ) : setUp.map((a, i) => (
-              <AccountRow key={a.id} a={a} last={i === setUp.length - 1} />
-            ))}
+      {/* Anything due */}
+      {alerts && (
+        <Link href={BASE + "/scheduled"}
+          className={cx("mt-3 flex min-h-[56px] items-center gap-3 rounded-mf px-4 py-3",
+            alerts.overdue > 0 ? "bg-mf-out-soft text-mf-out" : "bg-mf-warn-soft text-mf-warn")}>
+          <IconRepeat size={20} />
+          <div className="min-w-0 flex-1">
+            <div className="text-[14px] font-semibold">
+              {alerts.overdue > 0
+                ? `${alerts.overdue} payment${alerts.overdue === 1 ? " is" : "s are"} overdue`
+                : `${alerts.due_soon} payment${alerts.due_soon === 1 ? "" : "s"} due this week`}
+            </div>
+            {alerts.next_name && (
+              <div className="truncate text-[12px] opacity-80">Next: {alerts.next_name} on {dateShort(alerts.next_due)}</div>
+            )}
           </div>
-
-          {pending.length > 0 && (
-            <>
-              <SectionLabel>Not set up yet</SectionLabel>
-              <div className="mf-card" style={{ padding: "12px 14px" }}>
-                <div style={{ fontSize: 13, color: "var(--mf-ink-2)", lineHeight: 1.55 }}>
-                  {pending.length} account{pending.length === 1 ? "" : "s"} have no starting balance, so no balance is shown for them.
-                </div>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 10 }}>
-                  {pending.map((a) => (
-                    <span key={a.id} style={{ fontSize: 12, color: "var(--mf-ink-2)", border: "1px solid var(--mf-line)", borderRadius: 999, padding: "5px 10px" }}>
-                      {a.bank_name}{a.owner_name ? " · " + a.owner_name : ""}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            </>
-          )}
-
-          {live.alerts && (
-            <Link href="/mf17052606/scheduled" className="mf-card mf-tap"
-              style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 14px", marginTop: 16,
-                textDecoration: "none",
-                background: live.alerts.overdue > 0 ? "var(--mf-owe-bg)" : "var(--mf-surface)" }}>
-              <span aria-hidden="true" style={{ fontSize: 20 }}>🔁</span>
-              <span style={{ flex: 1, minWidth: 0 }}>
-                <span style={{ display: "block", fontSize: 13.5,
-                  color: live.alerts.overdue > 0 ? "var(--mf-owe)" : "var(--mf-ink)" }}>
-                  {live.alerts.overdue > 0
-                    ? `${live.alerts.overdue} payment${live.alerts.overdue === 1 ? " is" : "s are"} overdue`
-                    : `${live.alerts.due_soon} payment${live.alerts.due_soon === 1 ? "" : "s"} due this week`}
-                </span>
-                <span style={{ display: "block", fontSize: 11.5, color: "var(--mf-ink-3)", marginTop: 2 }}>
-                  next: {live.alerts.next_name} on {live.alerts.next_due}
-                </span>
-              </span>
-              <span style={{ fontSize: 18, color: "var(--mf-ink-3)" }}>›</span>
-            </Link>
-          )}
-        </>
+          <IconChevron size={18} />
+        </Link>
       )}
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 18 }}>
-        {TILES.map(t => (
-          <Link key={t.href} href={t.href} className="mf-card mf-tap"
-            style={{ textDecoration: "none", padding: 14, position: "relative", overflow: "hidden", display: "block" }}>
-            <span aria-hidden="true" style={{ position: "absolute", right: -8, top: -10, fontSize: 52, opacity: .06, userSelect: "none" }}>{t.emoji}</span>
-            <span aria-hidden="true" style={{ display: "block", fontSize: 22, marginBottom: 6 }}>{t.emoji}</span>
-            <span style={{ display: "block", fontSize: 14.5, fontWeight: 600, color: "var(--mf-ink)", lineHeight: 1.2 }}>{t.label}</span>
-            <span style={{ display: "block", fontSize: 11, color: "var(--mf-ink-3)", marginTop: 3, lineHeight: 1.35 }}>{t.desc}</span>
-          </Link>
-        ))}
+      {/* Quick actions */}
+      <div className="mt-3 grid grid-cols-2 gap-2">
+        <QuickLink href={BASE + "/add"} icon={<IconPlus size={18} className="text-mf-out" />}>Add expense</QuickLink>
+        <QuickLink href={BASE + "/money"} icon={<IconIn size={18} className="text-mf-in" />}>Money in</QuickLink>
       </div>
 
-      <Link
-        href="/mf17052606/add" aria-label="Add expense" className="mf-tap"
-        style={{
-          position: "fixed", left: "50%", transform: "translateX(-50%)", bottom: 22, zIndex: 50,
-          background: "var(--mf-have)", color: "var(--mf-have-bg)", textDecoration: "none",
-          borderRadius: 999, padding: "14px 26px", fontSize: 15, fontWeight: 600,
-          boxShadow: "0 6px 20px rgba(15,110,86,.28)",
-        }}
-      >
-        Add expense
-      </Link>
+      {/* Accounts */}
+      <SectionTitle action={<Link href={BASE + "/accounts"} className="text-[13px] font-semibold text-mf-brand">Manage</Link>}>
+        Accounts
+      </SectionTitle>
+      <Card pad={false} className="overflow-hidden">
+        {!init ? (
+          [0, 1, 2].map((i) => (
+            <div key={i} className={cx("flex items-center gap-3 px-4 py-4", i < 2 && "border-b border-mf-line")}>
+              <div className="flex-1"><Skeleton className="h-4 w-36" /><Skeleton className="mt-2 h-3 w-24" /></div>
+              <Skeleton className="h-4 w-20" />
+            </div>
+          ))
+        ) : setUp.length === 0 ? (
+          <Empty icon={<IconWallet size={22} />} title="No balances yet"
+            body="Give an account its opening balance and it shows up here with its live balance."
+            action={<Link href={BASE + "/accounts"} className="text-[14px] font-semibold text-mf-brand">Set one up</Link>} />
+        ) : (
+          setUp.map((a, i) => (
+            <Row key={a.id} href={`${BASE}/passbook?account=${a.id}`} last={i === setUp.length - 1}
+              title={a.bank_name}
+              sub={[a.owner_name, TYPE_LABEL[a.acct_type] || a.acct_type].filter(Boolean).join(" · ")}
+              right={<Amount value={a.balance} tone={a.is_liability ? "out" : "plain"} className="text-[15px]" />} />
+          ))
+        )}
+      </Card>
+
+      {pending.length > 0 && (
+        <>
+          <SectionTitle>Not set up yet</SectionTitle>
+          <Card>
+            <p className="text-[13px] leading-relaxed text-mf-ink-2">
+              {pending.length === 1
+                ? "1 account has no opening balance, so its balance isn’t shown."
+                : `${pending.length} accounts have no opening balance, so their balances aren’t shown.`}
+            </p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              {pending.map((a) => (
+                <span key={a.id} className="rounded-full bg-mf-bg px-3 py-1.5 text-[12.5px] font-medium text-mf-ink-2 ring-1 ring-inset ring-mf-line">
+                  {a.bank_name}{a.owner_name ? " · " + a.owner_name : ""}
+                </span>
+              ))}
+            </div>
+            <Link href={BASE + "/accounts"} className="mt-2 inline-flex h-11 items-center gap-1 text-[14px] font-semibold text-mf-brand">
+              Set opening balances <IconChevron size={16} />
+            </Link>
+          </Card>
+        </>
+      )}
+    </Screen>
+  );
+}
+
+function Stat({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="rounded-[14px] bg-white/10 px-3 py-2.5">
+      <div className="text-[11.5px] font-semibold text-white/70">{label}</div>
+      <div className="mt-0.5 font-mf-mono text-[17px] font-medium">{money(value)}</div>
     </div>
   );
 }
 
-function SectionLabel({ children }: { children: React.ReactNode }) {
+function Pair({ k, v }: { k: string; v: number }) {
   return (
-    <div style={{ fontSize: 11, letterSpacing: ".08em", textTransform: "uppercase", color: "var(--mf-ink-3)", margin: "18px 0 8px 2px" }}>
-      {children}
+    <div className="flex items-baseline justify-between gap-2">
+      <dt className="truncate text-white/70">{k}</dt>
+      <dd className="font-mf-mono text-white">{money(v)}</dd>
     </div>
   );
 }
 
-function AccountRow({ a, last }: { a: MFAccount; last: boolean }) {
-  const owe = a.is_liability;
+function QuickLink({ href, icon, children }: { href: string; icon: React.ReactNode; children: React.ReactNode }) {
   return (
-    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "11px 0", borderBottom: last ? "none" : "1px solid var(--mf-line)" }}>
-      <div style={{ minWidth: 0 }}>
-        <div style={{ fontSize: 14, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-          {a.bank_name}
-        </div>
-        <div style={{ fontSize: 11, color: "var(--mf-ink-3)", marginTop: 1 }}>
-          {[a.owner_name, TYPE_LABEL[a.acct_type] || a.acct_type].filter(Boolean).join(" · ")}
-        </div>
-      </div>
-      <div className="mf-num" style={{ fontSize: 14, color: owe ? "var(--mf-owe)" : "var(--mf-ink)", paddingLeft: 12 }}>
-        {money(a.balance)}
-      </div>
-    </div>
+    <Link href={href}
+      className="flex h-12 items-center justify-center gap-2 rounded-[14px] bg-mf-surface text-[14.5px] font-semibold text-mf-ink ring-1 ring-inset ring-mf-line active:bg-mf-bg">
+      {icon}{children}
+    </Link>
   );
 }

@@ -1206,6 +1206,34 @@ async function accountsTree() {
   `) as any[];
   const usage = new Map(used.map((u) => [u.bank_code, Number(u.rows_using)]));
 
+  // How each payment tag is used in LMA — entries, last day used, this month's
+  // net — shown under every route so busy and dead tags are obvious.
+  const tagUse = (await sql`
+    with u as (
+      select upper(btrim(pay_mode_1)) as tag, coalesce(public.lma_safe_date(pay_mode_1_date), receipt_date_d) as d, pay_amount_1 as amt
+        from receipt_log where coalesce(pay_amount_1, 0) <> 0
+      union all
+      select upper(btrim(pay_mode_2)), coalesce(public.lma_safe_date(pay_mode_2_date), receipt_date_d), pay_amount_2
+        from receipt_log where coalesce(pay_amount_2, 0) <> 0
+      union all
+      select upper(btrim(pay_mode_3)), coalesce(public.lma_safe_date(pay_mode_3_date), receipt_date_d), pay_amount_3
+        from receipt_log where coalesce(pay_amount_3, 0) <> 0
+      union all
+      select upper(btrim(payment_mode)), received_on_d, amount_received
+        from fees_due_log where coalesce(amount_received, 0) <> 0
+      union all
+      select upper(btrim(payment_tag)), date_d, amount
+        from misc_income where coalesce(amount, 0) <> 0 and coalesce(upper(btrim(status)), '') <> 'DELETED'
+      union all
+      select upper(btrim(refund_mode)), refund_date_d, -abs(amount)
+        from refund_log where coalesce(amount, 0) <> 0
+    )
+    select tag, count(*)::int as n, to_char(max(d), 'YYYY-MM-DD') as last_used,
+           coalesce(sum(amt) filter (where d >= date_trunc('month', now() at time zone 'Asia/Kolkata')::date), 0) as month_net
+    from u where coalesce(tag, '') <> '' group by tag
+  `) as any[];
+  const useOf = new Map(tagUse.map((t) => [String(t.tag), { n: Number(t.n), last_used: t.last_used ?? null, month_net: money(t.month_net) }]));
+
   return {
     accounts: accs.map((a) => ({
       id: Number(a.id), bank_code: a.bank_code, bank_name: a.bank_name ?? a.bank_code,
@@ -1221,6 +1249,7 @@ async function accountsTree() {
           settlement_days: Number(r.settlement_days ?? 0),
           active_lma: !!r.active_lma, active_mf: !!r.active_mf,
           description: r.description ?? "",
+          use: useOf.get(String(r.display_code).toUpperCase()) ?? { n: 0, last_used: null, month_net: 0 },
         })),
     })),
   };
@@ -1271,13 +1300,30 @@ async function saveRoute(p: any) {
   const activeMf = p?.active_mf === false ? false : true;
 
   if (id) {
-    const r = (await sql`
-      update fin.routes set settlement_days = ${days}, active_lma = ${activeLma},
-             active_mf = ${activeMf}, description = ${String(p?.description ?? "").trim() || null}
-      where id = ${id}
-    `) as any;
-    if (!r.count) throw new Error("That route no longer exists.");
-    return { saved: true, id };
+    // Edit: only the fields sent are changed (a missing field never switches
+    // LMA/MF off or wipes the note). The account a route lands in can change;
+    // money already recorded keeps the account it was stamped with.
+    const cur = (await sql`select id, display_code, bank_code from fin.routes where id = ${id} limit 1`) as any[];
+    if (!cur.length) throw new Error("That route no longer exists.");
+    const upd: Record<string, any> = {};
+    if (p?.settlement_days !== undefined) upd.settlement_days = days;
+    if (p?.active_lma !== undefined) upd.active_lma = activeLma;
+    if (p?.active_mf !== undefined) upd.active_mf = activeMf;
+    if (p?.description !== undefined) upd.description = String(p?.description ?? "").trim() || null;
+    let bankChanged = false;
+    if (p?.bank_code !== undefined) {
+      const bank = up(p?.bank_code).replace(/\s+/g, "");
+      if (!bank) throw new Error("Which account does it land in?");
+      if (bank !== up(cur[0].bank_code)) {
+        const acc = (await sql`select bank_code, active from fin.accounts where upper(bank_code) = ${bank} limit 1`) as any[];
+        if (!acc.length) throw new Error(`No account with code ${bank}.`);
+        if (!acc[0].active) throw new Error(`${bank} is switched off. Switch it on first.`);
+        upd.bank_code = acc[0].bank_code;
+        bankChanged = true;
+      }
+    }
+    if (Object.keys(upd).length) await sql`update fin.routes set ${sql(upd)} where id = ${id}`;
+    return { saved: true, id, bank_changed: bankChanged };
   }
 
   const code = up(p?.display_code).replace(/\s+/g, "");
@@ -1300,6 +1346,27 @@ async function saveRoute(p: any) {
   return { saved: true, id: Number(ins[0].id) };
 }
 
+// ── a payment tag's change history ───────────────────────────────────
+// Written by a database trigger on fin.routes, so changes made in MF 2.0,
+// in LMA Settings or in the Table Editor are all recorded. Until the one-time
+// setup SQL has been run the table does not exist: the page just says so.
+async function routeHistory(p: any) {
+  const code = up(p?.display_code);
+  if (!code) throw new Error("Which route?");
+  try {
+    const rows = (await sql`
+      select id, to_char(changed_at at time zone 'Asia/Kolkata', 'YYYY-MM-DD HH24:MI') as at, action,
+             old_bank_code, new_bank_code, old_settlement_days, new_settlement_days,
+             old_active_lma, new_active_lma, old_active_mf, new_active_mf
+      from fin.route_changes where upper(display_code) = ${code}
+      order by changed_at desc, id desc limit 50
+    `) as any[];
+    return { ready: true, history: rows.map((h) => ({ ...h, id: Number(h.id) })) };
+  } catch (e: any) {
+    if (String(e?.message || e).includes("route_changes")) return { ready: false, history: [] };
+    throw e;
+  }
+}
 // ── load one entry back into the form ────────────────────────────────
 // Editing reuses the Add screen rather than duplicating it, so this returns
 // the entry shaped exactly the way that form holds it.
@@ -1377,6 +1444,7 @@ export async function handle(action: string, payload: any): Promise<any> {
     case "createAccount":         return await createAccount(payload);
     case "toggleAccount":         return await toggleAccount(payload);
     case "saveRoute":             return await saveRoute(payload);
+    case "routeHistory":          return await routeHistory(payload);
     case "saveAccount":           return await saveAccount(payload);
     case "saveCategory":          return await saveCategory(payload);
     case "savePerson":            return await savePerson(payload);

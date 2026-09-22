@@ -6,12 +6,16 @@
 //      cookie. Nothing secret ships in the browser bundle.
 //   2) One initData() fetch shared through React context.
 //   3) Shared toast + post() helper with a duplicate-submit guard.
-//   4) The design tokens for the whole app live here, once.
+//   4) The app frame: bottom tab bar + toast. MF's colours and base styles
+//      live in app/globals.css (Tailwind v4 @theme, mf-* names); the reusable
+//      parts live in ../_ui/kit.tsx.
 //
 // Deliberately separate from LMA's provider: different cookie, different API,
 // different look. Two apps, not one app with a hidden room.
 
 import { createContext, useContext, useEffect, useState, useCallback, useRef, ReactNode } from "react";
+import { usePathname } from "next/navigation";
+import { TabBar, ToastView, tabBarHidden, Button, TextInput } from "../_ui/kit";
 
 const API = "/api/mf17052606";
 const AUTH_API = API + "/auth";
@@ -63,32 +67,9 @@ export function useMF(): MFContextValue {
   return v;
 }
 
-export function money(n: number | null | undefined): string {
-  if (n == null) return "—";
-  const neg = n < 0;
-  const s = Math.abs(Math.round(n)).toLocaleString("en-IN");
-  return (neg ? "-₹" : "₹") + s;
-}
+// ₹ formatting lives in ../_ui/format (one source); re-exported so existing imports keep working.
+export { money } from "../_ui/format";
 
-export const TOKENS = `
-:root{
-  --mf-ink:#0f172a; --mf-ink-2:#475569; --mf-ink-3:#8a94a6;
-  --mf-line:#e6e8ee; --mf-surface:#ffffff;
-  --mf-have:#0f6e56; --mf-have-bg:#e1f5ee;
-  --mf-owe:#993c1d;  --mf-owe-bg:#faece7;
-  --mf-radius:12px;
-  --mf-mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
-}
-*{box-sizing:border-box}
-.mf-num{font-family:var(--mf-mono);font-variant-numeric:tabular-nums;letter-spacing:-.01em}
-.mf-tap{-webkit-tap-highlight-color:transparent;cursor:pointer;user-select:none;
-  transition:transform .08s ease,background .12s ease}
-.mf-tap:active{transform:scale(.985)}
-.mf-card{background:var(--mf-surface);border:1px solid var(--mf-line);border-radius:var(--mf-radius)}
-button:focus-visible,[role=button]:focus-visible,input:focus-visible{
-  outline:2px solid var(--mf-have);outline-offset:2px}
-@media (prefers-reduced-motion:reduce){.mf-tap{transition:none}.mf-tap:active{transform:none}}
-`;
 
 export default function MFProvider({ children }: { children: ReactNode }) {
   const [authed, setAuthed] = useState<boolean | null>(null);
@@ -102,6 +83,7 @@ export default function MFProvider({ children }: { children: ReactNode }) {
   const [toast, setToast] = useState<ToastState>(null);
   const inflight = useRef<Set<string>>(new Set());
   const toastTimer = useRef<any>(null);
+  const pathname = usePathname() || "";
 
   const showToast = useCallback((msg: string, type: ToastKind = "success") => {
     setToast({ msg, type });
@@ -110,8 +92,11 @@ export default function MFProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const post = useCallback(async (action: string, payload: any = {}) => {
-    if (inflight.current.has(action)) return null;
-    inflight.current.add(action);
+    // Blocks a repeat of the SAME request while it is running (double taps),
+    // but never a different request of the same kind.
+    const key = action + "|" + JSON.stringify(payload ?? {});
+    if (inflight.current.has(key)) return null;
+    inflight.current.add(key);
     try {
       const r = await fetch(API, {
         method: "POST",
@@ -126,7 +111,7 @@ export default function MFProvider({ children }: { children: ReactNode }) {
       showToast("No connection. Try again.", "error");
       return null;
     } finally {
-      inflight.current.delete(action);
+      inflight.current.delete(key);
     }
   }, [showToast]);
 
@@ -151,7 +136,7 @@ export default function MFProvider({ children }: { children: ReactNode }) {
     })();
   }, []);
 
-  // The heavy half. Only Home calls this, and only when the owner taps for it.
+  // The heavy half. Home calls it by itself when it opens, and on refresh.
   const loadLive = useCallback(async () => {
     setLiveLoading(true);
     const j = await post("initLive");
@@ -189,72 +174,41 @@ export default function MFProvider({ children }: { children: ReactNode }) {
   }, []);
 
   if (authed === null) {
-    return (
-      <>
-        <style>{TOKENS}</style>
-        <div className="lma-app lma-page-body" style={{ minHeight: "100dvh" }} />
-      </>
-    );
+    return <div className="mf-app" />;
   }
 
   if (!authed) {
     return (
-      <>
-        <style>{TOKENS}</style>
-        <div className="lma-app lma-page-body" style={{ minHeight: "100dvh", display: "grid", placeItems: "center", padding: 24 }}>
-          <div className="mf-card" style={{ width: "100%", maxWidth: 340, padding: 24 }}>
-            <div style={{ fontSize: 20, fontWeight: 600, color: "var(--mf-ink)" }}>My Financials</div>
-            <div style={{ fontSize: 13, color: "var(--mf-ink-2)", marginTop: 4, marginBottom: 18 }}>
-              Enter your password to continue.
-            </div>
-            <input
-              type="password" value={pw} autoFocus
-              onChange={(e) => { setPw(e.target.value); setPwErr(""); }}
-              onKeyDown={(e) => { if (e.key === "Enter") signIn(); }}
-              placeholder="Password"
-              style={{
-                width: "100%", height: 44, padding: "0 12px", fontSize: 16,
-                border: "1px solid var(--mf-line)", borderRadius: 10, color: "var(--mf-ink)",
-              }}
-            />
-            {pwErr && <div style={{ fontSize: 13, color: "var(--mf-owe)", marginTop: 8 }}>{pwErr}</div>}
-            <button
-              onClick={signIn} disabled={busy || !pw}
-              style={{
-                width: "100%", height: 44, marginTop: 14, border: "none", borderRadius: 10,
-                background: pw ? "var(--mf-have)" : "var(--mf-line)",
-                color: pw ? "var(--mf-have-bg)" : "var(--mf-ink-3)",
-                fontSize: 15, fontWeight: 600, cursor: pw ? "pointer" : "default",
-              }}
-            >
-              {busy ? "Checking…" : "Sign in"}
-            </button>
+      <div className="mf-app grid place-items-center px-6">
+        <div className="w-full max-w-[360px]">
+          <div className="mx-auto mb-5 grid h-14 w-14 place-items-center rounded-[18px] bg-mf-brand text-white shadow-[0_10px_24px_-10px_rgb(15_110_86/0.7)]">
+            <span className="font-mf-mono text-[24px] font-medium">₹</span>
           </div>
+          <h1 className="text-center text-[22px] font-bold tracking-[-0.01em] text-mf-ink">My Financials</h1>
+          <p className="mb-6 mt-1 text-center text-[14px] text-mf-ink-3">Enter your password to continue.</p>
+          <TextInput
+            type="password" value={pw} autoFocus autoComplete="current-password" aria-label="Password"
+            onChange={(e) => { setPw(e.target.value); setPwErr(""); }}
+            onKeyDown={(e) => { if (e.key === "Enter") signIn(); }}
+            placeholder="Password"
+          />
+          {pwErr && <p role="alert" className="mt-2 px-1 text-[13px] font-medium text-mf-out">{pwErr}</p>}
+          <Button size="lg" full className="mt-4" onClick={signIn} disabled={!pw} loading={busy} loadingText="Checking…">
+            Sign in
+          </Button>
         </div>
-      </>
+      </div>
     );
   }
 
+  const withTabs = !tabBarHidden(pathname);
   return (
     <MFContext.Provider value={{ init, refreshInit, loading, live, loadLive, liveLoading, lock, showToast, post }}>
-      <style>{TOKENS}</style>
-      <div className="lma-app lma-page-body" style={{ minHeight: "100dvh", color: "var(--mf-ink)" }}>
+      <div className="mf-app" style={{ paddingBottom: withTabs ? "calc(88px + env(safe-area-inset-bottom))" : undefined }}>
         {children}
+        <TabBar onLock={lock} />
+        <ToastView toast={toast} />
       </div>
-      {toast && (
-        <div
-          role="status"
-          style={{
-            position: "fixed", left: 16, right: 16, bottom: 20, zIndex: 60,
-            margin: "0 auto", maxWidth: 420, padding: "12px 14px", borderRadius: 10,
-            background: toast.type === "error" ? "var(--mf-owe-bg)" : "var(--mf-have-bg)",
-            color: toast.type === "error" ? "var(--mf-owe)" : "var(--mf-have)",
-            fontSize: 14, textAlign: "center",
-          }}
-        >
-          {toast.msg}
-        </div>
-      )}
     </MFContext.Provider>
   );
 }

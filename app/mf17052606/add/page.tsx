@@ -15,8 +15,10 @@
 
 import { useEffect, useMemo, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import Link from "next/link";
 import { useMF, money } from "../_components/MFProvider";
+import { TopBar, Card, Chip, ChipGroup, Segmented, Amount, Banner, Button, Field, TextInput, BASE, cx } from "../_ui/kit";
+import { IconBackspace, IconCalendar } from "../_ui/icons";
+import { typedAmount } from "../_ui/format";
 
 type Leg = { account_id: number; amount: number };
 
@@ -208,38 +210,62 @@ export default function AddExpense() {
     return { name: a.bank_name, before: a.balance, after: a.balance - (legs[0]?.amount ?? 0) };
   })();
 
+  // Why Save is still off, in plain words. (The button itself follows canSave exactly.)
+  const blocker =
+    total <= 0 ? "Enter the amount" :
+    !categoryId ? "Pick what it was for" :
+    (paid <= 0 && !owedPersonId) ? "Pick the account it was paid from" :
+    (Math.abs(shortBy) >= 0.005 && !owedPersonId) ? (shortBy > 0 ? `Pick who is owed ${money(shortBy)}` : "Paid is more than the amount") :
+    (world === "LIBRARY" && sel.length === 0) ? "Pick the library" :
+    (world === "LIBRARY" && !splitOk) ? "The library parts must add up to the amount" : "";
+
   return (
-    <div style={{ maxWidth: 560, margin: "0 auto", padding: "0 16px 40px" }}>
+    <div className="mx-auto w-full max-w-[560px] px-4 pb-[calc(env(safe-area-inset-bottom)+128px)]">
+      <TopBar back={BASE} title={editId ? "Edit expense" : "Add expense"} sub={loadingEdit ? "Loading the entry…" : undefined} />
 
-      <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "18px 0 14px" }}>
-        <Link href="/mf17052606" style={{ textDecoration: "none", color: "var(--mf-ink-2)", fontSize: 20, lineHeight: 1 }}>‹</Link>
-        <div style={{ fontSize: 17, fontWeight: 600 }}>{editId ? "Edit expense" : "Add expense"}</div>
-      </div>
+      {/* Amount + keypad */}
+      <Card className="mb-5 text-center">
+        <div className="text-[12px] font-bold uppercase tracking-[0.08em] text-mf-ink-3">Amount</div>
+        <div aria-live="polite"
+          className={cx("mt-1 font-mf-mono text-[40px] font-medium leading-tight tracking-[-0.02em]", total > 0 ? "text-mf-ink" : "text-mf-ink-3")}>
+          ₹{typedAmount(amountStr)}
+        </div>
+        <div className="mt-3 grid grid-cols-3 gap-2">
+          {KEYS.map(k => (
+            <button key={k} type="button" onClick={() => tapKey(k)}
+              aria-label={k === "<" ? "Delete last digit" : k === "." ? "Decimal point" : k}
+              className="mf-btn grid h-12 place-items-center rounded-[12px] bg-mf-bg font-mf-mono text-[20px] font-medium text-mf-ink active:bg-mf-line">
+              {k === "<" ? <IconBackspace size={22} /> : k}
+            </button>
+          ))}
+        </div>
+      </Card>
 
-      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
-        <label className="mf-tap mf-card" style={{ padding: "8px 12px", fontSize: 13, display: "inline-flex", alignItems: "center", gap: 8,
-          background: ago > 0 ? "var(--mf-owe-bg)" : "var(--mf-surface)", color: ago > 0 ? "var(--mf-owe)" : "var(--mf-ink)" }}>
-          <span>{dateLabel}{ago > 1 ? ` · ${ago} days ago` : ""}</span>
-          <input type="date" value={dateIso} max={todayIso()}
+      {/* When */}
+      <ChipGroup label="When" hint={ago > 1 ? <span className="font-medium text-mf-warn">{ago} days ago</span> : undefined}>
+        <Chip on={ago === 0} onClick={() => setDateIso(todayIso())}>Today</Chip>
+        <Chip on={ago === 1} onClick={() => setDateIso(shiftIso(todayIso(), -1))}>Yesterday</Chip>
+        <label className={cx("mf-noscale relative inline-flex min-h-[40px] cursor-pointer items-center gap-2 rounded-full px-4 text-[14px] font-medium",
+          ago > 1 ? "bg-mf-brand text-white" : "bg-mf-surface text-mf-ink-2 ring-1 ring-inset ring-mf-line")}>
+          <IconCalendar size={16} />
+          {ago > 1 ? dateLabel : "Other date"}
+          <input type="date" value={dateIso} max={todayIso()} aria-label="Pick a date"
             onChange={e => e.target.value && setDateIso(e.target.value)}
-            style={{ width: 18, border: "none", background: "none", padding: 0, color: "inherit", fontFamily: "inherit" }} />
+            className="absolute inset-0 h-full w-full cursor-pointer opacity-0" />
         </label>
+      </ChipGroup>
 
-        {(["PERSONAL", "LIBRARY"] as const).map(w => (
-          <button key={w} onClick={() => { setWorld(w); if (w === "PERSONAL") { setSel([]); setManual({}); } }}
-            className="mf-tap mf-card"
-            style={{ padding: "8px 14px", fontSize: 13, border: "none",
-              background: world === w ? "var(--mf-have)" : "var(--mf-surface)",
-              color: world === w ? "var(--mf-have-bg)" : "var(--mf-ink-2)",
-              boxShadow: world === w ? "none" : "inset 0 0 0 1px var(--mf-line)" }}>
-            {w === "PERSONAL" ? "Personal" : "Library"}
-          </button>
-        ))}
+      {/* Personal or library */}
+      <div className="mb-5">
+        <div className="mb-2 px-1 text-[12px] font-bold uppercase tracking-[0.08em] text-mf-ink-3">For</div>
+        <Segmented value={world}
+          onChange={w => { setWorld(w); if (w === "PERSONAL") { setSel([]); setManual({}); } }}
+          options={[{ v: "PERSONAL", label: "Personal" }, { v: "LIBRARY", label: "Library" }]} />
       </div>
 
       {world === "LIBRARY" && places.length > 0 && (
         <>
-          <Chips label={sel.length > 1 ? `Split across ${sel.length}` : "Which library"}>
+          <ChipGroup label={sel.length > 1 ? `Split across ${sel.length}` : "Which library"}>
             {places.map(pl => {
               const on = sel.some(x => x.library_code === pl.library_code && x.branch_code === pl.branch_code);
               return (
@@ -250,193 +276,109 @@ export default function AddExpense() {
                 </Chip>
               );
             })}
-          </Chips>
+          </ChipGroup>
 
           {sel.length > 1 && (
-            <div className="mf-card" style={{ padding: "12px 14px", marginBottom: 12 }}>
-              <div style={{ display: "flex", gap: 6, marginBottom: 10 }}>
-                {(["EQUAL", "MANUAL"] as const).map(m => (
-                  <Chip key={m} on={splitMode === m} onClick={() => setSplitMode(m)}>
-                    {m === "EQUAL" ? "Equal" : "Manual"}
-                  </Chip>
-                ))}
-              </div>
+            <Card className="mb-5">
+              <Segmented className="mb-3" value={splitMode} onChange={setSplitMode}
+                options={[{ v: "EQUAL", label: "Split equally" }, { v: "MANUAL", label: "Type amounts" }]} />
               {splitRows.map(r => {
                 const pl = places.find(x => x.key === r.key);
                 return (
-                  <div key={r.key} style={{ display: "flex", alignItems: "center", gap: 10, padding: "6px 0" }}>
-                    <span style={{ flex: 1, fontSize: 13, color: "var(--mf-ink-2)", minWidth: 0,
-                      whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                      {pl?.label ?? r.library_code}
-                    </span>
+                  <div key={r.key} className="flex min-h-[48px] items-center gap-3 border-b border-mf-line last:border-b-0">
+                    <span className="min-w-0 flex-1 truncate text-[14px] text-mf-ink-2">{pl?.label ?? r.library_code}</span>
                     {splitMode === "MANUAL" ? (
-                      <input
-                        value={manual[r.key] ?? ""} inputMode="decimal" placeholder="0"
+                      <input value={manual[r.key] ?? ""} inputMode="decimal" placeholder="0" aria-label={`Amount for ${pl?.label ?? r.library_code}`}
                         onChange={e => setManual(m => ({ ...m, [r.key]: e.target.value.replace(/[^0-9.]/g, "") }))}
-                        style={{ width: 96, padding: "7px 10px", fontSize: 14, textAlign: "right",
-                          fontFamily: "var(--mf-mono)", color: "var(--mf-ink)",
-                          border: "1px solid var(--mf-line)", borderRadius: 8, background: "var(--mf-surface)" }}
-                      />
+                        className="h-10 w-28 rounded-[10px] border border-mf-line bg-mf-surface px-3 text-right font-mf-mono text-[16px] text-mf-ink outline-none focus:border-mf-brand focus:ring-2 focus:ring-mf-brand/20" />
                     ) : (
-                      <span className="mf-num" style={{ fontSize: 13.5 }}>{money(r.amount)}</span>
+                      <Amount value={r.amount} className="text-[14.5px]" />
                     )}
                   </div>
                 );
               })}
               {!splitOk && (
-                <div style={{ fontSize: 12, color: "var(--mf-owe)", marginTop: 8 }}>
-                  The parts come to {money(splitSum)} — {money(Math.abs(total - splitSum))}{" "}
-                  {splitSum > total ? "too much" : "short"} of {money(total)}.
-                </div>
+                <p className="mt-2 text-[12.5px] font-medium text-mf-out">
+                  The parts come to {money(splitSum)}, which is {money(Math.abs(total - splitSum))} {splitSum > total ? "too much" : "short"} of {money(total)}.
+                </p>
               )}
-            </div>
+            </Card>
           )}
         </>
       )}
 
-      <div className="mf-card" style={{ padding: "18px 16px", textAlign: "center", marginBottom: 12 }}>
-        <div className="mf-num" style={{ fontSize: 36, fontWeight: 600, letterSpacing: "-.02em" }}>
-          ₹{amountStr || "0"}
-        </div>
-      </div>
-
-      <Chips label="What for">
+      {/* What for */}
+      <ChipGroup label="What for" hint={categories.length === 0 ? "No expense categories yet. Add them in More → Set up." : undefined}>
         {categories.map(c => (
           <Chip key={c.id} on={categoryId === c.id} onClick={() => setCategoryId(c.id)}>{c.name}</Chip>
         ))}
-        {categories.length === 0 && <Muted>No expense categories yet — add them in the Table Editor.</Muted>}
-      </Chips>
+      </ChipGroup>
 
-      <Chips label="Paid from">
+      {/* Paid from */}
+      <ChipGroup label="Paid from">
         {accounts.map(a => (
           <Chip key={a.id} on={primaryAccount === a.id} onClick={() => chooseAccount(a.id)}>
             {a.bank_name}{a.owner_name ? " · " + a.owner_name : ""}
           </Chip>
         ))}
-      </Chips>
+      </ChipGroup>
 
       {total > 0 && shortBy > 0.005 && (
-        <Chips label={`Who's owed ${money(shortBy)}`}>
+        <ChipGroup label={`Who is owed ${money(shortBy)}`} hint={people.length === 0 ? "No people yet. Add them in More → Set up." : undefined}>
           {people.map(p => (
             <Chip key={p.id} on={owedPersonId === p.id} onClick={() => setOwedPersonId(owedPersonId === p.id ? null : p.id)}>
               {p.name}
             </Chip>
           ))}
-          {people.length === 0 && <Muted>No people yet — add them in the Table Editor.</Muted>}
-        </Chips>
+        </ChipGroup>
       )}
 
       {conflicts.length > 0 && (
-        <Warn>
-          <b>Already checked through {conflicts[0].checked_through}</b>
-          <div style={{ marginTop: 3 }}>
-            Saving on this date changes a balance you confirmed for {conflicts.map(c => c.name).join(", ")}.
-            Record it today instead, or redo that check.
-          </div>
-          <button onClick={() => setDateIso(todayIso())} className="mf-tap"
-            style={{ marginTop: 8, border: "none", borderRadius: 8, padding: "6px 12px", fontSize: 12.5,
-              background: "var(--mf-owe)", color: "var(--mf-owe-bg)" }}>
-            Use today
-          </button>
-        </Warn>
+        <Banner tone="warn" title={`Already checked through ${conflicts[0].checked_through}`}
+          action={<Button size="md" variant="secondary" onClick={() => setDateIso(todayIso())}>Use today instead</Button>}>
+          Saving on this date changes a balance you confirmed for {conflicts.map(c => c.name).join(", ")}.
+          Record it today instead, or redo that check.
+        </Banner>
       )}
 
       {dupe && (
-        <Warn>
-          <b>Looks like a repeat</b>
-          <div style={{ marginTop: 3 }}>
-            The same amount is already recorded on this date{dupe.description ? ` — ${dupe.description}` : ""}. Save anyway if it really happened twice.
-          </div>
-        </Warn>
+        <Banner tone="warn" title="Looks like a repeat">
+          The same amount is already recorded on this date{dupe.description ? ` (${dupe.description})` : ""}.
+          Save anyway if it really happened twice.
+        </Banner>
       )}
 
       {balAfter && (
-        <div className="mf-card" style={{ padding: "11px 14px", marginBottom: 12, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <span style={{ fontSize: 12.5, color: "var(--mf-ink-2)" }}>{balAfter.name} after this</span>
-          <span className="mf-num" style={{ fontSize: 13.5 }}>
-            {money(balAfter.before)} <span style={{ color: "var(--mf-ink-3)" }}>→</span> {money(balAfter.after)}
+        <Card className="mb-4 flex items-center justify-between gap-3 py-3">
+          <span className="min-w-0 truncate text-[13px] text-mf-ink-2">{balAfter.name} after this</span>
+          <span className="shrink-0 font-mf-mono text-[14px] text-mf-ink">
+            {money(balAfter.before)} <span className="text-mf-ink-3">→</span> {money(balAfter.after)}
           </span>
-        </div>
+        </Card>
       )}
 
-      <input value={note} onChange={e => setNote(e.target.value)} placeholder="Note (optional)"
-        className="mf-card" style={{ width: "100%", padding: "11px 14px", fontSize: 14, marginBottom: 12,
-          color: "var(--mf-ink)", fontFamily: "inherit" }} />
+      <Field label="Note (optional)">
+        <TextInput value={note} onChange={e => setNote(e.target.value)} placeholder="What was it?" />
+      </Field>
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8 }}>
-        <Key onClick={() => tapKey("1")}>1</Key>
-        <Key onClick={() => tapKey("2")}>2</Key>
-        <Key onClick={() => tapKey("3")}>3</Key>
-        <Key onClick={() => tapKey("<")}>&#9003;</Key>
-
-        <Key onClick={() => tapKey("4")}>4</Key>
-        <Key onClick={() => tapKey("5")}>5</Key>
-        <Key onClick={() => tapKey("6")}>6</Key>
-        <button
-          onClick={save}
-          disabled={!canSave}
-          className="mf-tap"
-          style={{
-            gridColumn: 4, gridRow: "2 / span 3", border: "none", borderRadius: "var(--mf-radius)",
-            background: canSave ? "var(--mf-have)" : "var(--mf-line)",
-            color: canSave ? "var(--mf-have-bg)" : "var(--mf-ink-3)",
-            fontSize: 14, fontWeight: 600, cursor: canSave ? "pointer" : "default",
-          }}
-        >
-          {saving ? "Saving…" : editId ? "Update" : "Save"}
-        </button>
-
-        <Key onClick={() => tapKey("7")}>7</Key>
-        <Key onClick={() => tapKey("8")}>8</Key>
-        <Key onClick={() => tapKey("9")}>9</Key>
-
-        <Key onClick={() => tapKey(".")}>.</Key>
-        <Key onClick={() => tapKey("0")} wide>0</Key>
+      {/* Save bar — always in reach, and says what is still missing */}
+      <div className="fixed inset-x-0 bottom-0 z-30 border-t border-mf-line bg-mf-surface/95 px-4 pb-[calc(env(safe-area-inset-bottom)+12px)] pt-3 backdrop-blur-md">
+        <div className="mx-auto max-w-[560px]">
+          {!canSave && blocker && <p className="mb-2 text-center text-[12.5px] font-medium text-mf-ink-3">{blocker}</p>}
+          <Button size="lg" full onClick={save} disabled={!canSave} loading={saving} loadingText="Saving…">
+            {editId ? "Update" : "Save"}{total > 0 ? ` ${money(total)}` : ""}
+          </Button>
+        </div>
       </div>
     </div>
   );
 }
 
-function Key({ children, onClick, wide }: { children: React.ReactNode; onClick: () => void; wide?: boolean }) {
-  return (
-    <button onClick={onClick} className="mf-tap mf-card"
-      style={{ gridColumn: wide ? "span 2" : undefined, padding: "13px 0", border: "none",
-        fontSize: 17, fontFamily: "var(--mf-mono)", color: "var(--mf-ink)" }}>
-      {children}
-    </button>
-  );
-}
+const KEYS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", ".", "0", "<"];
 
-function Chips({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div style={{ marginBottom: 12 }}>
-      <div style={{ fontSize: 11, letterSpacing: ".08em", textTransform: "uppercase", color: "var(--mf-ink-3)", margin: "0 0 7px 2px" }}>{label}</div>
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>{children}</div>
-    </div>
-  );
-}
-
-function Chip({ on, onClick, children }: { on: boolean; onClick: () => void; children: React.ReactNode }) {
-  return (
-    <button onClick={onClick} className="mf-tap"
-      style={{ border: "none", borderRadius: 999, padding: "7px 13px", fontSize: 13,
-        background: on ? "var(--mf-have)" : "var(--mf-surface)",
-        color: on ? "var(--mf-have-bg)" : "var(--mf-ink-2)",
-        boxShadow: on ? "none" : "inset 0 0 0 1px var(--mf-line)" }}>
-      {children}
-    </button>
-  );
-}
-
-function Muted({ children }: { children: React.ReactNode }) {
-  return <span style={{ fontSize: 12.5, color: "var(--mf-ink-3)" }}>{children}</span>;
-}
-
-function Warn({ children }: { children: React.ReactNode }) {
-  return (
-    <div style={{ background: "var(--mf-owe-bg)", color: "var(--mf-owe)", borderRadius: "var(--mf-radius)",
-      padding: "11px 13px", fontSize: 12.5, lineHeight: 1.5, marginBottom: 12 }}>
-      {children}
-    </div>
-  );
+/** yyyy-mm-dd shifted by whole days (local calendar). */
+function shiftIso(iso: string, days: number): string {
+  const d = new Date(iso + "T00:00:00");
+  d.setDate(d.getDate() + days);
+  return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
 }
