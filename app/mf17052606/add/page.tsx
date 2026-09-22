@@ -16,9 +16,8 @@
 import { useEffect, useMemo, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { useMF, money } from "../_components/MFProvider";
-import { TopBar, Card, Chip, ChipGroup, Segmented, Amount, Banner, Button, Field, TextInput, BASE, cx } from "../_ui/kit";
-import { IconBackspace, IconCalendar } from "../_ui/icons";
-import { typedAmount } from "../_ui/format";
+import { TopBar, Card, Chip, ChipGroup, Segmented, Amount, Banner, Button, Field, TextInput, AmountPad, DateChips, SaveBar, BalanceChange, BASE } from "../_ui/kit";
+import { shiftIso } from "../_ui/format";
 
 type Leg = { account_id: number; amount: number };
 
@@ -223,37 +222,9 @@ export default function AddExpense() {
     <div className="mx-auto w-full max-w-[560px] px-4 pb-[calc(env(safe-area-inset-bottom)+128px)]">
       <TopBar back={BASE} title={editId ? "Edit expense" : "Add expense"} sub={loadingEdit ? "Loading the entry…" : undefined} />
 
-      {/* Amount + keypad */}
-      <Card className="mb-5 text-center">
-        <div className="text-[12px] font-bold uppercase tracking-[0.08em] text-mf-ink-3">Amount</div>
-        <div aria-live="polite"
-          className={cx("mt-1 font-mf-mono text-[40px] font-medium leading-tight tracking-[-0.02em]", total > 0 ? "text-mf-ink" : "text-mf-ink-3")}>
-          ₹{typedAmount(amountStr)}
-        </div>
-        <div className="mt-3 grid grid-cols-3 gap-2">
-          {KEYS.map(k => (
-            <button key={k} type="button" onClick={() => tapKey(k)}
-              aria-label={k === "<" ? "Delete last digit" : k === "." ? "Decimal point" : k}
-              className="mf-btn grid h-12 place-items-center rounded-[12px] bg-mf-bg font-mf-mono text-[20px] font-medium text-mf-ink active:bg-mf-line">
-              {k === "<" ? <IconBackspace size={22} /> : k}
-            </button>
-          ))}
-        </div>
-      </Card>
+      <AmountPad value={amountStr} onKey={tapKey} />
 
-      {/* When */}
-      <ChipGroup label="When" hint={ago > 1 ? <span className="font-medium text-mf-warn">{ago} days ago</span> : undefined}>
-        <Chip on={ago === 0} onClick={() => setDateIso(todayIso())}>Today</Chip>
-        <Chip on={ago === 1} onClick={() => setDateIso(shiftIso(todayIso(), -1))}>Yesterday</Chip>
-        <label className={cx("mf-noscale relative inline-flex min-h-[40px] cursor-pointer items-center gap-2 rounded-full px-4 text-[14px] font-medium",
-          ago > 1 ? "bg-mf-brand text-white" : "bg-mf-surface text-mf-ink-2 ring-1 ring-inset ring-mf-line")}>
-          <IconCalendar size={16} />
-          {ago > 1 ? dateLabel : "Other date"}
-          <input type="date" value={dateIso} max={todayIso()} aria-label="Pick a date"
-            onChange={e => e.target.value && setDateIso(e.target.value)}
-            className="absolute inset-0 h-full w-full cursor-pointer opacity-0" />
-        </label>
-      </ChipGroup>
+      <DateChips value={dateIso} onChange={setDateIso} ago={ago} label={dateLabel} today={todayIso()} yesterday={shiftIso(todayIso(), -1)} />
 
       {/* Personal or library */}
       <div className="mb-5">
@@ -349,11 +320,8 @@ export default function AddExpense() {
       )}
 
       {balAfter && (
-        <Card className="mb-4 flex items-center justify-between gap-3 py-3">
-          <span className="min-w-0 truncate text-[13px] text-mf-ink-2">{balAfter.name} after this</span>
-          <span className="shrink-0 font-mf-mono text-[14px] text-mf-ink">
-            {money(balAfter.before)} <span className="text-mf-ink-3">→</span> {money(balAfter.after)}
-          </span>
+        <Card className="mb-4 py-1.5">
+          <BalanceChange name={`${balAfter.name} after this`} before={balAfter.before} after={balAfter.after} />
         </Card>
       )}
 
@@ -361,24 +329,9 @@ export default function AddExpense() {
         <TextInput value={note} onChange={e => setNote(e.target.value)} placeholder="What was it?" />
       </Field>
 
-      {/* Save bar — always in reach, and says what is still missing */}
-      <div className="fixed inset-x-0 bottom-0 z-30 border-t border-mf-line bg-mf-surface/95 px-4 pb-[calc(env(safe-area-inset-bottom)+12px)] pt-3 backdrop-blur-md">
-        <div className="mx-auto max-w-[560px]">
-          {!canSave && blocker && <p className="mb-2 text-center text-[12.5px] font-medium text-mf-ink-3">{blocker}</p>}
-          <Button size="lg" full onClick={save} disabled={!canSave} loading={saving} loadingText="Saving…">
-            {editId ? "Update" : "Save"}{total > 0 ? ` ${money(total)}` : ""}
-          </Button>
-        </div>
-      </div>
+      <SaveBar hint={!canSave ? blocker : ""} onSave={save} disabled={!canSave} loading={saving}>
+        {editId ? "Update" : "Save"}{total > 0 ? ` ${money(total)}` : ""}
+      </SaveBar>
     </div>
   );
-}
-
-const KEYS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", ".", "0", "<"];
-
-/** yyyy-mm-dd shifted by whole days (local calendar). */
-function shiftIso(iso: string, days: number): string {
-  const d = new Date(iso + "T00:00:00");
-  d.setDate(d.getDate() + days);
-  return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
 }

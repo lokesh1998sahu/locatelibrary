@@ -12,6 +12,8 @@ import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useMF, money } from "../_components/MFProvider";
+import { TopBar, Card, Chip, ChipGroup, Segmented, Field, TextInput, AmountPad, DateChips, SaveBar, BalanceChange, BASE } from "../_ui/kit";
+import { shiftIso } from "../_ui/format";
 
 type Mode = "IN" | "MOVE";
 
@@ -81,165 +83,101 @@ export default function MoneyInOrMove() {
     }
   };
 
+  // Amount comes from the same keypad as Add expense (same typing rules).
+  const tapKey = (k: string) => {
+    setAmountStr(s => {
+      if (k === "<") return s.slice(0, -1);
+      if (k === "." && s.includes(".")) return s;
+      if (s.replace(".", "").length >= 9) return s;
+      const next = s + k;
+      return next.replace(/^0(?=\d)/, "");
+    });
+  };
+
+  // Why the button is still off, in plain words. (The button itself follows canSave exactly.)
+  const blocker =
+    amount <= 0 ? "Enter the amount" :
+    mode === "IN"
+      ? (!accountId ? "Pick where the money landed" : !categoryId ? "Pick what it was for" : "")
+      : (!fromId ? "Pick the account it came out of" : !toId ? "Pick the account it went into" : fromId === toId ? "Pick two different accounts" : "");
+
+  const name = (a: { bank_name: string; owner_name: string }) => a.bank_name + (a.owner_name ? " · " + a.owner_name : "");
+
   return (
-    <div style={{ maxWidth: 560, margin: "0 auto", padding: "0 16px 40px" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "18px 0 14px" }}>
-        <Link href="/mf17052606" style={{ textDecoration: "none", color: "var(--mf-ink-2)", fontSize: 20, lineHeight: 1 }}>‹</Link>
-        <div style={{ fontSize: 17, fontWeight: 600 }}>{mode === "IN" ? "Money in" : "Move money"}</div>
-      </div>
+    <div className="mx-auto w-full max-w-[560px] px-4 pb-[calc(env(safe-area-inset-bottom)+128px)]">
+      <TopBar back={BASE} title={mode === "IN" ? "Money in" : "Move money"} />
 
-      <div style={{ display: "flex", gap: 6, marginBottom: 12 }}>
-        <Seg on={mode === "IN"} onClick={() => setMode("IN")}>Money in</Seg>
-        <Seg on={mode === "MOVE"} onClick={() => setMode("MOVE")}>Move between accounts</Seg>
-      </div>
+      <Segmented className="mb-4" value={mode} onChange={setMode}
+        options={[{ v: "IN", label: "Money in" }, { v: "MOVE", label: "Move between accounts" }]} />
 
-      <label className="mf-card mf-tap" style={{ display: "inline-flex", alignItems: "center", gap: 8,
-        padding: "8px 12px", fontSize: 13, marginBottom: 12,
-        background: ago > 0 ? "var(--mf-owe-bg)" : "var(--mf-surface)",
-        color: ago > 0 ? "var(--mf-owe)" : "var(--mf-ink)" }}>
-        <span>{dateLabel}{ago > 1 ? ` · ${ago} days ago` : ""}</span>
-        <input type="date" value={dateIso} max={todayIso()}
-          onChange={e => e.target.value && setDateIso(e.target.value)}
-          style={{ width: 18, border: "none", background: "none", padding: 0, color: "inherit", fontFamily: "inherit" }} />
-      </label>
+      <AmountPad value={amountStr} onKey={tapKey} />
 
-      <input
-        value={amountStr} inputMode="decimal" placeholder="Amount" autoFocus
-        onChange={e => setAmountStr(e.target.value.replace(/[^0-9.]/g, ""))}
-        className="mf-card"
-        style={{ width: "100%", padding: "14px", fontSize: 26, fontFamily: "var(--mf-mono)",
-          textAlign: "center", color: "var(--mf-ink)", marginBottom: 12 }}
-      />
+      <DateChips value={dateIso} onChange={setDateIso} ago={ago} label={dateLabel} today={todayIso()} yesterday={shiftIso(todayIso(), -1)} />
 
       {mode === "IN" ? (
         <>
-          <Label>Where did it land</Label>
-          <Row>
+          <ChipGroup label="Where did it land">
             {accounts.filter(a => !a.is_liability).map(a => (
-              <Chip key={a.id} on={accountId === a.id} onClick={() => setAccountId(a.id)}>
-                {a.bank_name}{a.owner_name ? " · " + a.owner_name : ""}
-              </Chip>
+              <Chip key={a.id} on={accountId === a.id} onClick={() => setAccountId(a.id)}>{name(a)}</Chip>
             ))}
-          </Row>
+          </ChipGroup>
 
-          <Label>What for</Label>
-          <Row>
+          <ChipGroup label="What for"
+            hint={incomeCats.length === 0
+              ? <>No income categories yet. Add one in <Link href={BASE + "/setup"} className="font-semibold text-mf-ink underline">Set up</Link>.</>
+              : undefined}>
             {incomeCats.map(c => (
               <Chip key={c.id} on={categoryId === c.id} onClick={() => setCategoryId(c.id)}>{c.name}</Chip>
             ))}
-            {incomeCats.length === 0 && (
-              <Muted>
-                No income categories yet — add one in{" "}
-                <Link href="/mf17052606/setup" style={{ color: "var(--mf-have)" }}>Set up</Link>.
-              </Muted>
-            )}
-          </Row>
+          </ChipGroup>
 
           {landing && landing.balance != null && amount > 0 && (
-            <Preview name={landing.bank_name} before={landing.balance} after={landing.balance + amount} />
+            <Card className="mb-4 py-1.5">
+              <BalanceChange name={`${landing.bank_name} after this`} before={landing.balance} after={landing.balance + amount} />
+            </Card>
           )}
         </>
       ) : (
         <>
-          <Label>Out of</Label>
-          <Row>
+          <ChipGroup label="Out of">
             {accounts.map(a => (
-              <Chip key={a.id} on={fromId === a.id} onClick={() => { setFromId(a.id); if (toId === a.id) setToId(null); }}>
-                {a.bank_name}{a.owner_name ? " · " + a.owner_name : ""}
-              </Chip>
+              <Chip key={a.id} on={fromId === a.id} onClick={() => { setFromId(a.id); if (toId === a.id) setToId(null); }}>{name(a)}</Chip>
             ))}
-          </Row>
+          </ChipGroup>
 
-          <Label>Into</Label>
-          <Row>
+          <ChipGroup label="Into">
             {accounts.filter(a => a.id !== fromId).map(a => (
-              <Chip key={a.id} on={toId === a.id} onClick={() => setToId(a.id)}>
-                {a.bank_name}{a.owner_name ? " · " + a.owner_name : ""}
-              </Chip>
+              <Chip key={a.id} on={toId === a.id} onClick={() => setToId(a.id)}>{name(a)}</Chip>
             ))}
-          </Row>
+          </ChipGroup>
 
           {from && to && amount > 0 && (
-            <div className="mf-card" style={{ padding: "12px 14px", marginBottom: 12 }}>
+            <Card className="mb-4 py-1.5">
               {from.balance != null && (
-                <PreviewRow name={from.bank_name} before={from.balance}
+                <BalanceChange name={from.bank_name} before={from.balance}
                   after={from.balance + (from.is_liability ? amount : -amount)} />
               )}
               {to.balance != null && (
-                <PreviewRow name={to.bank_name} before={to.balance}
-                  after={to.balance + (to.is_liability ? -amount : amount)} top />
+                <BalanceChange name={to.bank_name} before={to.balance} first={from.balance == null}
+                  after={to.balance + (to.is_liability ? -amount : amount)} />
               )}
-              <div style={{ fontSize: 11.5, color: "var(--mf-ink-3)", marginTop: 8, lineHeight: 1.55 }}>
+              <p className="border-t border-mf-line py-2.5 text-[12px] leading-relaxed text-mf-ink-3">
                 {to.is_liability
-                  ? "Paying this card down. Your net worth does not change — you have less, and you owe less."
-                  : "Net worth does not change — the same money is simply somewhere else."}
-              </div>
-            </div>
+                  ? "Paying this card down. Your net worth does not change: you have less, and you owe less."
+                  : "Net worth does not change. The same money is simply somewhere else."}
+              </p>
+            </Card>
           )}
         </>
       )}
 
-      <input value={note} onChange={e => setNote(e.target.value)} placeholder="Note (optional)"
-        className="mf-card" style={{ width: "100%", padding: "11px 14px", fontSize: 14, marginBottom: 12,
-          color: "var(--mf-ink)", fontFamily: "inherit" }} />
+      <Field label="Note (optional)">
+        <TextInput value={note} onChange={e => setNote(e.target.value)} placeholder={mode === "IN" ? "Where did it come from?" : "Why the move?"} />
+      </Field>
 
-      <button onClick={save} disabled={!canSave} className="mf-tap"
-        style={{ width: "100%", border: "none", borderRadius: 10, padding: "13px", fontSize: 15, fontWeight: 600,
-          background: canSave ? "var(--mf-have)" : "var(--mf-line)",
-          color: canSave ? "var(--mf-have-bg)" : "var(--mf-ink-3)",
-          cursor: canSave ? "pointer" : "default" }}>
-        {busy ? "Saving…" : mode === "IN" ? "Record it" : "Move it"}
-      </button>
+      <SaveBar hint={!canSave ? blocker : ""} onSave={save} disabled={!canSave} loading={busy}>
+        {mode === "IN" ? "Record" : "Move"}{amount > 0 ? ` ${money(amount)}` : ""}
+      </SaveBar>
     </div>
   );
-}
-
-function Label({ children }: { children: React.ReactNode }) {
-  return <div style={{ fontSize: 11, letterSpacing: ".08em", textTransform: "uppercase", color: "var(--mf-ink-3)", margin: "0 0 7px 2px" }}>{children}</div>;
-}
-function Row({ children }: { children: React.ReactNode }) {
-  return <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 12 }}>{children}</div>;
-}
-function Seg({ on, onClick, children }: { on: boolean; onClick: () => void; children: React.ReactNode }) {
-  return (
-    <button onClick={onClick} className="mf-tap"
-      style={{ flex: 1, border: "none", borderRadius: 999, padding: "8px 0", fontSize: 13,
-        background: on ? "var(--mf-have)" : "var(--mf-surface)",
-        color: on ? "var(--mf-have-bg)" : "var(--mf-ink-2)",
-        boxShadow: on ? "none" : "inset 0 0 0 1px var(--mf-line)" }}>
-      {children}
-    </button>
-  );
-}
-function Chip({ on, onClick, children }: { on: boolean; onClick: () => void; children: React.ReactNode }) {
-  return (
-    <button onClick={onClick} className="mf-tap"
-      style={{ border: "none", borderRadius: 999, padding: "7px 13px", fontSize: 13,
-        background: on ? "var(--mf-have)" : "var(--mf-surface)",
-        color: on ? "var(--mf-have-bg)" : "var(--mf-ink-2)",
-        boxShadow: on ? "none" : "inset 0 0 0 1px var(--mf-line)" }}>
-      {children}
-    </button>
-  );
-}
-function PreviewRow({ name, before, after, top }: { name: string; before: number; after: number; top?: boolean }) {
-  return (
-    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between",
-      paddingTop: top ? 8 : 0, marginTop: top ? 8 : 0, borderTop: top ? "1px solid var(--mf-line)" : "none" }}>
-      <span style={{ fontSize: 12.5, color: "var(--mf-ink-2)" }}>{name}</span>
-      <span className="mf-num" style={{ fontSize: 13.5 }}>
-        {money(before)} <span style={{ color: "var(--mf-ink-3)" }}>→</span> {money(after)}
-      </span>
-    </div>
-  );
-}
-function Preview({ name, before, after }: { name: string; before: number; after: number }) {
-  return (
-    <div className="mf-card" style={{ padding: "11px 14px", marginBottom: 12 }}>
-      <PreviewRow name={name + " after this"} before={before} after={after} />
-    </div>
-  );
-}
-function Muted({ children }: { children: React.ReactNode }) {
-  return <span style={{ fontSize: 12.5, color: "var(--mf-ink-3)" }}>{children}</span>;
 }

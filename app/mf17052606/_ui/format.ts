@@ -27,3 +27,25 @@ export function dateShort(iso: string | null | undefined): string {
   const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(iso ?? ""));
   return m ? `${+m[3]} ${MON[+m[2] - 1]}` : "—";
 }
+
+/** Local yyyy-mm-dd for a Date (no UTC shift). */
+export function isoOf(d: Date): string {
+  return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+}
+/** yyyy-mm-dd shifted by whole days (local calendar). */
+export function shiftIso(iso: string, days: number): string {
+  const d = new Date(iso + "T00:00:00");
+  d.setDate(d.getDate() + days);
+  return isoOf(d);
+}
+/** "Today" · "Yesterday" · "Mon, 21 Sep" (adds the year when it is not this year). */
+export function dayLabel(iso: string | null | undefined): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(iso ?? ""));
+  if (!m) return "—";
+  const d = new Date(+m[1], +m[2] - 1, +m[3]);
+  const t = new Date(); t.setHours(0, 0, 0, 0);
+  const ago = Math.round((t.getTime() - d.getTime()) / 86400000);
+  if (ago === 0) return "Today";
+  if (ago === 1) return "Yesterday";
+  return d.toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short", ...(d.getFullYear() !== t.getFullYear() ? { year: "numeric" } : {}) });
+}

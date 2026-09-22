@@ -10,14 +10,16 @@
 import { useEffect, useState, type ReactNode, type ButtonHTMLAttributes, type InputHTMLAttributes, type ComponentType } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { money } from "./format";
+import { money, typedAmount } from "./format";
 import {
   IconBack, IconClose, IconHome, IconBook, IconPlus, IconBank, IconMore, IconIn, IconCheck,
-  IconPeople, IconChart, IconRepeat, IconAsset, IconFolder, IconSettings, IconLock, IconChevron,
+  IconPeople, IconChart, IconRepeat, IconAsset, IconFolder, IconSettings, IconLock, IconChevron, IconBackspace, IconCalendar,
 } from "./icons";
 
 export const BASE = "/mf17052606";
 export const cx = (...c: (string | false | null | undefined)[]) => c.filter(Boolean).join(" ");
+/** The look of anything "on" or primary: glassy black. */
+export const ACTIVE = "mf-glass-btn text-white";
 
 // ── Page frame ──────────────────────────────────────────────────────
 export function Screen({ children, className }: { children: ReactNode; className?: string }) {
@@ -29,7 +31,7 @@ export function TopBar({ title, sub, back, right }: {
   title: ReactNode; sub?: ReactNode; back?: string | (() => void); right?: ReactNode;
 }) {
   return (
-    <header className="sticky top-0 z-30 -mx-4 mb-2 flex items-center gap-1 bg-mf-bg/90 px-4 pb-2 pt-[calc(env(safe-area-inset-top)+10px)] backdrop-blur-md">
+    <header className="mf-glass-light sticky top-0 z-30 -mx-4 mb-2 flex items-center gap-1 border-b border-transparent px-4 pb-2 pt-[calc(env(safe-area-inset-top)+10px)]">
       {back && (typeof back === "string"
         ? <IconButton label="Back" href={back} className="-ml-2"><IconBack /></IconButton>
         : <IconButton label="Back" onClick={back} className="-ml-2"><IconBack /></IconButton>)}
@@ -103,7 +105,7 @@ type BtnProps = {
 
 export function Button({ variant = "primary", size = "md", full, loading, loadingText, className, disabled, children, type = "button", ...rest }: BtnProps) {
   const look = {
-    primary: "bg-mf-brand text-white shadow-[0_8px_18px_-8px_rgb(15_110_86/0.6)] active:bg-mf-brand-strong",
+    primary: "mf-glass-btn text-white active:brightness-90",
     secondary: "border border-mf-line bg-mf-surface text-mf-ink active:bg-mf-bg",
     ghost: "bg-transparent text-mf-brand active:bg-mf-brand-soft",
     danger: "bg-mf-out text-white active:opacity-90",
@@ -112,7 +114,7 @@ export function Button({ variant = "primary", size = "md", full, loading, loadin
     <button type={type} disabled={disabled || loading} aria-busy={loading || undefined}
       className={cx(
         "mf-btn inline-flex select-none items-center justify-center gap-2 rounded-[14px] font-semibold transition",
-        "disabled:cursor-not-allowed disabled:border-transparent disabled:bg-mf-line disabled:text-mf-ink-3 disabled:shadow-none",
+        "disabled:cursor-not-allowed disabled:border-transparent disabled:bg-mf-line disabled:bg-none disabled:text-mf-ink-3 disabled:shadow-none",
         size === "lg" ? "h-[52px] px-5 text-[16px]" : "h-11 px-4 text-[15px]",
         look, full && "w-full", className)}
       {...rest}>
@@ -135,7 +137,7 @@ export function Chip({ on, onClick, children, disabled }: { on: boolean; onClick
   return (
     <button type="button" aria-pressed={on} onClick={onClick} disabled={disabled}
       className={cx("mf-btn inline-flex min-h-[40px] max-w-full items-center rounded-full px-4 text-left text-[14px] font-medium transition",
-        on ? "bg-mf-brand text-white" : "bg-mf-surface text-mf-ink-2 ring-1 ring-inset ring-mf-line active:bg-mf-bg")}>
+        on ? ACTIVE : "bg-mf-surface text-mf-ink-2 ring-1 ring-inset ring-mf-line active:bg-mf-bg")}>
       <span className="truncate">{children}</span>
     </button>
   );
@@ -230,7 +232,7 @@ export function ToastView({ toast }: { toast: { msg: string; type: "success" | "
       className="pointer-events-none fixed inset-x-0 top-0 z-[60] flex justify-center px-4 pt-[calc(env(safe-area-inset-top)+10px)]">
       {toast && (
         <div className={cx("mf-toast-in max-w-[420px] rounded-[14px] px-4 py-3 text-center text-[14px] font-semibold text-white shadow-mf-float",
-          toast.type === "error" ? "bg-mf-out" : "bg-mf-ink")}>
+          toast.type === "error" ? "bg-mf-out" : "mf-glass-dark")}>
           {toast.msg}
         </div>
       )}
@@ -300,13 +302,13 @@ export function TabBar({ onLock }: { onLock: () => void }) {
   const moreActive = MORE_LINKS.some(l => at(l.href));
   return (
     <>
-      <nav aria-label="Main" className="fixed inset-x-0 bottom-0 z-40 border-t border-mf-line bg-mf-surface/95 pb-[env(safe-area-inset-bottom)] backdrop-blur-md">
+      <nav aria-label="Main" className="mf-glass-light fixed inset-x-0 bottom-0 z-40 border-t border-mf-line/70 pb-[env(safe-area-inset-bottom)]">
         <div className="mx-auto grid h-16 max-w-[560px] grid-cols-5 items-center px-1">
           <Tab href={BASE} label="Home" icon={<IconHome />} active={pathname === BASE || pathname === BASE + "/"} />
           <Tab href={BASE + "/passbook"} label="Passbook" icon={<IconBook />} active={at(BASE + "/passbook")} />
           <div className="flex justify-center">
             <Link href={BASE + "/add"} aria-label="Add expense"
-              className="-mt-6 grid h-14 w-14 place-items-center rounded-full bg-mf-brand text-white shadow-[0_10px_22px_-8px_rgb(15_110_86/0.7)] ring-4 ring-mf-bg active:bg-mf-brand-strong">
+              className="mf-glass-btn -mt-6 grid h-14 w-14 place-items-center rounded-full text-white ring-4 ring-mf-bg active:brightness-90">
               <IconPlus size={26} strokeWidth={2.2} />
             </Link>
           </div>
@@ -335,5 +337,76 @@ export function TabBar({ onLock }: { onLock: () => void }) {
         </Button>
       </Sheet>
     </>
+  );
+}
+
+// ── Money entry parts (shared by Add expense and Money in) ─────────
+/** Amount display + keypad. The page owns the value and the typing rules (onKey). */
+export function AmountPad({ value, onKey, label = "Amount" }: { value: string; onKey: (k: string) => void; label?: string }) {
+  const total = Number(value || 0);
+  return (
+    <Card className="mb-5 text-center">
+      <div className="text-[12px] font-bold uppercase tracking-[0.08em] text-mf-ink-3">{label}</div>
+      <div aria-live="polite"
+        className={cx("mt-1 font-mf-mono text-[40px] font-medium leading-tight tracking-[-0.02em]", total > 0 ? "text-mf-ink" : "text-mf-ink-3")}>
+        ₹{typedAmount(value)}
+      </div>
+      <div className="mt-3 grid grid-cols-3 gap-2">
+        {PAD_KEYS.map(k => (
+          <button key={k} type="button" onClick={() => onKey(k)}
+            aria-label={k === "<" ? "Delete last digit" : k === "." ? "Decimal point" : k}
+            className="mf-btn grid h-12 place-items-center rounded-[12px] bg-mf-bg font-mf-mono text-[20px] font-medium text-mf-ink active:bg-mf-line">
+            {k === "<" ? <IconBackspace size={22} /> : k}
+          </button>
+        ))}
+      </div>
+    </Card>
+  );
+}
+const PAD_KEYS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", ".", "0", "<"];
+
+/** When: Today · Yesterday · Other date (native picker). The page passes its own date maths. */
+export function DateChips({ value, onChange, ago, label, today, yesterday, title = "When" }: {
+  value: string; onChange: (iso: string) => void; ago: number; label: string; today: string; yesterday: string; title?: string;
+}) {
+  return (
+    <ChipGroup label={title} hint={ago > 1 ? <span className="font-medium text-mf-warn">{ago} days ago</span> : undefined}>
+      <Chip on={ago === 0} onClick={() => onChange(today)}>Today</Chip>
+      <Chip on={ago === 1} onClick={() => onChange(yesterday)}>Yesterday</Chip>
+      <label className={cx("mf-noscale relative inline-flex min-h-[40px] cursor-pointer items-center gap-2 rounded-full px-4 text-[14px] font-medium",
+        ago > 1 ? ACTIVE : "bg-mf-surface text-mf-ink-2 ring-1 ring-inset ring-mf-line")}>
+        <IconCalendar size={16} />
+        {ago > 1 ? label : "Other date"}
+        <input type="date" value={value} max={today} aria-label="Pick a date"
+          onChange={e => e.target.value && onChange(e.target.value)}
+          className="absolute inset-0 h-full w-full cursor-pointer opacity-0" />
+      </label>
+    </ChipGroup>
+  );
+}
+
+/** Save bar pinned to the bottom: says what is still missing, then saves. */
+export function SaveBar({ hint, onSave, disabled, loading, children }: {
+  hint?: string; onSave: () => void; disabled: boolean; loading: boolean; children: ReactNode;
+}) {
+  return (
+    <div className="mf-glass-light fixed inset-x-0 bottom-0 z-30 border-t border-mf-line/70 px-4 pb-[calc(env(safe-area-inset-bottom)+12px)] pt-3">
+      <div className="mx-auto max-w-[560px]">
+        {hint && <p className="mb-2 text-center text-[12.5px] font-medium text-mf-ink-3">{hint}</p>}
+        <Button size="lg" full onClick={onSave} disabled={disabled} loading={loading} loadingText="Saving…">{children}</Button>
+      </div>
+    </div>
+  );
+}
+
+/** "Yes Bank after this   ₹1,20,000 → ₹1,18,750" */
+export function BalanceChange({ name, before, after, first = true }: { name: ReactNode; before: number; after: number; first?: boolean }) {
+  return (
+    <div className={cx("flex items-center justify-between gap-3 py-2.5", !first && "border-t border-mf-line")}>
+      <span className="min-w-0 truncate text-[13px] text-mf-ink-2">{name}</span>
+      <span className="shrink-0 font-mf-mono text-[14px] text-mf-ink">
+        {money(before)} <span className="text-mf-ink-3">→</span> {money(after)}
+      </span>
+    </div>
   );
 }

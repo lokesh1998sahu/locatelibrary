@@ -7,7 +7,7 @@
 // when you move between screens — always comes from the network, so a new deploy
 // shows up at once and nothing out of date is ever served. The version bump makes
 // the browser delete everything the old worker stored.
-const CACHE = "mf17052606-v2";
+const CACHE = "mf17052606-v3";   // v3: new manifest (black theme) — bumping drops the old cached copy
 const SHELL = ["/mf17052606", "/mf17052606/manifest.webmanifest",
   "/mf17052606/icons/icon-192.png", "/mf17052606/icons/icon-512.png"];
 const isStatic = (p) => p === "/mf17052606/manifest.webmanifest" || p.startsWith("/mf17052606/icons/");

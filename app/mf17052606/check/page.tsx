@@ -11,6 +11,9 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useMF, money } from "../_components/MFProvider";
+import { TopBar, Card, Chip, ChipGroup, Button, Banner, Empty, Field, cx, ACTIVE, BASE } from "../_ui/kit";
+import { IconCheck, IconCalendar } from "../_ui/icons";
+import { dateLong, dayLabel } from "../_ui/format";
 
 type Prep = {
   needs_setup: boolean;
@@ -66,145 +69,113 @@ export default function Check() {
     }
   };
 
-  return (
-    <div style={{ maxWidth: 560, margin: "0 auto", padding: "0 16px 40px" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "18px 0 14px" }}>
-        <Link href="/mf17052606" style={{ textDecoration: "none", color: "var(--mf-ink-2)", fontSize: 20, lineHeight: 1 }}>‹</Link>
-        <div style={{ fontSize: 17, fontWeight: 600 }}>Check</div>
-      </div>
+  const acc = accountId != null ? accounts.find(a => a.id === accountId) ?? null : null;
+  const isToday = onDate === todayIso();
 
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 12 }}>
-        {accounts.map(a => (
-          <Chip key={a.id} on={accountId === a.id} onClick={() => { setAccountId(a.id); setRealStr(""); }}>
-            {a.bank_name}
-          </Chip>
-        ))}
-        {accounts.length === 0 && (
-          <div style={{ fontSize: 13, color: "var(--mf-ink-2)", lineHeight: 1.6 }}>
-            No account has an opening balance yet. Set one in{" "}
-            <Link href="/mf17052606/setup" style={{ color: "var(--mf-have)" }}>Set up</Link>.
-          </div>
-        )}
-      </div>
+  return (
+    <div className="mx-auto w-full max-w-[560px] px-4">
+      <TopBar title="Check" sub="Does the bank agree with MF?" back={BASE} />
+
+      {accounts.length === 0 ? (
+        <Card>
+          <Empty icon={<IconCheck size={22} />} title="Nothing to check yet"
+            body="No account has an opening balance yet, so there is nothing to compare against."
+            action={<Link href={BASE + "/accounts"} className="text-[14px] font-semibold text-mf-ink underline">Set one in Accounts</Link>} />
+        </Card>
+      ) : (
+        <ChipGroup label="Which account">
+          {accounts.map(a => (
+            <Chip key={a.id} on={accountId === a.id} onClick={() => { setAccountId(a.id); setRealStr(""); }}>
+              {a.bank_name}{a.owner_name ? " · " + a.owner_name : ""}
+            </Chip>
+          ))}
+        </ChipGroup>
+      )}
 
       {accountId && (
-        <label className="mf-card mf-tap" style={{ display: "inline-flex", alignItems: "center", gap: 8, padding: "8px 12px", fontSize: 13, marginBottom: 12 }}>
-          <span>As at {onDate === todayIso() ? "today" : onDate}</span>
-          <input type="date" value={onDate} max={todayIso()}
-            onChange={e => e.target.value && setOnDate(e.target.value)}
-            style={{ width: 18, border: "none", background: "none", padding: 0, color: "inherit", fontFamily: "inherit" }} />
-        </label>
+        <ChipGroup label="As at">
+          <Chip on={isToday} onClick={() => setOnDate(todayIso())}>Today</Chip>
+          <label className={cx("mf-noscale relative inline-flex min-h-[40px] cursor-pointer items-center gap-2 rounded-full px-4 text-[14px] font-medium",
+            !isToday ? ACTIVE : "bg-mf-surface text-mf-ink-2 ring-1 ring-inset ring-mf-line")}>
+            <IconCalendar size={16} />
+            {!isToday ? dayLabel(onDate) : "Other date"}
+            <input type="date" value={onDate} max={todayIso()} aria-label="Pick a date"
+              onChange={e => e.target.value && setOnDate(e.target.value)}
+              className="absolute inset-0 h-full w-full cursor-pointer opacity-0" />
+          </label>
+        </ChipGroup>
       )}
 
       {prep?.needs_setup && (
-        <div className="mf-card" style={{ padding: "14px 16px", fontSize: 13.5, color: "var(--mf-ink-2)", lineHeight: 1.6 }}>
-          {prep.name} has no opening balance, so there is nothing to compare against yet.
-        </div>
+        <Banner tone="info">{prep.name} has no opening balance, so there is nothing to compare against yet.</Banner>
       )}
 
       {prep && !prep.needs_setup && (
         <>
-          <div className="mf-card" style={{ padding: "16px", marginBottom: 12 }}>
-            <div style={{ fontSize: 12.5, color: "var(--mf-ink-2)" }}>MF 2.0 says</div>
-            <div className="mf-num" style={{ fontSize: 30, fontWeight: 600, letterSpacing: "-.02em", marginTop: 3 }}>
-              {money(app)}
-            </div>
+          <section className="mf-glass-dark mb-5 rounded-[22px] p-5 text-white">
+            <div className="text-[13px] font-semibold text-white/75">MF says{isToday ? "" : `, on ${dateLong(onDate)}`}</div>
+            <div className="mt-1 font-mf-mono text-[32px] font-medium leading-none tracking-[-0.02em]">{money(app)}</div>
             {prep.last_check && (
-              <div style={{ fontSize: 11.5, color: "var(--mf-ink-3)", marginTop: 8 }}>
-                Last checked {prep.last_check.checked_on}
-                {Math.abs(prep.last_check.difference) < 0.005 ? " — matched" : ` — was off by ${money(prep.last_check.difference)}`}
+              <div className="mt-3 text-[12px] text-white/70">
+                Last checked {dateLong(prep.last_check.checked_on)}
+                {Math.abs(prep.last_check.difference) < 0.005 ? " · matched" : ` · was off by ${money(prep.last_check.difference)}`}
               </div>
             )}
-          </div>
+          </section>
 
-          <div style={{ fontSize: 11, letterSpacing: ".08em", textTransform: "uppercase", color: "var(--mf-ink-3)", margin: "0 0 7px 2px" }}>
-            What does the bank say
-          </div>
-          <input
-            value={realStr} inputMode="decimal" placeholder="Real balance"
-            onChange={e => setRealStr(e.target.value.replace(/[^0-9.\-]/g, ""))}
-            className="mf-card"
-            style={{ width: "100%", padding: "12px 14px", fontSize: 18, fontFamily: "var(--mf-mono)",
-              color: "var(--mf-ink)", marginBottom: 12 }}
-          />
+          <Field label="What does the bank say">
+            <input value={realStr} inputMode="decimal" placeholder="Balance in the bank app or statement"
+              onChange={e => setRealStr(e.target.value.replace(/[^0-9.\-]/g, ""))}
+              className="h-14 w-full rounded-[14px] border border-mf-line bg-mf-surface px-4 font-mf-mono text-[22px] text-mf-ink outline-none transition placeholder:font-mf-sans placeholder:text-[15px] placeholder:text-mf-ink-3 focus:border-mf-ink focus:ring-2 focus:ring-mf-brand/15" />
+          </Field>
 
           {diff != null && (
-            <div className="mf-card" style={{ padding: "14px 16px", marginBottom: 12,
-              background: matched ? "var(--mf-have-bg)" : "var(--mf-owe-bg)" }}>
-              <div style={{ fontSize: 14, fontWeight: 600, color: matched ? "var(--mf-have)" : "var(--mf-owe)" }}>
-                {matched ? "They match." : `Off by ${money(Math.abs(diff))}`}
-              </div>
-              <div style={{ fontSize: 12.5, lineHeight: 1.6, marginTop: 4,
-                color: matched ? "var(--mf-have)" : "var(--mf-owe)" }}>
+            <div role="status" className={cx("mb-4 rounded-mf px-4 py-3.5", matched ? "bg-mf-in-soft text-mf-in" : "bg-mf-out-soft text-mf-out")}>
+              <div className="text-[15px] font-bold">{matched ? "They match." : `Off by ${money(Math.abs(diff))}`}</div>
+              <div className="mt-1 text-[13px] leading-relaxed">
                 {matched
                   ? "Everything on or before this date is confirmed."
                   : diff > 0
-                    ? "The bank has more than MF 2.0 knows about — money came in that was never recorded."
-                    : "The bank has less than MF 2.0 thinks — something went out that was never recorded."}
+                    ? "The bank has more than MF knows about: money came in that was never recorded."
+                    : "The bank has less than MF thinks: something went out that was never recorded."}
               </div>
               {!matched && (
-                <div style={{ fontSize: 12.5, marginTop: 8, color: "var(--mf-owe)" }}>
-                  Open the{" "}
-                  <Link href="/mf17052606/passbook" style={{ color: "var(--mf-owe)", fontWeight: 600 }}>passbook</Link>{" "}
-                  and scroll to where the two stop agreeing — that line is the answer.
+                <div className="mt-2 text-[13px]">
+                  Open the <Link href={`${BASE}/passbook?account=${accountId}`} className="font-bold underline">passbook for {acc?.bank_name ?? "this account"}</Link> and
+                  look for where the two stop agreeing. That line is the answer.
                 </div>
               )}
             </div>
           )}
 
           {done && (
-            <div className="mf-card" style={{ padding: "12px 14px", marginBottom: 12, fontSize: 12.5, color: "var(--mf-ink-2)", lineHeight: 1.6 }}>
-              Check saved{done.adjusted ? ` and settled with an adjustment of ${money(done.diff)} — it appears in the passbook and can be removed there.` : "."}
-            </div>
+            <Banner tone="in">
+              Check saved{done.adjusted ? ` and settled with an adjustment of ${money(done.diff)}. It appears in the passbook and can be removed there.` : "."}
+            </Banner>
           )}
 
           {diff != null && (
-            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-              <Btn busy={busy} onClick={() => submit(false)}>
+            <div className="grid gap-2">
+              <Button size="lg" full loading={busy} loadingText="Saving…" onClick={() => submit(false)}>
                 {matched ? "Confirm the match" : "Save the check"}
-              </Btn>
+              </Button>
               {!matched && (
-                <Btn busy={busy} ghost onClick={() => submit(true)}>
+                <Button size="lg" full variant="secondary" disabled={busy} onClick={() => submit(true)}>
                   Settle the difference
-                </Btn>
+                </Button>
               )}
             </div>
           )}
 
           {!matched && diff != null && (
-            <div style={{ fontSize: 11.5, color: "var(--mf-ink-3)", lineHeight: 1.6, marginTop: 10 }}>
-              Saving the check records the difference without changing anything — use it when you
-              intend to go looking. Settling writes a visible adjustment so the balance agrees;
-              only do that once you accept the money is genuinely gone or genuinely arrived.
-            </div>
+            <p className="mt-3 px-1 text-[12px] leading-relaxed text-mf-ink-3">
+              Saving the check records the difference without changing anything; use it when you intend to go looking.
+              Settling writes a visible adjustment so the balance agrees. Only do that once you accept the money is
+              genuinely gone or genuinely arrived.
+            </p>
           )}
         </>
       )}
     </div>
-  );
-}
-
-function Chip({ on, onClick, children }: { on: boolean; onClick: () => void; children: React.ReactNode }) {
-  return (
-    <button onClick={onClick} className="mf-tap"
-      style={{ border: "none", borderRadius: 999, padding: "7px 13px", fontSize: 13,
-        background: on ? "var(--mf-have)" : "var(--mf-surface)",
-        color: on ? "var(--mf-have-bg)" : "var(--mf-ink-2)",
-        boxShadow: on ? "none" : "inset 0 0 0 1px var(--mf-line)" }}>
-      {children}
-    </button>
-  );
-}
-
-function Btn({ busy, ghost, onClick, children }: { busy: boolean; ghost?: boolean; onClick: () => void; children: React.ReactNode }) {
-  return (
-    <button onClick={onClick} disabled={busy} className="mf-tap"
-      style={{ border: "none", borderRadius: 9, padding: "11px 18px", fontSize: 14, fontWeight: 600,
-        background: ghost ? "var(--mf-surface)" : "var(--mf-have)",
-        color: ghost ? "var(--mf-ink-2)" : "var(--mf-have-bg)",
-        boxShadow: ghost ? "inset 0 0 0 1px var(--mf-line)" : "none",
-        opacity: busy ? .6 : 1 }}>
-      {busy ? "Saving…" : children}
-    </button>
   );
 }

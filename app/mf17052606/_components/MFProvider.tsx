@@ -181,7 +181,7 @@ export default function MFProvider({ children }: { children: ReactNode }) {
     return (
       <div className="mf-app grid place-items-center px-6">
         <div className="w-full max-w-[360px]">
-          <div className="mx-auto mb-5 grid h-14 w-14 place-items-center rounded-[18px] bg-mf-brand text-white shadow-[0_10px_24px_-10px_rgb(15_110_86/0.7)]">
+          <div className="mf-glass-btn mx-auto mb-5 grid h-14 w-14 place-items-center rounded-[18px] text-white">
             <span className="font-mf-mono text-[24px] font-medium">₹</span>
           </div>
           <h1 className="text-center text-[22px] font-bold tracking-[-0.01em] text-mf-ink">My Financials</h1>

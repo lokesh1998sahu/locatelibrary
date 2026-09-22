@@ -13,6 +13,9 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMF, money } from "../_components/MFProvider";
+import { TopBar, Card, Chip, Segmented, Sheet, Button, Empty, Skeleton, BASE, cx } from "../_ui/kit";
+import { IconBook, IconWallet } from "../_ui/icons";
+import { dayLabel } from "../_ui/format";
 
 type Row = {
   entry_id: number | null;
@@ -63,130 +66,115 @@ export default function Passbook() {
 
   const accounts = init?.accounts.filter(a => a.is_set_up) ?? [];
 
-  return (
-    <div style={{ maxWidth: 560, margin: "0 auto", padding: "0 16px 40px" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "18px 0 14px" }}>
-        <Link href="/mf17052606" style={{ textDecoration: "none", color: "var(--mf-ink-2)", fontSize: 20, lineHeight: 1 }}>‹</Link>
-        <div style={{ fontSize: 17, fontWeight: 600 }}>Passbook</div>
-      </div>
+  const selected = accountId != null ? accounts.find(a => a.id === accountId) ?? null : null;
+  // Newest first; every line still shows the balance right after it, so the
+  // top line of an account equals the balance on Home.
+  const days: { day: string; items: Row[] }[] = [];
+  for (const r of [...rows].reverse()) {
+    const g = days[days.length - 1];
+    if (g && g.day === r.on_date) g.items.push(r); else days.push({ day: r.on_date, items: [r] });
+  }
+  const open = openId != null ? rows.find(r => r.entry_id === openId) ?? null : null;
 
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 14 }}>
+  return (
+    <div className="mx-auto w-full max-w-[560px] px-4">
+      <TopBar title="Passbook" sub={selected ? `${selected.bank_name}${selected.owner_name ? " · " + selected.owner_name : ""}` : "Every account"} />
+
+      {/* Which account — one swipeable row */}
+      <div className="-mx-4 mb-3 flex gap-2 overflow-x-auto px-4 pb-1 [scrollbar-width:none]">
         <Chip on={accountId === null} onClick={() => setAccountId(null)}>Everything</Chip>
         {accounts.map(a => (
-          <Chip key={a.id} on={accountId === a.id} onClick={() => setAccountId(a.id)}>{a.bank_name}</Chip>
+          <Chip key={a.id} on={accountId === a.id} onClick={() => setAccountId(a.id)}>{a.bank_name}{a.owner_name ? " · " + a.owner_name : ""}</Chip>
         ))}
       </div>
 
       {accountId === null && (
-        <div style={{ display: "flex", gap: 6, marginBottom: 14 }}>
-          <Chip on={world === ""} onClick={() => setWorld("")}>All</Chip>
-          <Chip on={world === "PERSONAL"} onClick={() => setWorld("PERSONAL")}>Personal</Chip>
-          <Chip on={world === "LIBRARY"} onClick={() => setWorld("LIBRARY")}>Library</Chip>
-        </div>
+        <Segmented className="mb-4" value={world} onChange={setWorld}
+          options={[{ v: "", label: "All" }, { v: "PERSONAL", label: "Personal" }, { v: "LIBRARY", label: "Library" }]} />
       )}
 
       {busy && rows.length === 0 ? (
-        <Muted>Loading…</Muted>
-      ) : meta?.needs_setup ? (
-        <div className="mf-card" style={{ padding: "14px 16px", fontSize: 13.5, color: "var(--mf-ink-2)", lineHeight: 1.6 }}>
-          This account has no opening balance yet, so there is nothing to run a balance from.
-          Set one in <Link href="/mf17052606/setup" style={{ color: "var(--mf-have)" }}>Set up</Link>.
-        </div>
-      ) : rows.length === 0 ? (
-        <div className="mf-card" style={{ padding: "14px 16px", fontSize: 13.5, color: "var(--mf-ink-2)" }}>
-          Nothing recorded yet.
-        </div>
-      ) : (
-        <div className="mf-card" style={{ padding: "0 14px" }}>
-          {rows.map((r, i) => (
-            <div key={`${r.source}-${r.entry_id ?? i}-${r.on_date}-${i}`}>
-              <button
-                onClick={() => r.entry_id && setOpenId(openId === r.entry_id ? null : r.entry_id)}
-                className={r.entry_id ? "mf-tap" : undefined}
-                style={{ width: "100%", border: "none", background: "none", padding: "11px 0", textAlign: "left",
-                  borderTop: i === 0 ? "none" : "1px solid var(--mf-line)", display: "flex", alignItems: "center", gap: 12,
-                  cursor: r.entry_id ? "pointer" : "default" }}
-              >
-                <span style={{ flex: 1, minWidth: 0 }}>
-                  <span style={{ display: "block", fontSize: 13.5, color: "var(--mf-ink)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                    {r.label}
-                  </span>
-                  <span style={{ display: "block", fontSize: 11, color: "var(--mf-ink-3)", marginTop: 2 }}>
-                    {r.on_date}
-                    {r.world ? <span style={{ marginLeft: 6, fontSize: 10, fontWeight: 600, padding: "1px 6px", borderRadius: 999, border: "1px solid var(--mf-line)", color: r.world === "LIBRARY" ? "var(--mf-have)" : "var(--mf-ink-3)" }}>{r.world === "LIBRARY" ? "Library" : "Personal"}</span> : null}
-                    {r.source === "LMA" ? " · from LMA" : ""}
-                  </span>
-                </span>
-                <span style={{ textAlign: "right", whiteSpace: "nowrap" }}>
-                  <span className="mf-num" style={{ display: "block", fontSize: 13.5,
-                    color: r.amount < 0 ? "var(--mf-owe)" : "var(--mf-have)" }}>
-                    {r.amount < 0 ? "" : "+"}{money(r.amount)}
-                  </span>
-                  {r.balance != null && (
-                    <span className="mf-num" style={{ display: "block", fontSize: 11, color: "var(--mf-ink-3)", marginTop: 2 }}>
-                      {money(r.balance)}
-                    </span>
-                  )}
-                </span>
-              </button>
-
-              {openId != null && r.entry_id === openId && (
-                <div style={{ padding: "0 0 12px" }}>
-                  {/* Only expenses can be edited: the Add screen is an expense
-                      form, and loading anything else into it would rewrite the
-                      entry as an expense on save. */}
-                  <div style={{ display: r.kind === "EXPENSE" ? "flex" : "none", gap: 6, marginBottom: 10 }}>
-                    <button onClick={() => router.push(`/mf17052606/add?edit=${r.entry_id}`)} className="mf-tap"
-                      style={{ border: "none", borderRadius: 999, padding: "6px 13px", fontSize: 12.5,
-                        background: "var(--mf-have)", color: "var(--mf-have-bg)" }}>
-                      Edit it
-                    </button>
-                  </div>
-                  <div style={{ fontSize: 12, color: "var(--mf-ink-2)", marginBottom: 7 }}>
-                    {r.kind === "EXPENSE" ? "Or remove it — why?" : "Remove this entry — why?"}
-                  </div>
-                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                    {REASONS.map(x => (
-                      <button key={x.v} onClick={() => removeEntry(r.entry_id!, x.v)} className="mf-tap"
-                        style={{ border: "none", borderRadius: 999, padding: "6px 12px", fontSize: 12.5,
-                          background: "var(--mf-owe-bg)", color: "var(--mf-owe)" }}>
-                        {x.label}
-                      </button>
-                    ))}
-                    <button onClick={() => setOpenId(null)} className="mf-tap"
-                      style={{ border: "none", borderRadius: 999, padding: "6px 12px", fontSize: 12.5,
-                        background: "var(--mf-surface)", color: "var(--mf-ink-2)", boxShadow: "inset 0 0 0 1px var(--mf-line)" }}>
-                      Keep it
-                    </button>
-                  </div>
-                </div>
-              )}
+        <Card pad={false}>
+          {[0, 1, 2, 3].map(i => (
+            <div key={i} className={cx("flex items-center gap-3 px-4 py-4", i < 3 && "border-b border-mf-line")}>
+              <div className="flex-1"><Skeleton className="h-4 w-40" /><Skeleton className="mt-2 h-3 w-20" /></div>
+              <Skeleton className="h-4 w-16" />
             </div>
           ))}
-        </div>
+        </Card>
+      ) : meta?.needs_setup ? (
+        <Card>
+          <Empty icon={<IconWallet size={22} />} title="No opening balance yet"
+            body="This account has no starting balance, so there is nothing to run a balance from."
+            action={<Link href={BASE + "/accounts"} className="text-[14px] font-semibold text-mf-ink underline">Set it in Accounts</Link>} />
+        </Card>
+      ) : rows.length === 0 ? (
+        <Card><Empty icon={<IconBook size={22} />} title="Nothing recorded yet" body="Entries appear here as soon as money moves." /></Card>
+      ) : (
+        <>
+          {days.map(d => (
+            <section key={d.day} className="mb-3">
+              <h2 className="mb-1.5 px-1 text-[12px] font-bold uppercase tracking-[0.08em] text-mf-ink-3">{dayLabel(d.day)}</h2>
+              <Card pad={false} className="overflow-hidden">
+                {d.items.map((r, i) => {
+                  const inner = (
+                    <>
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate text-[14.5px] font-medium text-mf-ink">{r.label}</div>
+                        <div className="mt-0.5 flex items-center gap-1.5 text-[11.5px] text-mf-ink-3">
+                          {r.world && <span className="rounded-full px-1.5 py-px text-[10.5px] font-semibold ring-1 ring-inset ring-mf-line">{r.world === "LIBRARY" ? "Library" : "Personal"}</span>}
+                          {r.source === "LMA" && <span className="rounded-full bg-mf-bg px-1.5 py-px text-[10.5px] font-semibold text-mf-ink-2">From LMA</span>}
+                        </div>
+                      </div>
+                      <div className="shrink-0 text-right">
+                        <div className={cx("font-mf-mono text-[14.5px]", r.amount < 0 ? "text-mf-out" : "text-mf-in")}>{r.amount < 0 ? "" : "+"}{money(r.amount)}</div>
+                        {r.balance != null && <div className="mt-0.5 font-mf-mono text-[11.5px] text-mf-ink-3">{money(r.balance)}</div>}
+                      </div>
+                    </>
+                  );
+                  const cls = cx("flex min-h-[60px] w-full items-center gap-3 px-4 py-2.5 text-left", i < d.items.length - 1 && "border-b border-mf-line");
+                  return r.entry_id
+                    ? <button key={`${r.source}-${r.entry_id}-${i}`} type="button" onClick={() => setOpenId(r.entry_id)} className={cx(cls, "mf-noscale active:bg-mf-bg")}>{inner}</button>
+                    : <div key={`${r.source}-${r.on_date}-${i}`} className={cls}>{inner}</div>;
+                })}
+              </Card>
+            </section>
+          ))}
+          {meta?.total != null && meta.shown != null && meta.total > meta.shown && (
+            <p className="mt-2 text-center text-[12px] text-mf-ink-3">Showing the most recent {meta.shown} of {meta.total}.</p>
+          )}
+          <p className="mt-2 text-center text-[12px] text-mf-ink-3">Lines from LMA are corrected in LMA.</p>
+        </>
       )}
 
-      {meta?.total != null && meta.shown != null && meta.total > meta.shown && (
-        <div style={{ fontSize: 11.5, color: "var(--mf-ink-3)", textAlign: "center", marginTop: 12 }}>
-          Showing the most recent {meta.shown} of {meta.total}.
-        </div>
-      )}
+      <Sheet open={!!open} onClose={() => setOpenId(null)} title={open?.kind === "EXPENSE" ? "Expense" : "Entry"}>
+        {open && (
+          <>
+            <div className="mb-4">
+              <div className="text-[15px] font-semibold text-mf-ink">{open.label}</div>
+              <div className="mt-0.5 text-[12.5px] text-mf-ink-3">{dayLabel(open.on_date)}</div>
+              <div className={cx("mt-2 font-mf-mono text-[26px]", open.amount < 0 ? "text-mf-out" : "text-mf-in")}>{open.amount < 0 ? "" : "+"}{money(open.amount)}</div>
+            </div>
+            {/* Only expenses can be edited: the Add screen is an expense form, and loading
+                anything else into it would rewrite the entry as an expense on save. */}
+            {open.kind === "EXPENSE" && (
+              <Button size="lg" full onClick={() => router.push(`/mf17052606/add?edit=${open.entry_id}`)}>Edit it</Button>
+            )}
+            <div className="mb-2 mt-5 px-1 text-[12px] font-bold uppercase tracking-[0.08em] text-mf-ink-3">
+              {open.kind === "EXPENSE" ? "Or remove it — why?" : "Remove this entry — why?"}
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              {REASONS.map(x => (
+                <button key={x.v} type="button" onClick={() => removeEntry(open.entry_id!, x.v)}
+                  className="mf-btn h-12 rounded-[12px] bg-mf-out-soft text-[14px] font-semibold text-mf-out active:brightness-95">
+                  {x.label}
+                </button>
+              ))}
+            </div>
+            <Button variant="secondary" full className="mt-3" onClick={() => setOpenId(null)}>Keep it</Button>
+          </>
+        )}
+      </Sheet>
     </div>
   );
-}
-
-function Chip({ on, onClick, children }: { on: boolean; onClick: () => void; children: React.ReactNode }) {
-  return (
-    <button onClick={onClick} className="mf-tap"
-      style={{ border: "none", borderRadius: 999, padding: "7px 13px", fontSize: 13,
-        background: on ? "var(--mf-have)" : "var(--mf-surface)",
-        color: on ? "var(--mf-have-bg)" : "var(--mf-ink-2)",
-        boxShadow: on ? "none" : "inset 0 0 0 1px var(--mf-line)" }}>
-      {children}
-    </button>
-  );
-}
-
-function Muted({ children }: { children: React.ReactNode }) {
-  return <span style={{ fontSize: 12.5, color: "var(--mf-ink-3)" }}>{children}</span>;
 }

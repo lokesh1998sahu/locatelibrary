@@ -46,8 +46,7 @@ export default function MFHome() {
       </header>
 
       {/* Net worth */}
-      <section aria-label="Net worth"
-        className="rounded-[20px] bg-mf-brand p-5 text-white shadow-[0_14px_30px_-14px_rgb(15_110_86/0.75)]">
+      <section aria-label="Net worth" className="mf-glass-dark rounded-[22px] p-5 text-white">
         <div className="flex items-center justify-between">
           <span className="text-[13px] font-semibold text-white/75">Net worth</span>
           <button type="button" onClick={() => loadLive()} disabled={liveLoading} aria-label="Refresh figures"
