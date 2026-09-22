@@ -410,3 +410,36 @@ export function BalanceChange({ name, before, after, first = true }: { name: Rea
     </div>
   );
 }
+
+// ── Settings parts ───────────────────────────────────────────────────
+/** A labelled on/off switch row (role="switch"). */
+export function SwitchRow({ label, hint, on, onChange, last }: {
+  label: ReactNode; hint?: ReactNode; on: boolean; onChange: (v: boolean) => void; last?: boolean;
+}) {
+  return (
+    <button type="button" role="switch" aria-checked={on} onClick={() => onChange(!on)}
+      className={cx("mf-noscale flex min-h-[56px] w-full items-center gap-3 py-2.5 text-left", !last && "border-b border-mf-line")}>
+      <span className="min-w-0 flex-1">
+        <span className="block text-[15px] font-medium text-mf-ink">{label}</span>
+        {hint && <span className="mt-0.5 block text-[12px] leading-snug text-mf-ink-3">{hint}</span>}
+      </span>
+      <span aria-hidden="true" className={cx("relative h-7 w-12 shrink-0 rounded-full transition", on ? "mf-glass-btn" : "bg-mf-line")}>
+        <span className={cx("absolute top-0.5 h-6 w-6 rounded-full bg-white shadow transition-all", on ? "left-[22px]" : "left-0.5")} />
+      </span>
+    </button>
+  );
+}
+
+/** − n + for small whole numbers (e.g. settlement days). */
+export function Stepper({ value, onChange, min = 0, max = 30, unit }: {
+  value: number; onChange: (v: number) => void; min?: number; max?: number; unit?: (n: number) => string;
+}) {
+  const btn = "mf-btn grid h-11 w-11 place-items-center rounded-[12px] bg-mf-bg text-[20px] font-semibold text-mf-ink active:bg-mf-line disabled:text-mf-ink-3";
+  return (
+    <div className="inline-flex items-center gap-2">
+      <button type="button" aria-label="Less" className={btn} disabled={value <= min} onClick={() => onChange(Math.max(min, value - 1))}>−</button>
+      <span className="min-w-[88px] text-center font-mf-mono text-[16px] text-mf-ink" aria-live="polite">{unit ? unit(value) : value}</span>
+      <button type="button" aria-label="More" className={btn} disabled={value >= max} onClick={() => onChange(Math.min(max, value + 1))}>+</button>
+    </div>
+  );
+}

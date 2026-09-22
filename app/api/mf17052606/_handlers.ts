@@ -291,6 +291,23 @@ async function saveCategory(p: any) {
   return { saved: true, id: Number(ins[0].id) };
 }
 
+// ── Set up: every category and person, switched-off ones included ─────
+// initData sends only active ones (that is what the entry screens need);
+// Set up needs the rest too, so a switched-off item can be brought back.
+async function masters() {
+  const [categories, people] = await Promise.all([
+    sql`select id, code, name, kind, quick, active from fin.categories order by name`,
+    sql`select id, name, phone, quick, active from fin.people order by name`,
+  ]);
+  return {
+    categories: (categories as any[]).map((c) => ({
+      id: Number(c.id), code: c.code, name: c.name, kind: c.kind, quick: !!c.quick, active: !!c.active,
+    })),
+    people: (people as any[]).map((p) => ({
+      id: Number(p.id), name: p.name, phone: p.phone ?? "", quick: !!p.quick, active: !!p.active,
+    })),
+  };
+}
 async function savePerson(p: any) {
   const name = String(p?.name ?? "").trim();
   if (!name) throw new Error("Give the person a name.");
@@ -1448,6 +1465,7 @@ export async function handle(action: string, payload: any): Promise<any> {
     case "saveAccount":           return await saveAccount(payload);
     case "saveCategory":          return await saveCategory(payload);
     case "savePerson":            return await savePerson(payload);
+    case "masters":               return await masters();
 
     // passbook + reconciliation
     case "ledger":                return await ledger(payload);
