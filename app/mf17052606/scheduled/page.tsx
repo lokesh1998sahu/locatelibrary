@@ -6,8 +6,13 @@
 // can be removed like anything else — then the schedule moves on a period.
 
 import { useCallback, useEffect, useState } from "react";
-import Link from "next/link";
 import { useMF, money } from "../_components/MFProvider";
+import {
+  TopBar, Card, Chip, ChipGroup, Sheet, Button, Empty, Skeleton, Field, TextInput, SectionTitle,
+  AmountPad, DateChips, inputCls, BASE, cx,
+} from "../_ui/kit";
+import { IconRepeat, IconPlus, IconChevron } from "../_ui/icons";
+import { shiftIso, dayLabel, dateLong } from "../_ui/format";
 
 type Sched = {
   id: number; name: string; amount: number;
@@ -28,6 +33,14 @@ const todayIso = () => {
   const d = new Date();
   return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
 };
+const daysAgo = (iso: string) =>
+  Math.round((new Date(todayIso() + "T00:00:00").getTime() - new Date(iso + "T00:00:00").getTime()) / 86400000);
+const keyRules = (s: string, k: string) => {
+  if (k === "<") return s.slice(0, -1);
+  if (k === "." && s.includes(".")) return s;
+  if (s.replace(".", "").length >= 9) return s;
+  return (s + k).replace(/^0(?=\d)/, "");
+};
 
 function dueText(d: number): { text: string; urgent: boolean } {
   if (d < 0) return { text: `${-d} day${d === -1 ? "" : "s"} overdue`, urgent: true };
@@ -39,7 +52,7 @@ function dueText(d: number): { text: string; urgent: boolean } {
 
 export default function Schedules() {
   const { init, post, showToast, refreshInit } = useMF();
-  const [rows, setRows] = useState<Sched[]>([]);
+  const [rows, setRows] = useState<Sched[] | null>(null);
   const [openId, setOpenId] = useState<number | null>(null);
   const [adding, setAdding] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -47,6 +60,7 @@ export default function Schedules() {
   const load = useCallback(async () => {
     const j = await post("schedules");
     if (j) setRows(j.schedules ?? []);
+    else setRows(r => r ?? []);
   }, [post]);
 
   useEffect(() => { load(); }, [load]);
@@ -63,58 +77,73 @@ export default function Schedules() {
     }
   };
 
+  const list = rows ?? [];
+  const open = openId != null ? list.find(s => s.id === openId) ?? null : null;
+  const groups: { title: string; tone?: "out" | "warn"; items: Sched[] }[] = [
+    { title: "Overdue", tone: "out", items: list.filter(s => s.days_away < 0) },
+    { title: "Due soon", tone: "warn", items: list.filter(s => s.days_away >= 0 && s.days_away <= 7) },
+    { title: "Later", items: list.filter(s => s.days_away > 7) },
+  ];
+
   return (
-    <div style={{ maxWidth: 560, margin: "0 auto", padding: "0 16px 40px" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "18px 0 14px" }}>
-        <Link href="/mf17052606" style={{ textDecoration: "none", color: "var(--mf-ink-2)", fontSize: 20, lineHeight: 1 }}>‹</Link>
-        <div style={{ flex: 1, fontSize: 17, fontWeight: 600 }}>Scheduled</div>
-        <button onClick={() => setAdding(a => !a)} className="mf-tap"
-          style={{ border: "none", borderRadius: 999, padding: "7px 13px", fontSize: 13,
-            background: adding ? "var(--mf-have)" : "var(--mf-surface)",
-            color: adding ? "var(--mf-have-bg)" : "var(--mf-ink-2)",
-            boxShadow: adding ? "none" : "inset 0 0 0 1px var(--mf-line)" }}>
-          {adding ? "Close" : "New"}
-        </button>
-      </div>
+    <div className="mx-auto w-full max-w-[560px] px-4">
+      <TopBar back={BASE} title="Scheduled" sub="Rent, EMIs, bills"
+        right={<Button size="md" variant="secondary" className="h-10 px-3 text-[14px]" onClick={() => setAdding(true)}><IconPlus size={17} /> New</Button>} />
 
-      {adding && <NewForm onDone={async () => { setAdding(false); await load(); }} />}
-
-      {rows.length === 0 && !adding ? (
-        <div className="mf-card" style={{ padding: "14px 16px", fontSize: 13.5, color: "var(--mf-ink-2)", lineHeight: 1.6 }}>
-          Nothing scheduled. Add rent, an EMI, or any bill that repeats — it will remind you,
-          and only record once you confirm it happened.
-        </div>
+      {rows === null ? (
+        <Card pad={false}>
+          {[0, 1, 2].map(i => (
+            <div key={i} className={cx("flex items-center gap-3 px-4 py-4", i < 2 && "border-b border-mf-line")}>
+              <div className="flex-1"><Skeleton className="h-4 w-36" /><Skeleton className="mt-2 h-3 w-24" /></div>
+              <Skeleton className="h-4 w-16" />
+            </div>
+          ))}
+        </Card>
+      ) : list.length === 0 ? (
+        <Card>
+          <Empty icon={<IconRepeat size={22} />} title="Nothing scheduled"
+            body="Add rent, an EMI or any bill that repeats. It reminds you, and only records once you confirm it happened."
+            action={<Button onClick={() => setAdding(true)}>Add a schedule</Button>} />
+        </Card>
       ) : (
-        <div className="mf-card" style={{ padding: "0 14px" }}>
-          {rows.map((s, i) => {
-            const d = dueText(s.days_away);
-            return (
-              <div key={s.id} style={{ borderTop: i === 0 ? "none" : "1px solid var(--mf-line)" }}>
-                <button onClick={() => setOpenId(openId === s.id ? null : s.id)} className="mf-tap"
-                  style={{ width: "100%", border: "none", background: "none", padding: "12px 0",
-                    textAlign: "left", display: "flex", alignItems: "center", gap: 12 }}>
-                  <span style={{ flex: 1, minWidth: 0 }}>
-                    <span style={{ display: "block", fontSize: 14, color: "var(--mf-ink)" }}>{s.name}</span>
-                    <span style={{ display: "block", fontSize: 11, marginTop: 2,
-                      color: d.urgent ? "var(--mf-owe)" : "var(--mf-ink-3)" }}>
-                      {d.text}
-                      {s.remaining != null ? ` · ${s.remaining} left` : ""}
-                      {s.account_name ? ` · ${s.account_name}` : ""}
+        groups.filter(g => g.items.length > 0).map(g => (
+          <div key={g.title}>
+            <SectionTitle>{g.title}</SectionTitle>
+            <Card pad={false} className="overflow-hidden">
+              {g.items.map((s, i) => {
+                const d = dueText(s.days_away);
+                return (
+                  <button key={s.id} type="button" onClick={() => setOpenId(s.id)}
+                    className={cx("mf-noscale flex min-h-[60px] w-full items-center gap-3 px-4 py-2.5 text-left active:bg-mf-bg", i < g.items.length - 1 && "border-b border-mf-line")}>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-[15px] font-medium text-mf-ink">{s.name}</span>
+                      <span className={cx("mt-0.5 block truncate text-[12px]", d.urgent ? "font-semibold text-mf-out" : "text-mf-ink-3")}>
+                        {d.text}
+                        {s.remaining != null ? ` · ${s.remaining} left` : ""}
+                        {s.account_name ? ` · ${s.account_name}` : ""}
+                      </span>
                     </span>
-                  </span>
-                  <span className="mf-num" style={{ fontSize: 14 }}>{money(s.amount)}</span>
-                </button>
-
-                {openId === s.id && (
-                  <ConfirmForm s={s} busy={busy}
-                    accounts={init?.accounts.filter(a => !a.is_liability) ?? []}
-                    onConfirm={confirmPaid} onCancel={() => setOpenId(null)} />
-                )}
-              </div>
-            );
-          })}
-        </div>
+                    <span className="font-mf-mono text-[15px] text-mf-ink">{money(s.amount)}</span>
+                    <IconChevron size={18} className="shrink-0 text-mf-ink-3" />
+                  </button>
+                );
+              })}
+            </Card>
+          </div>
+        ))
       )}
+
+      <Sheet open={!!open} onClose={() => setOpenId(null)} title={open ? open.name : ""}>
+        {open && (
+          <ConfirmForm key={open.id} s={open} busy={busy}
+            accounts={init?.accounts.filter(a => !a.is_liability) ?? []}
+            onConfirm={confirmPaid} onCancel={() => setOpenId(null)} />
+        )}
+      </Sheet>
+
+      <Sheet open={adding} onClose={() => setAdding(false)} title="New schedule">
+        {adding && <NewForm onDone={async () => { setAdding(false); await load(); }} />}
+      </Sheet>
     </div>
   );
 }
@@ -131,42 +160,33 @@ function ConfirmForm({ s, accounts, onConfirm, onCancel, busy }: {
   const [amountStr, setAmountStr] = useState(String(s.amount));
   const amount = Number(amountStr || 0);
   const ok = amount > 0 && !!accountId && !busy;
+  const d = dueText(s.days_away);
 
   return (
-    <div style={{ padding: "2px 0 14px" }}>
-      <div style={{ fontSize: 12, color: "var(--mf-ink-2)", marginBottom: 9 }}>
-        Did this actually happen? Confirming records it as an expense.
-      </div>
-      <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
-        <input value={amountStr} inputMode="decimal"
-          onChange={e => setAmountStr(e.target.value.replace(/[^0-9.]/g, ""))}
-          style={{ flex: 1, padding: "10px 12px", fontSize: 15, fontFamily: "var(--mf-mono)",
-            color: "var(--mf-ink)", border: "1px solid var(--mf-line)", borderRadius: 9, background: "var(--mf-surface)" }} />
-        <input type="date" value={paidOn} max={todayIso()}
-          onChange={e => e.target.value && setPaidOn(e.target.value)}
-          style={{ padding: "10px 12px", fontSize: 13, color: "var(--mf-ink-2)", fontFamily: "inherit",
-            border: "1px solid var(--mf-line)", borderRadius: 9, background: "var(--mf-surface)" }} />
-      </div>
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 12 }}>
+    <div className="pb-2">
+      <p className="mb-3 text-[12.5px] text-mf-ink-3">
+        {d.text[0].toUpperCase() + d.text.slice(1)} · was due {dateLong(s.next_due)}.
+        Confirming records it as an ordinary expense.
+      </p>
+
+      <AmountPad value={amountStr} onKey={k => setAmountStr(x => keyRules(x, k))} />
+
+      <DateChips title="Paid on" value={paidOn} onChange={setPaidOn} ago={daysAgo(paidOn)} label={dayLabel(paidOn)}
+        today={todayIso()} yesterday={shiftIso(todayIso(), -1)} />
+
+      <ChipGroup label="Paid from">
         {accounts.map(a => (
           <Chip key={a.id} on={accountId === a.id} onClick={() => setAccountId(a.id)}>
             {a.bank_name}{a.owner_name ? " · " + a.owner_name : ""}
           </Chip>
         ))}
-      </div>
-      <div style={{ display: "flex", gap: 8 }}>
-        <button onClick={() => ok && onConfirm(s, accountId, paidOn, amount)} disabled={!ok} className="mf-tap"
-          style={{ border: "none", borderRadius: 9, padding: "10px 18px", fontSize: 14, fontWeight: 600,
-            background: ok ? "var(--mf-have)" : "var(--mf-line)",
-            color: ok ? "var(--mf-have-bg)" : "var(--mf-ink-3)", cursor: ok ? "pointer" : "default" }}>
-          {busy ? "Saving…" : "Yes, it happened"}
-        </button>
-        <button onClick={onCancel} className="mf-tap"
-          style={{ border: "none", borderRadius: 9, padding: "10px 16px", fontSize: 14,
-            background: "var(--mf-surface)", color: "var(--mf-ink-2)", boxShadow: "inset 0 0 0 1px var(--mf-line)" }}>
-          Not yet
-        </button>
-      </div>
+      </ChipGroup>
+
+      <Button size="lg" full disabled={!ok} loading={busy} loadingText="Saving…"
+        onClick={() => ok && onConfirm(s, accountId, paidOn, amount)}>
+        Yes, it happened{amount > 0 ? ` · ${money(amount)}` : ""}
+      </Button>
+      <Button variant="ghost" full className="mt-2" onClick={onCancel}>Not yet</Button>
     </div>
   );
 }
@@ -185,6 +205,7 @@ function NewForm({ onDone }: { onDone: () => Promise<void> }) {
   const cats = (init?.categories ?? []).filter(c => c.kind === "EXPENSE");
   const accounts = init?.accounts.filter(a => !a.is_liability) ?? [];
   const ok = !!name.trim() && Number(amountStr) > 0 && !!categoryId && !busy;
+  const blocker = !name.trim() ? "Give it a name" : Number(amountStr) <= 0 ? "Enter the amount" : !categoryId ? "Pick a category" : "";
 
   const save = async () => {
     if (!ok) return;
@@ -199,54 +220,34 @@ function NewForm({ onDone }: { onDone: () => Promise<void> }) {
   };
 
   return (
-    <div className="mf-card" style={{ padding: "14px", marginBottom: 12 }}>
-      <Lbl>Name</Lbl>
-      <Inp value={name} onChange={setName} placeholder="Flat rent" />
-      <Lbl>Amount</Lbl>
-      <Inp value={amountStr} onChange={v => setAmountStr(v.replace(/[^0-9.]/g, ""))} placeholder="0" mono />
-      <Lbl>How often</Lbl>
-      <Row>{FREQ.map(f => <Chip key={f.v} on={freq === f.v} onClick={() => setFreq(f.v)}>{f.label}</Chip>)}</Row>
-      <Lbl>Next due</Lbl>
-      <Inp value={nextDue} onChange={setNextDue} type="date" />
-      <Lbl>Category</Lbl>
-      <Row>{cats.map(c => <Chip key={c.id} on={categoryId === c.id} onClick={() => setCategoryId(c.id)}>{c.name}</Chip>)}</Row>
-      <Lbl>Usually paid from</Lbl>
-      <Row>{accounts.map(a => <Chip key={a.id} on={accountId === a.id} onClick={() => setAccountId(a.id)}>{a.bank_name}</Chip>)}</Row>
-      <Lbl>How many payments (blank = forever)</Lbl>
-      <Inp value={totalStr} onChange={v => setTotalStr(v.replace(/[^0-9]/g, ""))} placeholder="e.g. 36 for an EMI" mono />
-      <button onClick={save} disabled={!ok} className="mf-tap"
-        style={{ border: "none", borderRadius: 9, padding: "10px 18px", fontSize: 14, fontWeight: 600, marginTop: 4,
-          background: ok ? "var(--mf-have)" : "var(--mf-line)",
-          color: ok ? "var(--mf-have-bg)" : "var(--mf-ink-3)", cursor: ok ? "pointer" : "default" }}>
-        {busy ? "Saving…" : "Add schedule"}
-      </button>
-    </div>
-  );
-}
+    <div className="pb-2">
+      <Field label="Name"><TextInput value={name} onChange={e => setName(e.target.value)} placeholder="Flat rent" autoFocus /></Field>
 
-function Lbl({ children }: { children: React.ReactNode }) {
-  return <div style={{ fontSize: 11, letterSpacing: ".08em", textTransform: "uppercase", color: "var(--mf-ink-3)", margin: "0 0 5px 2px" }}>{children}</div>;
-}
-function Row({ children }: { children: React.ReactNode }) {
-  return <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 10 }}>{children}</div>;
-}
-function Inp({ value, onChange, placeholder, type, mono }: {
-  value: string; onChange: (v: string) => void; placeholder?: string; type?: string; mono?: boolean;
-}) {
-  return (
-    <input value={value} type={type} placeholder={placeholder} inputMode={mono ? "decimal" : undefined}
-      onChange={e => onChange(e.target.value)}
-      style={{ width: "100%", padding: "10px 12px", fontSize: 14.5, marginBottom: 10,
-        fontFamily: mono ? "var(--mf-mono)" : "inherit", color: "var(--mf-ink)",
-        border: "1px solid var(--mf-line)", borderRadius: 9, background: "var(--mf-surface)" }} />
-  );
-}
-function Chip({ on, onClick, children }: { on: boolean; onClick: () => void; children: React.ReactNode }) {
-  return (
-    <button onClick={onClick} className="mf-tap"
-      style={{ border: "none", borderRadius: 999, padding: "7px 13px", fontSize: 13,
-        background: on ? "var(--mf-have)" : "var(--mf-surface)",
-        color: on ? "var(--mf-have-bg)" : "var(--mf-ink-2)",
-        boxShadow: on ? "none" : "inset 0 0 0 1px var(--mf-line)" }}>{children}</button>
+      <AmountPad value={amountStr} onKey={k => setAmountStr(s => keyRules(s, k))} />
+
+      <ChipGroup label="How often">
+        {FREQ.map(f => <Chip key={f.v} on={freq === f.v} onClick={() => setFreq(f.v)}>{f.label}</Chip>)}
+      </ChipGroup>
+
+      <Field label="Next due">
+        <input type="date" value={nextDue} onChange={e => e.target.value && setNextDue(e.target.value)} className={inputCls} />
+      </Field>
+
+      <ChipGroup label="Category" hint={cats.length === 0 ? "No spending categories yet — add them in Set up." : undefined}>
+        {cats.map(c => <Chip key={c.id} on={categoryId === c.id} onClick={() => setCategoryId(c.id)}>{c.name}</Chip>)}
+      </ChipGroup>
+
+      <ChipGroup label="Usually paid from">
+        {accounts.map(a => <Chip key={a.id} on={accountId === a.id} onClick={() => setAccountId(a.id)}>{a.bank_name}</Chip>)}
+      </ChipGroup>
+
+      <Field label="How many payments" hint="Leave blank if it runs forever. e.g. 36 for an EMI.">
+        <input value={totalStr} inputMode="numeric" placeholder="36"
+          onChange={e => setTotalStr(e.target.value.replace(/[^0-9]/g, ""))} className={cx(inputCls, "font-mf-mono")} />
+      </Field>
+
+      {!ok && blocker && <p className="mb-2 text-center text-[12.5px] font-medium text-mf-ink-3">{blocker}</p>}
+      <Button size="lg" full disabled={!ok} loading={busy} loadingText="Saving…" onClick={save}>Add schedule</Button>
+    </div>
   );
 }

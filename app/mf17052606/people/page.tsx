@@ -8,6 +8,11 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useMF, money } from "../_components/MFProvider";
+import {
+  TopBar, Card, Chip, ChipGroup, Sheet, Empty, Skeleton, AmountPad, DateChips, Button, BASE, cx,
+} from "../_ui/kit";
+import { IconPeople, IconChevron } from "../_ui/icons";
+import { shiftIso, dayLabel } from "../_ui/format";
 
 type Row = { id: number; name: string; phone: string; receivable: number; payable: number; net: number };
 type Kind = "LEND" | "COLLECT" | "BORROW" | "REPAY";
@@ -23,75 +28,88 @@ const todayIso = () => {
   const d = new Date();
   return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
 };
+const daysAgo = (iso: string) =>
+  Math.round((new Date(todayIso() + "T00:00:00").getTime() - new Date(iso + "T00:00:00").getTime()) / 86400000);
 
 export default function People() {
   const { init, post, showToast, refreshInit } = useMF();
-  const [rows, setRows] = useState<Row[]>([]);
+  const [rows, setRows] = useState<Row[] | null>(null);
   const [openId, setOpenId] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
 
   const load = useCallback(async () => {
     const j = await post("peopleBalances");
     if (j) setRows(j.people ?? []);
+    else setRows(r => r ?? []);
   }, [post]);
 
   useEffect(() => { load(); }, [load]);
 
-  const owedToYou = rows.reduce((a, r) => a + Math.max(0, r.net), 0);
-  const youOwe    = rows.reduce((a, r) => a + Math.max(0, -r.net), 0);
+  const list = rows ?? [];
+  const owedToYou = list.reduce((a, r) => a + Math.max(0, r.net), 0);
+  const youOwe    = list.reduce((a, r) => a + Math.max(0, -r.net), 0);
+  const net = owedToYou - youOwe;
+  const open = openId != null ? list.find(r => r.id === openId) ?? null : null;
 
   return (
-    <div style={{ maxWidth: 560, margin: "0 auto", padding: "0 16px 40px" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "18px 0 14px" }}>
-        <Link href="/mf17052606" style={{ textDecoration: "none", color: "var(--mf-ink-2)", fontSize: 20, lineHeight: 1 }}>‹</Link>
-        <div style={{ fontSize: 17, fontWeight: 600 }}>People</div>
+    <div className="mx-auto w-full max-w-[560px] px-4">
+      <TopBar back={BASE} title="People" sub="Who owes what" />
+
+      <div className="grid grid-cols-2 gap-2">
+        <Card className="py-3">
+          <div className="text-[12px] font-semibold text-mf-in">Owed to you</div>
+          <div className="mt-1 font-mf-mono text-[19px] text-mf-ink">{money(owedToYou)}</div>
+        </Card>
+        <Card className="py-3">
+          <div className="text-[12px] font-semibold text-mf-out">You owe</div>
+          <div className="mt-1 font-mf-mono text-[19px] text-mf-ink">{money(youOwe)}</div>
+        </Card>
       </div>
+      <p className="mb-4 mt-2 text-center text-[12.5px] text-mf-ink-3">
+        Net {net === 0 ? "— all settled" : <span className={cx("font-mf-mono font-semibold", net > 0 ? "text-mf-in" : "text-mf-out")}>{money(Math.abs(net))} {net > 0 ? "in your favour" : "against you"}</span>}
+      </p>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 14 }}>
-        <div className="mf-card" style={{ padding: "12px 14px" }}>
-          <div style={{ fontSize: 11.5, color: "var(--mf-have)" }}>Owed to you</div>
-          <div className="mf-num" style={{ fontSize: 18, fontWeight: 600, marginTop: 3 }}>{money(owedToYou)}</div>
-        </div>
-        <div className="mf-card" style={{ padding: "12px 14px" }}>
-          <div style={{ fontSize: 11.5, color: "var(--mf-owe)" }}>You owe</div>
-          <div className="mf-num" style={{ fontSize: 18, fontWeight: 600, marginTop: 3 }}>{money(youOwe)}</div>
-        </div>
-      </div>
-
-      {rows.length === 0 ? (
-        <div className="mf-card" style={{ padding: "14px 16px", fontSize: 13.5, color: "var(--mf-ink-2)", lineHeight: 1.6 }}>
-          Nobody added yet. Add people in{" "}
-          <Link href="/mf17052606/setup" style={{ color: "var(--mf-have)" }}>Set up</Link>.
-        </div>
-      ) : (
-        <div className="mf-card" style={{ padding: "0 14px" }}>
-          {rows.map((r, i) => (
-            <div key={r.id} style={{ borderTop: i === 0 ? "none" : "1px solid var(--mf-line)" }}>
-              <button onClick={() => setOpenId(openId === r.id ? null : r.id)} className="mf-tap"
-                style={{ width: "100%", border: "none", background: "none", padding: "12px 0",
-                  textAlign: "left", display: "flex", alignItems: "center", gap: 12 }}>
-                <span style={{ flex: 1, minWidth: 0 }}>
-                  <span style={{ display: "block", fontSize: 14, color: "var(--mf-ink)" }}>{r.name}</span>
-                  <span style={{ display: "block", fontSize: 11, color: "var(--mf-ink-3)", marginTop: 2 }}>
-                    {r.net === 0 ? "settled up" : r.net > 0 ? "owes you" : "you owe"}
-                  </span>
-                </span>
-                <span className="mf-num" style={{ fontSize: 14,
-                  color: r.net === 0 ? "var(--mf-ink-3)" : r.net > 0 ? "var(--mf-have)" : "var(--mf-owe)" }}>
-                  {r.net === 0 ? "—" : money(Math.abs(r.net))}
-                </span>
-              </button>
-
-              {openId === r.id && (
-                <Form person={r} busy={busy} setBusy={setBusy}
-                  onDone={async () => { setOpenId(null); await refreshInit(); await load(); }}
-                  post={post} showToast={showToast}
-                  accounts={init?.accounts.filter(a => !a.is_liability) ?? []} />
-              )}
+      {rows === null ? (
+        <Card pad={false}>
+          {[0, 1, 2].map(i => (
+            <div key={i} className={cx("flex items-center gap-3 px-4 py-4", i < 2 && "border-b border-mf-line")}>
+              <div className="flex-1"><Skeleton className="h-4 w-32" /><Skeleton className="mt-2 h-3 w-20" /></div>
+              <Skeleton className="h-4 w-16" />
             </div>
           ))}
-        </div>
+        </Card>
+      ) : list.length === 0 ? (
+        <Card>
+          <Empty icon={<IconPeople size={22} />} title="Nobody on the list yet"
+            body="Add the people who lend to you, owe you, or get paid by you."
+            action={<Link href={BASE + "/setup"} className="text-[14px] font-semibold text-mf-ink underline">Add them in Set up</Link>} />
+        </Card>
+      ) : (
+        <Card pad={false} className="overflow-hidden">
+          {list.map((r, i) => (
+            <button key={r.id} type="button" onClick={() => setOpenId(r.id)}
+              className={cx("mf-noscale flex min-h-[58px] w-full items-center gap-3 px-4 py-2.5 text-left active:bg-mf-bg", i < list.length - 1 && "border-b border-mf-line")}>
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-[15px] font-medium text-mf-ink">{r.name}</span>
+                <span className="mt-0.5 block text-[12px] text-mf-ink-3">{r.net === 0 ? "Settled up" : r.net > 0 ? "Owes you" : "You owe"}</span>
+              </span>
+              <span className={cx("font-mf-mono text-[15px]", r.net === 0 ? "text-mf-ink-3" : r.net > 0 ? "text-mf-in" : "text-mf-out")}>
+                {r.net === 0 ? "—" : money(Math.abs(r.net))}
+              </span>
+              <IconChevron size={18} className="shrink-0 text-mf-ink-3" />
+            </button>
+          ))}
+        </Card>
       )}
+
+      <Sheet open={!!open} onClose={() => setOpenId(null)} title={open ? open.name : ""}>
+        {open && (
+          <Form key={open.id} person={open} busy={busy} setBusy={setBusy}
+            onDone={async () => { setOpenId(null); await refreshInit(); await load(); }}
+            post={post} showToast={showToast}
+            accounts={init?.accounts.filter(a => !a.is_liability) ?? []} />
+        )}
+      </Sheet>
     </div>
   );
 }
@@ -113,6 +131,15 @@ function Form({ person, accounts, post, showToast, onDone, busy, setBusy }: {
   const amount = Number(amountStr || 0);
   const ok = amount > 0 && !!accountId && !busy;
 
+  const tapKey = (k: string) => {
+    setAmountStr(s => {
+      if (k === "<") return s.slice(0, -1);
+      if (k === "." && s.includes(".")) return s;
+      if (s.replace(".", "").length >= 9) return s;
+      return (s + k).replace(/^0(?=\d)/, "");
+    });
+  };
+
   const go = async () => {
     if (!ok) return;
     setBusy(true);
@@ -124,53 +151,31 @@ function Form({ person, accounts, post, showToast, onDone, busy, setBusy }: {
   };
 
   return (
-    <div style={{ padding: "2px 0 14px" }}>
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 10 }}>
-        {ACTIONS.map(a => (
-          <Chip key={a.k} on={kind === a.k} onClick={() => setKind(a.k)}>{a.label}</Chip>
-        ))}
-      </div>
-      <div style={{ fontSize: 11.5, color: "var(--mf-ink-3)", marginBottom: 10 }}>
-        {ACTIONS.find(a => a.k === kind)?.hint}
-      </div>
+    <div className="pb-2">
+      <p className="mb-3 text-[12.5px] text-mf-ink-3">
+        {person.net === 0 ? "Settled up." : person.net > 0 ? `${person.name} owes you ${money(person.net)}.` : `You owe ${person.name} ${money(-person.net)}.`}
+      </p>
 
-      <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
-        <input value={amountStr} inputMode="decimal" placeholder="Amount"
-          onChange={e => setAmountStr(e.target.value.replace(/[^0-9.]/g, ""))}
-          style={{ flex: 1, padding: "10px 12px", fontSize: 15, fontFamily: "var(--mf-mono)",
-            color: "var(--mf-ink)", border: "1px solid var(--mf-line)", borderRadius: 9, background: "var(--mf-surface)" }} />
-        <input type="date" value={dateIso} max={todayIso()}
-          onChange={e => e.target.value && setDateIso(e.target.value)}
-          style={{ padding: "10px 12px", fontSize: 13, color: "var(--mf-ink-2)", fontFamily: "inherit",
-            border: "1px solid var(--mf-line)", borderRadius: 9, background: "var(--mf-surface)" }} />
-      </div>
+      <ChipGroup label="What happened" hint={ACTIONS.find(a => a.k === kind)?.hint}>
+        {ACTIONS.map(a => <Chip key={a.k} on={kind === a.k} onClick={() => setKind(a.k)}>{a.label}</Chip>)}
+      </ChipGroup>
 
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 12 }}>
+      <AmountPad value={amountStr} onKey={tapKey} />
+
+      <DateChips value={dateIso} onChange={setDateIso} ago={daysAgo(dateIso)} label={dayLabel(dateIso)}
+        today={todayIso()} yesterday={shiftIso(todayIso(), -1)} />
+
+      <ChipGroup label={kind === "COLLECT" || kind === "BORROW" ? "Lands in" : "Paid from"}>
         {accounts.map(a => (
           <Chip key={a.id} on={accountId === a.id} onClick={() => setAccountId(a.id)}>
             {a.bank_name}{a.owner_name ? " · " + a.owner_name : ""}
           </Chip>
         ))}
-      </div>
+      </ChipGroup>
 
-      <button onClick={go} disabled={!ok} className="mf-tap"
-        style={{ border: "none", borderRadius: 9, padding: "10px 18px", fontSize: 14, fontWeight: 600,
-          background: ok ? "var(--mf-have)" : "var(--mf-line)",
-          color: ok ? "var(--mf-have-bg)" : "var(--mf-ink-3)", cursor: ok ? "pointer" : "default" }}>
-        {busy ? "Saving…" : "Record it"}
-      </button>
+      <Button size="lg" full disabled={!ok} loading={busy} loadingText="Saving…" onClick={go}>
+        Record{amount > 0 ? ` ${money(amount)}` : " it"}
+      </Button>
     </div>
-  );
-}
-
-function Chip({ on, onClick, children }: { on: boolean; onClick: () => void; children: React.ReactNode }) {
-  return (
-    <button onClick={onClick} className="mf-tap"
-      style={{ border: "none", borderRadius: 999, padding: "7px 13px", fontSize: 13,
-        background: on ? "var(--mf-have)" : "var(--mf-surface)",
-        color: on ? "var(--mf-have-bg)" : "var(--mf-ink-2)",
-        boxShadow: on ? "none" : "inset 0 0 0 1px var(--mf-line)" }}>
-      {children}
-    </button>
   );
 }

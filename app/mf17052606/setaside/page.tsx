@@ -13,13 +13,19 @@
 //                effect on any balance. They only answer "what is free".
 
 import { useCallback, useEffect, useState } from "react";
-import Link from "next/link";
 import { useMF, money } from "../_components/MFProvider";
+import {
+  TopBar, Card, Chip, ChipGroup, Segmented, Sheet, Button, Empty, Skeleton, Field, TextInput,
+  AmountPad, DateChips, BASE, cx,
+} from "../_ui/kit";
+import { IconFolder, IconPlus, IconChevron } from "../_ui/icons";
+import { shiftIso, dayLabel } from "../_ui/format";
 
-type Prov = { id: number; name: string; note: string; balance: number };
+type Prov = { id: number; name: string; balance: number };
 type Mark = { id: number; name: string; amount: number; note: string; account_id: number | null; account_name: string | null };
 type Tab = "PROV" | "MARK";
 type Act = "SET_ASIDE" | "PAY" | "RELEASE";
+type Acct = { id: number; bank_name: string; owner_name: string; balance?: number | null };
 
 const ACTS: { k: Act; label: string; hint: string }[] = [
   { k: "SET_ASIDE", label: "Set aside more", hint: "Recognises the obligation. Net worth falls; no account moves." },
@@ -31,34 +37,36 @@ const todayIso = () => {
   const d = new Date();
   return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
 };
+const daysAgo = (iso: string) =>
+  Math.round((new Date(todayIso() + "T00:00:00").getTime() - new Date(iso + "T00:00:00").getTime()) / 86400000);
+const keyRules = (s: string, k: string) => {
+  if (k === "<") return s.slice(0, -1);
+  if (k === "." && s.includes(".")) return s;
+  if (s.replace(".", "").length >= 9) return s;
+  return (s + k).replace(/^0(?=\d)/, "");
+};
 
 export default function SetAside() {
   const { post } = useMF();
   const [tab, setTab] = useState<Tab>("PROV");
-  const [provs, setProvs] = useState<Prov[]>([]);
+  const [provs, setProvs] = useState<Prov[] | null>(null);
   const [provTotal, setProvTotal] = useState(0);
-  const [marks, setMarks] = useState<Mark[]>([]);
+  const [marks, setMarks] = useState<Mark[] | null>(null);
   const [markTotal, setMarkTotal] = useState(0);
 
   const load = useCallback(async () => {
     const [a, b] = await Promise.all([post("provisions"), post("earmarks")]);
-    if (a) { setProvs(a.provisions ?? []); setProvTotal(a.total ?? 0); }
-    if (b) { setMarks(b.earmarks ?? []); setMarkTotal(b.total ?? 0); }
+    if (a) { setProvs(a.provisions ?? []); setProvTotal(a.total ?? 0); } else setProvs(p => p ?? []);
+    if (b) { setMarks(b.earmarks ?? []); setMarkTotal(b.total ?? 0); } else setMarks(m => m ?? []);
   }, [post]);
 
   useEffect(() => { load(); }, [load]);
 
   return (
-    <div style={{ maxWidth: 560, margin: "0 auto", padding: "0 16px 40px" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "18px 0 14px" }}>
-        <Link href="/mf17052606" style={{ textDecoration: "none", color: "var(--mf-ink-2)", fontSize: 20, lineHeight: 1 }}>‹</Link>
-        <div style={{ fontSize: 17, fontWeight: 600 }}>Set aside</div>
-      </div>
-
-      <div style={{ display: "flex", gap: 6, marginBottom: 12 }}>
-        <Seg on={tab === "PROV"} onClick={() => setTab("PROV")}>Provisions</Seg>
-        <Seg on={tab === "MARK"} onClick={() => setTab("MARK")}>Earmarks</Seg>
-      </div>
+    <div className="mx-auto w-full max-w-[560px] px-4">
+      <TopBar back={BASE} title="Set aside" sub="Provisions and earmarks" />
+      <Segmented className="mb-4" value={tab} onChange={setTab}
+        options={[{ v: "PROV", label: "Provisions" }, { v: "MARK", label: "Earmarks" }]} />
 
       {tab === "PROV"
         ? <Provisions rows={provs} total={provTotal} reload={load} />
@@ -67,71 +75,99 @@ export default function SetAside() {
   );
 }
 
+function TotalCard({ label, value, tone }: { label: string; value: number; tone?: "out" }) {
+  return (
+    <Card className="mb-3">
+      <div className="text-[12.5px] text-mf-ink-2">{label}</div>
+      <div className={cx("mt-1 font-mf-mono text-[27px] tracking-[-0.02em]", tone === "out" ? "text-mf-out" : "text-mf-ink")}>{money(value)}</div>
+    </Card>
+  );
+}
+
+function Loading() {
+  return (
+    <Card pad={false}>
+      {[0, 1, 2].map(i => (
+        <div key={i} className={cx("flex items-center gap-3 px-4 py-4", i < 2 && "border-b border-mf-line")}>
+          <Skeleton className="h-4 flex-1" /><Skeleton className="h-4 w-16" />
+        </div>
+      ))}
+    </Card>
+  );
+}
+
 /* ── provisions ─────────────────────────────────────────────────────── */
 
-function Provisions({ rows, total, reload }: { rows: Prov[]; total: number; reload: () => Promise<void> }) {
+function Provisions({ rows, total, reload }: { rows: Prov[] | null; total: number; reload: () => Promise<void> }) {
   const { init, post, showToast, refreshInit } = useMF();
   const [openId, setOpenId] = useState<number | null>(null);
+  const [adding, setAdding] = useState(false);
   const [newName, setNewName] = useState("");
   const [busy, setBusy] = useState(false);
+  const list = rows ?? [];
+  const open = openId != null ? list.find(r => r.id === openId) ?? null : null;
 
   const add = async () => {
     if (!newName.trim()) return;
     setBusy(true);
     const j = await post("saveProvision", { name: newName });
     setBusy(false);
-    if (j) { setNewName(""); showToast("Added " + newName.trim()); await reload(); }
+    if (j) { showToast("Added " + newName.trim()); setNewName(""); setAdding(false); await reload(); }
   };
 
   return (
     <>
-      <Note>Money you will owe later — tax, a deposit to return, a repair you have committed to.
-        Recognising one lowers your net worth, because the obligation is real. Your bank balance
-        is untouched until you actually pay.</Note>
+      <p className="mb-3 px-1 text-[12.5px] leading-relaxed text-mf-ink-3">
+        Money you will owe later — tax, a deposit to return, a repair you have committed to.
+        Setting one aside lowers your net worth; your bank balance only moves when you actually pay it.
+      </p>
 
-      <div className="mf-card" style={{ padding: "14px 16px", marginBottom: 12 }}>
-        <div style={{ fontSize: 12.5, color: "var(--mf-ink-2)" }}>Set aside in total</div>
-        <div className="mf-num" style={{ fontSize: 26, fontWeight: 600, letterSpacing: "-.02em",
-          marginTop: 3, color: "var(--mf-owe)" }}>{money(total)}</div>
-      </div>
+      <TotalCard label="Set aside in total" value={total} tone="out" />
 
-      <div className="mf-card" style={{ padding: "12px 14px", marginBottom: 12, display: "flex", gap: 8 }}>
-        <input value={newName} placeholder="New provision — e.g. Income tax"
-          onChange={e => setNewName(e.target.value)}
-          onKeyDown={e => { if (e.key === "Enter") add(); }}
-          style={{ flex: 1, padding: "9px 11px", fontSize: 14, color: "var(--mf-ink)", fontFamily: "inherit",
-            border: "1px solid var(--mf-line)", borderRadius: 9, background: "var(--mf-surface)" }} />
-        <Btn ok={!!newName.trim() && !busy} busy={busy} onClick={add}>Add</Btn>
-      </div>
-
-      {rows.length === 0 ? <Empty>None yet.</Empty> : (
-        <div className="mf-card" style={{ padding: "0 14px" }}>
-          {rows.map((r, i) => (
-            <div key={r.id} style={{ borderTop: i === 0 ? "none" : "1px solid var(--mf-line)" }}>
-              <button onClick={() => setOpenId(openId === r.id ? null : r.id)} className="mf-tap"
-                style={{ width: "100%", border: "none", background: "none", padding: "12px 0",
-                  textAlign: "left", display: "flex", alignItems: "center", gap: 12 }}>
-                <span style={{ flex: 1, fontSize: 14, color: "var(--mf-ink)" }}>{r.name}</span>
-                <span className="mf-num" style={{ fontSize: 14, color: r.balance > 0 ? "var(--mf-owe)" : "var(--mf-ink-3)" }}>
-                  {r.balance === 0 ? "—" : money(r.balance)}
-                </span>
-              </button>
-              {openId === r.id && (
-                <ProvForm r={r} accounts={init?.accounts.filter(a => !a.is_liability) ?? []}
-                  post={post} showToast={showToast}
-                  onDone={async () => { setOpenId(null); await refreshInit(); await reload(); }} />
-              )}
-            </div>
+      {rows === null ? <Loading /> : list.length === 0 ? (
+        <Card><Empty icon={<IconFolder size={22} />} title="Nothing set aside yet"
+          body="Add one for anything you know is coming: tax, a deposit you hold, a promised repair." /></Card>
+      ) : (
+        <Card pad={false} className="overflow-hidden">
+          {list.map((r, i) => (
+            <button key={r.id} type="button" onClick={() => setOpenId(r.id)}
+              className={cx("mf-noscale flex min-h-[54px] w-full items-center gap-3 px-4 py-2.5 text-left active:bg-mf-bg", i < list.length - 1 && "border-b border-mf-line")}>
+              <span className="min-w-0 flex-1 truncate text-[15px] font-medium text-mf-ink">{r.name}</span>
+              <span className={cx("font-mf-mono text-[15px]", r.balance > 0 ? "text-mf-out" : "text-mf-ink-3")}>
+                {r.balance === 0 ? "—" : money(r.balance)}
+              </span>
+              <IconChevron size={18} className="shrink-0 text-mf-ink-3" />
+            </button>
           ))}
-        </div>
+        </Card>
       )}
+
+      <Button variant="secondary" full className="mt-4" onClick={() => setAdding(true)}>
+        <IconPlus size={17} /> Add a provision
+      </Button>
+
+      <Sheet open={adding} onClose={() => setAdding(false)} title="New provision">
+        <Field label="What for" hint="You set the amount afterwards, whenever you recognise it.">
+          <TextInput value={newName} onChange={e => setNewName(e.target.value)} placeholder="Income tax" autoFocus
+            onKeyDown={e => { if (e.key === "Enter") add(); }} />
+        </Field>
+        <Button size="lg" full disabled={!newName.trim()} loading={busy} loadingText="Adding…" onClick={add}>Add provision</Button>
+      </Sheet>
+
+      <Sheet open={!!open} onClose={() => setOpenId(null)} title={open ? open.name : ""}>
+        {open && (
+          <ProvForm key={open.id} r={open} accounts={init?.accounts.filter(a => !a.is_liability) ?? []}
+            post={post} showToast={showToast}
+            onDone={async () => { setOpenId(null); await refreshInit(); await reload(); }} />
+        )}
+      </Sheet>
     </>
   );
 }
 
 function ProvForm({ r, accounts, post, showToast, onDone }: {
   r: Prov;
-  accounts: { id: number; bank_name: string; owner_name: string }[];
+  accounts: Acct[];
   post: (a: string, p?: any) => Promise<any | null>;
   showToast: (m: string, t?: "success" | "error") => void;
   onDone: () => Promise<void>;
@@ -158,157 +194,158 @@ function ProvForm({ r, accounts, post, showToast, onDone }: {
   };
 
   return (
-    <div style={{ padding: "2px 0 14px" }}>
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
+    <div className="pb-2">
+      <p className="mb-3 text-[12.5px] text-mf-ink-3">
+        {r.balance > 0 ? `${money(r.balance)} set aside so far.` : "Nothing set aside yet."}
+      </p>
+
+      <ChipGroup label="What are you doing" hint={ACTS.find(a => a.k === act)?.hint}>
         {ACTS.map(a => <Chip key={a.k} on={act === a.k} onClick={() => setAct(a.k)}>{a.label}</Chip>)}
-      </div>
-      <div style={{ fontSize: 11.5, color: "var(--mf-ink-3)", marginBottom: 10, lineHeight: 1.55 }}>
-        {ACTS.find(a => a.k === act)?.hint}
-      </div>
-      <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
-        <input value={amountStr} inputMode="decimal" placeholder="Amount"
-          onChange={e => setAmountStr(e.target.value.replace(/[^0-9.]/g, ""))}
-          style={{ flex: 1, padding: "10px 12px", fontSize: 15, fontFamily: "var(--mf-mono)", color: "var(--mf-ink)",
-            border: "1px solid var(--mf-line)", borderRadius: 9, background: "var(--mf-surface)" }} />
-        <input type="date" value={dateIso} max={todayIso()}
-          onChange={e => e.target.value && setDateIso(e.target.value)}
-          style={{ padding: "10px 12px", fontSize: 13, color: "var(--mf-ink-2)", fontFamily: "inherit",
-            border: "1px solid var(--mf-line)", borderRadius: 9, background: "var(--mf-surface)" }} />
-      </div>
+      </ChipGroup>
+
+      <AmountPad value={amountStr} onKey={k => setAmountStr(s => keyRules(s, k))} />
+
+      <DateChips value={dateIso} onChange={setDateIso} ago={daysAgo(dateIso)} label={dayLabel(dateIso)}
+        today={todayIso()} yesterday={shiftIso(todayIso(), -1)} />
+
       {needsAccount && (
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 12 }}>
+        <ChipGroup label="Paid from">
           {accounts.map(a => (
             <Chip key={a.id} on={accountId === a.id} onClick={() => setAccountId(a.id)}>
               {a.bank_name}{a.owner_name ? " · " + a.owner_name : ""}
             </Chip>
           ))}
-        </div>
+        </ChipGroup>
       )}
-      <Btn ok={ok} busy={busy} onClick={go}>Record it</Btn>
+
+      <Button size="lg" full disabled={!ok} loading={busy} loadingText="Saving…" onClick={go}>
+        Record{amount > 0 ? ` ${money(amount)}` : " it"}
+      </Button>
     </div>
   );
 }
 
 /* ── earmarks ───────────────────────────────────────────────────────── */
 
-function Earmarks({ rows, total, reload }: { rows: Mark[]; total: number; reload: () => Promise<void> }) {
+function Earmarks({ rows, total, reload }: { rows: Mark[] | null; total: number; reload: () => Promise<void> }) {
   const { init, post, showToast } = useMF();
-  const [name, setName] = useState("");
-  const [amountStr, setAmountStr] = useState("");
-  const [accountId, setAccountId] = useState<number | null>(null);
-  const [busy, setBusy] = useState(false);
-
+  const [edit, setEdit] = useState<Mark | null | "new">(null);
   const accounts = init?.accounts.filter(a => !a.is_liability && a.is_set_up) ?? [];
-  const amount = Number(amountStr || 0);
-  const ok = !!name.trim() && amount > 0 && !busy;
-
-  const add = async () => {
-    if (!ok) return;
-    setBusy(true);
-    const j = await post("saveEarmark", { name, amount, account_id: accountId });
-    setBusy(false);
-    if (j) { setName(""); setAmountStr(""); showToast("Earmarked " + money(amount)); await reload(); }
-  };
-
-  const drop = async (id: number) => {
-    const j = await post("removeEarmark", { id });
-    if (j) { showToast("Removed"); await reload(); }
-  };
+  const list = rows ?? [];
 
   return (
     <>
-      <Note>Labels on money you already have. Nothing is recorded and no balance changes —
-        these only tell you how much of a balance is already spoken for.</Note>
+      <p className="mb-3 px-1 text-[12.5px] leading-relaxed text-mf-ink-3">
+        Labels on money you already have. Nothing is recorded and no balance changes — they only
+        tell you how much of a balance is already spoken for.
+      </p>
 
-      <div className="mf-card" style={{ padding: "14px 16px", marginBottom: 12 }}>
-        <div style={{ fontSize: 12.5, color: "var(--mf-ink-2)" }}>Spoken for</div>
-        <div className="mf-num" style={{ fontSize: 26, fontWeight: 600, letterSpacing: "-.02em", marginTop: 3 }}>
-          {money(total)}
-        </div>
-      </div>
+      <TotalCard label="Spoken for" value={total} />
 
-      <div className="mf-card" style={{ padding: "12px 14px", marginBottom: 12 }}>
-        <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
-          <input value={name} placeholder="What for" onChange={e => setName(e.target.value)}
-            style={{ flex: 1, padding: "9px 11px", fontSize: 14, color: "var(--mf-ink)", fontFamily: "inherit",
-              border: "1px solid var(--mf-line)", borderRadius: 9, background: "var(--mf-surface)" }} />
-          <input value={amountStr} inputMode="decimal" placeholder="Amount"
-            onChange={e => setAmountStr(e.target.value.replace(/[^0-9.]/g, ""))}
-            style={{ width: 120, padding: "9px 11px", fontSize: 14, fontFamily: "var(--mf-mono)", color: "var(--mf-ink)",
-              border: "1px solid var(--mf-line)", borderRadius: 9, background: "var(--mf-surface)" }} />
-        </div>
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 10 }}>
-          <Chip on={accountId === null} onClick={() => setAccountId(null)}>Any account</Chip>
-          {accounts.map(a => (
-            <Chip key={a.id} on={accountId === a.id} onClick={() => setAccountId(a.id)}>{a.bank_name}</Chip>
-          ))}
-        </div>
-        <Btn ok={ok} busy={busy} onClick={add}>Add earmark</Btn>
-      </div>
-
-      {rows.length === 0 ? <Empty>Nothing earmarked.</Empty> : (
-        <div className="mf-card" style={{ padding: "0 14px" }}>
-          {rows.map((m, i) => {
+      {rows === null ? <Loading /> : list.length === 0 ? (
+        <Card><Empty icon={<IconFolder size={22} />} title="Nothing earmarked"
+          body="Label money that is already promised, so you can see what is really free." /></Card>
+      ) : (
+        <Card pad={false} className="overflow-hidden">
+          {list.map((m, i) => {
             const acct = accounts.find(a => a.id === m.account_id);
             const free = acct && acct.balance != null ? acct.balance - m.amount : null;
             return (
-              <div key={m.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 0",
-                borderTop: i === 0 ? "none" : "1px solid var(--mf-line)" }}>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 14, color: "var(--mf-ink)" }}>{m.name}</div>
-                  <div style={{ fontSize: 11, color: "var(--mf-ink-3)", marginTop: 2 }}>
-                    {m.account_name ?? "any account"}
-                    {free != null ? ` · ${money(free)} free there` : ""}
-                  </div>
-                </div>
-                <span className="mf-num" style={{ fontSize: 14 }}>{money(m.amount)}</span>
-                <button onClick={() => drop(m.id)} className="mf-tap"
-                  style={{ border: "none", background: "none", padding: "4px 2px", fontSize: 12,
-                    color: "var(--mf-ink-3)", cursor: "pointer" }}>
-                  remove
-                </button>
-              </div>
+              <button key={m.id} type="button" onClick={() => setEdit(m)}
+                className={cx("mf-noscale flex min-h-[56px] w-full items-center gap-3 px-4 py-2.5 text-left active:bg-mf-bg", i < list.length - 1 && "border-b border-mf-line")}>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-[15px] font-medium text-mf-ink">{m.name}</span>
+                  <span className="mt-0.5 block truncate text-[12px] text-mf-ink-3">
+                    {m.account_name ?? "Any account"}{free != null ? ` · ${money(free)} free there` : ""}
+                  </span>
+                </span>
+                <span className="font-mf-mono text-[15px] text-mf-ink">{money(m.amount)}</span>
+                <IconChevron size={18} className="shrink-0 text-mf-ink-3" />
+              </button>
             );
           })}
-        </div>
+        </Card>
       )}
+
+      <Button variant="secondary" full className="mt-4" onClick={() => setEdit("new")}>
+        <IconPlus size={17} /> Add an earmark
+      </Button>
+
+      <Sheet open={!!edit} onClose={() => setEdit(null)} title={edit === "new" ? "New earmark" : edit ? edit.name : ""}>
+        {edit && (
+          <MarkForm key={edit === "new" ? "new" : edit.id} row={edit === "new" ? null : edit} accounts={accounts}
+            post={post} showToast={showToast}
+            onDone={async () => { setEdit(null); await reload(); }} />
+        )}
+      </Sheet>
     </>
   );
 }
 
-/* ── small pieces ───────────────────────────────────────────────────── */
+function MarkForm({ row, accounts, post, showToast, onDone }: {
+  row: Mark | null;
+  accounts: Acct[];
+  post: (a: string, p?: any) => Promise<any | null>;
+  showToast: (m: string, t?: "success" | "error") => void;
+  onDone: () => Promise<void>;
+}) {
+  const [name, setName] = useState(row?.name ?? "");
+  const [amountStr, setAmountStr] = useState(row ? String(row.amount) : "");
+  const [accountId, setAccountId] = useState<number | null>(row?.account_id ?? null);
+  const [busy, setBusy] = useState(false);
+  const [confirmDrop, setConfirmDrop] = useState(false);
 
-function Seg({ on, onClick, children }: { on: boolean; onClick: () => void; children: React.ReactNode }) {
+  const amount = Number(amountStr || 0);
+  const ok = !!name.trim() && amount > 0 && !busy;
+
+  const save = async () => {
+    if (!ok) return;
+    setBusy(true);
+    const j = await post("saveEarmark", row
+      ? { id: row.id, name, amount, account_id: accountId, note: row.note }
+      : { name, amount, account_id: accountId });
+    setBusy(false);
+    if (j) { showToast(row ? "Saved" : "Earmarked " + money(amount)); await onDone(); }
+  };
+
+  const drop = async () => {
+    if (!row) return;
+    setBusy(true);
+    const j = await post("removeEarmark", { id: row.id });
+    setBusy(false);
+    if (j) { showToast("Removed"); await onDone(); }
+  };
+
   return (
-    <button onClick={onClick} className="mf-tap"
-      style={{ flex: 1, border: "none", borderRadius: 999, padding: "8px 0", fontSize: 13,
-        background: on ? "var(--mf-have)" : "var(--mf-surface)",
-        color: on ? "var(--mf-have-bg)" : "var(--mf-ink-2)",
-        boxShadow: on ? "none" : "inset 0 0 0 1px var(--mf-line)" }}>{children}</button>
+    <div className="pb-2">
+      <Field label="What for">
+        <TextInput value={name} onChange={e => setName(e.target.value)} placeholder="Staff bonus" autoFocus={!row} />
+      </Field>
+
+      <AmountPad value={amountStr} onKey={k => setAmountStr(s => keyRules(s, k))} />
+
+      <ChipGroup label="Sitting in">
+        <Chip on={accountId === null} onClick={() => setAccountId(null)}>Any account</Chip>
+        {accounts.map(a => <Chip key={a.id} on={accountId === a.id} onClick={() => setAccountId(a.id)}>{a.bank_name}</Chip>)}
+      </ChipGroup>
+
+      <Button size="lg" full disabled={!ok} loading={busy} loadingText="Saving…" onClick={save}>
+        {row ? "Save" : "Add earmark"}
+      </Button>
+
+      {row && (
+        <div className="mt-4 border-t border-mf-line pt-4">
+          {confirmDrop ? (
+            <div className="grid grid-cols-2 gap-2">
+              <Button variant="secondary" onClick={() => setConfirmDrop(false)}>Keep it</Button>
+              <Button variant="danger" loading={busy} onClick={drop}>Remove</Button>
+            </div>
+          ) : (
+            <Button variant="ghost" full onClick={() => setConfirmDrop(true)}>Remove this earmark</Button>
+          )}
+          <p className="mt-2 px-1 text-center text-[12px] text-mf-ink-3">Removing changes no balance — it only drops the label.</p>
+        </div>
+      )}
+    </div>
   );
-}
-function Chip({ on, onClick, children }: { on: boolean; onClick: () => void; children: React.ReactNode }) {
-  return (
-    <button onClick={onClick} className="mf-tap"
-      style={{ border: "none", borderRadius: 999, padding: "7px 13px", fontSize: 13,
-        background: on ? "var(--mf-have)" : "var(--mf-surface)",
-        color: on ? "var(--mf-have-bg)" : "var(--mf-ink-2)",
-        boxShadow: on ? "none" : "inset 0 0 0 1px var(--mf-line)" }}>{children}</button>
-  );
-}
-function Btn({ ok, busy, onClick, children }: { ok: boolean; busy: boolean; onClick: () => void; children: React.ReactNode }) {
-  return (
-    <button onClick={onClick} disabled={!ok} className="mf-tap"
-      style={{ border: "none", borderRadius: 9, padding: "10px 18px", fontSize: 14, fontWeight: 600,
-        background: ok ? "var(--mf-have)" : "var(--mf-line)",
-        color: ok ? "var(--mf-have-bg)" : "var(--mf-ink-3)", cursor: ok ? "pointer" : "default" }}>
-      {busy ? "Saving…" : children}
-    </button>
-  );
-}
-function Note({ children }: { children: React.ReactNode }) {
-  return <div style={{ fontSize: 12.5, color: "var(--mf-ink-2)", lineHeight: 1.6, marginBottom: 12 }}>{children}</div>;
-}
-function Empty({ children }: { children: React.ReactNode }) {
-  return <div className="mf-card" style={{ padding: "14px 16px", fontSize: 13.5, color: "var(--mf-ink-2)" }}>{children}</div>;
 }
