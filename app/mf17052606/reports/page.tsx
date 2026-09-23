@@ -7,8 +7,10 @@
 // nothing here can disagree with the passbook.
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import Link from "next/link";
 import { useMF, money } from "../_components/MFProvider";
+import { TopBar, Card, Chip, Segmented, Empty, Skeleton, SectionTitle, BASE, cx } from "../_ui/kit";
+import { IconChart } from "../_ui/icons";
+import { dateLong } from "../_ui/format";
 
 type View = "PNL" | "SPEND";
 type Period = "THIS_MONTH" | "LAST_MONTH" | "THIS_YEAR";
@@ -57,81 +59,82 @@ export default function Reports() {
 
   useEffect(() => { load(); }, [load]);
 
+  const loading = busy && (view === "PNL" ? !pnl : !spend);
+
   return (
-    <div style={{ maxWidth: 560, margin: "0 auto", padding: "0 16px 40px" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "18px 0 14px" }}>
-        <Link href="/mf17052606" style={{ textDecoration: "none", color: "var(--mf-ink-2)", fontSize: 20, lineHeight: 1 }}>‹</Link>
-        <div style={{ fontSize: 17, fontWeight: 600 }}>Reports</div>
-      </div>
+    <div className="mx-auto w-full max-w-[560px] px-4">
+      <TopBar back={BASE} title="Reports" sub="Profit and where money goes" />
 
-      <div style={{ display: "flex", gap: 6, marginBottom: 10 }}>
-        <Seg on={view === "PNL"} onClick={() => setView("PNL")}>Library P&amp;L</Seg>
-        <Seg on={view === "SPEND"} onClick={() => setView("SPEND")}>Spending</Seg>
-      </div>
+      <Segmented className="mb-3" value={view} onChange={setView}
+        options={[{ v: "PNL", label: "Library P&L" }, { v: "SPEND", label: "Spending" }]} />
 
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 12 }}>
+      <div className="-mx-4 mb-1.5 flex gap-2 overflow-x-auto px-4 pb-1 [scrollbar-width:none]">
         <Chip on={period === "THIS_MONTH"} onClick={() => setPeriod("THIS_MONTH")}>This month</Chip>
         <Chip on={period === "LAST_MONTH"} onClick={() => setPeriod("LAST_MONTH")}>Last month</Chip>
-        <Chip on={period === "THIS_YEAR"}  onClick={() => setPeriod("THIS_YEAR")}>This year</Chip>
+        <Chip on={period === "THIS_YEAR"} onClick={() => setPeriod("THIS_YEAR")}>This year</Chip>
       </div>
+      <p className="mb-4 px-1 text-[12px] text-mf-ink-3">{r.label} · {dateLong(r.from)} to {dateLong(r.to)}</p>
 
-      <div style={{ fontSize: 11.5, color: "var(--mf-ink-3)", marginBottom: 12 }}>
-        {r.label} · {r.from} to {r.to}
-      </div>
-
-      {busy && !pnl && !spend ? <Muted>Loading…</Muted> : view === "PNL" ? (
+      {loading ? (
+        <>
+          <Card className="mb-3"><Skeleton className="h-4 w-40" /><Skeleton className="mt-3 h-8 w-48" /></Card>
+          <Card pad={false}>
+            {[0, 1, 2].map(i => (
+              <div key={i} className={cx("flex items-center gap-3 px-4 py-4", i < 2 && "border-b border-mf-line")}>
+                <Skeleton className="h-4 flex-1" /><Skeleton className="h-4 w-20" />
+              </div>
+            ))}
+          </Card>
+        </>
+      ) : view === "PNL" ? (
         <>
           {pnl && (
-            <div className="mf-card" style={{ padding: "14px 16px", marginBottom: 12 }}>
-              <div style={{ fontSize: 12.5, color: "var(--mf-ink-2)" }}>Profit across all libraries</div>
-              <div className="mf-num" style={{ fontSize: 28, fontWeight: 600, letterSpacing: "-.02em", marginTop: 3,
-                color: pnl.totals.profit < 0 ? "var(--mf-owe)" : "var(--mf-ink)" }}>
+            <Card className="mb-3">
+              <div className="text-[12.5px] text-mf-ink-2">Profit across all libraries</div>
+              <div className={cx("mt-1 font-mf-mono text-[28px] tracking-[-0.02em]", pnl.totals.profit < 0 ? "text-mf-out" : "text-mf-ink")}>
                 {money(pnl.totals.profit)}
               </div>
-              <div style={{ display: "flex", gap: 18, marginTop: 10 }}>
-                <Small label="Collected" value={money(pnl.totals.income)} tone="have" />
-                <Small label="Spent" value={money(pnl.totals.expense)} tone="owe" />
+              <div className="mt-4 grid grid-cols-2 gap-3">
+                <Stat label="Collected" value={pnl.totals.income} tone="in" />
+                <Stat label="Spent" value={pnl.totals.expense} tone="out" />
               </div>
-            </div>
+            </Card>
           )}
 
           {!pnl || pnl.rows.length === 0 ? (
-            <Empty>Nothing in this period yet.</Empty>
+            <Card><Empty icon={<IconChart size={22} />} title="Nothing in this period yet"
+              body="Collections and expenses appear here as soon as they are recorded." /></Card>
           ) : (
-            <div className="mf-card" style={{ padding: "0 14px" }}>
+            <Card pad={false} className="overflow-hidden">
               {pnl.rows.map((row, i) => (
                 <div key={row.library_code + (row.branch_code ?? "")}
-                  style={{ padding: "12px 0", borderTop: i === 0 ? "none" : "1px solid var(--mf-line)" }}>
-                  <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12 }}>
-                    <span style={{ fontSize: 14, color: "var(--mf-ink)" }}>
+                  className={cx("px-4 py-3", i < pnl.rows.length - 1 && "border-b border-mf-line")}>
+                  <div className="flex items-baseline justify-between gap-3">
+                    <span className="truncate text-[15px] font-medium text-mf-ink">
                       {row.library_code}{row.branch_code ? " · " + row.branch_code : ""}
                     </span>
-                    <span className="mf-num" style={{ fontSize: 14, fontWeight: 600,
-                      color: row.profit < 0 ? "var(--mf-owe)" : "var(--mf-have)" }}>
+                    <span className={cx("font-mf-mono text-[15px] font-semibold", row.profit < 0 ? "text-mf-out" : "text-mf-in")}>
                       {money(row.profit)}
                     </span>
                   </div>
-                  <div style={{ display: "flex", gap: 16, marginTop: 4 }}>
-                    <span style={{ fontSize: 11.5, color: "var(--mf-ink-3)" }}>
-                      in <span className="mf-num">{money(row.income)}</span>
-                    </span>
-                    <span style={{ fontSize: 11.5, color: "var(--mf-ink-3)" }}>
-                      out <span className="mf-num">{money(row.expense)}</span>
-                    </span>
+                  <div className="mt-1 flex gap-4 text-[12px] text-mf-ink-3">
+                    <span>In <span className="font-mf-mono">{money(row.income)}</span></span>
+                    <span>Out <span className="font-mf-mono">{money(row.expense)}</span></span>
                   </div>
                 </div>
               ))}
-            </div>
+            </Card>
           )}
 
-          <div style={{ fontSize: 11.5, color: "var(--mf-ink-3)", lineHeight: 1.6, marginTop: 12 }}>
-            Income counts on the day it reached the bank, not the day it was collected — so a
-            month's figure matches what actually landed.
-          </div>
+          <p className="mt-4 px-1 text-[12px] leading-relaxed text-mf-ink-3">
+            Income counts on the day it reached the bank, not the day it was collected, so a month’s
+            figure matches what actually landed. Expenses count on their own date. Nothing here can
+            disagree with the passbook.
+          </p>
         </>
       ) : (
         <>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 12 }}>
+          <div className="-mx-4 mb-3 flex gap-2 overflow-x-auto px-4 pb-1 [scrollbar-width:none]">
             {(["ALL", "PERSONAL", "LIBRARY"] as const).map(w => (
               <Chip key={w} on={world === w} onClick={() => setWorld(w)}>
                 {w === "ALL" ? "Everything" : w === "PERSONAL" ? "Personal" : "Library"}
@@ -140,80 +143,67 @@ export default function Reports() {
           </div>
 
           {spend && (
-            <div className="mf-card" style={{ padding: "14px 16px", marginBottom: 12, display: "flex", gap: 18 }}>
-              <Small label="Spent" value={money(spend.spent)} tone="owe" big />
-              <Small label="Earned" value={money(spend.earned)} tone="have" big />
-            </div>
+            <Card className="mb-3">
+              <div className="grid grid-cols-2 gap-3">
+                <Stat label="Spent" value={spend.spent} tone="out" big />
+                <Stat label="Earned" value={spend.earned} tone="in" big />
+              </div>
+            </Card>
           )}
 
           {!spend || spend.expenses.length === 0 ? (
-            <Empty>Nothing recorded in this period.</Empty>
+            <Card><Empty icon={<IconChart size={22} />} title="Nothing recorded in this period"
+              body="Add an expense or some money in, and it shows up here by category." /></Card>
           ) : (
-            <Bars title="Where it went" rows={spend.expenses} tone="owe" />
+            <Bars title="Where it went" rows={spend.expenses} tone="out" />
           )}
-          {spend && spend.income.length > 0 && <Bars title="Where it came from" rows={spend.income} tone="have" />}
+          {spend && spend.income.length > 0 && <Bars title="Where it came from" rows={spend.income} tone="in" />}
+
+          <p className="mt-4 px-1 text-[12px] leading-relaxed text-mf-ink-3">
+            Category totals for the period, biggest first. They are sums of what you recorded — no
+            balance is recalculated here.
+          </p>
         </>
       )}
     </div>
   );
 }
 
-function Bars({ title, rows, tone }: { title: string; rows: Cat[]; tone: "have" | "owe" }) {
-  const max = Math.max(...rows.map(r => Math.abs(r.total)), 1);
+function Stat({ label, value, tone, big }: { label: string; value: number; tone: "in" | "out"; big?: boolean }) {
   return (
-    <>
-      <div style={{ fontSize: 11, letterSpacing: ".08em", textTransform: "uppercase",
-        color: "var(--mf-ink-3)", margin: "16px 0 8px 2px" }}>{title}</div>
-      <div className="mf-card" style={{ padding: "4px 14px 10px" }}>
-        {rows.map((r, i) => (
-          <div key={r.name} style={{ padding: "10px 0", borderTop: i === 0 ? "none" : "1px solid var(--mf-line)" }}>
-            <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12 }}>
-              <span style={{ fontSize: 13.5, color: "var(--mf-ink)" }}>{r.name}</span>
-              <span className="mf-num" style={{ fontSize: 13.5 }}>{money(r.total)}</span>
-            </div>
-            <div style={{ height: 4, borderRadius: 3, background: "var(--mf-line)", marginTop: 6, overflow: "hidden" }}>
-              <div style={{ height: "100%", width: `${Math.max(2, (Math.abs(r.total) / max) * 100)}%`,
-                background: tone === "owe" ? "var(--mf-owe)" : "var(--mf-have)", borderRadius: 3 }} />
-            </div>
-            <div style={{ fontSize: 11, color: "var(--mf-ink-3)", marginTop: 4 }}>
-              {r.entries} {r.entries === 1 ? "entry" : "entries"}
-            </div>
-          </div>
-        ))}
-      </div>
-    </>
-  );
-}
-
-function Small({ label, value, tone, big }: { label: string; value: string; tone: "have" | "owe"; big?: boolean }) {
-  return (
-    <div>
-      <div style={{ fontSize: 11.5, color: tone === "owe" ? "var(--mf-owe)" : "var(--mf-have)" }}>{label}</div>
-      <div className="mf-num" style={{ fontSize: big ? 20 : 15, fontWeight: 600, marginTop: 2 }}>{value}</div>
+    <div className="rounded-[14px] bg-mf-bg px-3 py-2.5">
+      <div className={cx("text-[11.5px] font-semibold", tone === "in" ? "text-mf-in" : "text-mf-out")}>{label}</div>
+      <div className={cx("mt-0.5 font-mf-mono text-mf-ink", big ? "text-[21px]" : "text-[17px]")}>{money(value)}</div>
     </div>
   );
 }
-function Seg({ on, onClick, children }: { on: boolean; onClick: () => void; children: React.ReactNode }) {
+
+function Bars({ title, rows, tone }: { title: string; rows: Cat[]; tone: "in" | "out" }) {
+  const top = Math.max(...rows.map(r => Math.abs(r.total)), 1);
+  const sum = rows.reduce((a, r) => a + Math.abs(r.total), 0) || 1;
   return (
-    <button onClick={onClick} className="mf-tap"
-      style={{ flex: 1, border: "none", borderRadius: 999, padding: "8px 0", fontSize: 13,
-        background: on ? "var(--mf-have)" : "var(--mf-surface)",
-        color: on ? "var(--mf-have-bg)" : "var(--mf-ink-2)",
-        boxShadow: on ? "none" : "inset 0 0 0 1px var(--mf-line)" }}>{children}</button>
+    <>
+      <SectionTitle>{title}</SectionTitle>
+      <Card className="space-y-3">
+        {rows.map(r => {
+          const share = Math.round((Math.abs(r.total) / sum) * 100);
+          return (
+            <div key={r.name + r.kind}>
+              <div className="flex items-baseline justify-between gap-3">
+                <span className="truncate text-[14px] text-mf-ink">{r.name}</span>
+                <span className="font-mf-mono text-[14px] text-mf-ink">{money(r.total)}</span>
+              </div>
+              <div className="mt-1.5 h-2 overflow-hidden rounded-full bg-mf-line">
+                <div className={cx("h-full rounded-full", tone === "in" ? "bg-mf-in" : "bg-mf-out")}
+                  style={{ width: `${Math.max(2, Math.round((Math.abs(r.total) / top) * 100))}%` }} />
+              </div>
+              <div className="mt-1 text-[11.5px] text-mf-ink-3">
+                {share}% · {r.entries} {r.entries === 1 ? "entry" : "entries"}
+              </div>
+            </div>
+          );
+        })}
+      </Card>
+    </>
   );
-}
-function Chip({ on, onClick, children }: { on: boolean; onClick: () => void; children: React.ReactNode }) {
-  return (
-    <button onClick={onClick} className="mf-tap"
-      style={{ border: "none", borderRadius: 999, padding: "7px 13px", fontSize: 13,
-        background: on ? "var(--mf-have)" : "var(--mf-surface)",
-        color: on ? "var(--mf-have-bg)" : "var(--mf-ink-2)",
-        boxShadow: on ? "none" : "inset 0 0 0 1px var(--mf-line)" }}>{children}</button>
-  );
-}
-function Empty({ children }: { children: React.ReactNode }) {
-  return <div className="mf-card" style={{ padding: "14px 16px", fontSize: 13.5, color: "var(--mf-ink-2)" }}>{children}</div>;
-}
-function Muted({ children }: { children: React.ReactNode }) {
-  return <span style={{ fontSize: 12.5, color: "var(--mf-ink-3)" }}>{children}</span>;
 }

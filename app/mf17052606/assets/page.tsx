@@ -5,8 +5,13 @@
 // The gap between them is your gain, and it is never hidden inside one number.
 
 import { useCallback, useEffect, useState } from "react";
-import Link from "next/link";
 import { useMF, money } from "../_components/MFProvider";
+import {
+  TopBar, Card, Chip, ChipGroup, Sheet, Button, Empty, Skeleton, Field, TextInput, SwitchRow,
+  AmountPad, DateChips, BASE, cx,
+} from "../_ui/kit";
+import { IconAsset, IconPlus, IconChevron } from "../_ui/icons";
+import { shiftIso, dayLabel, dateLong } from "../_ui/format";
 
 type Asset = {
   id: number; name: string; asset_type: string | null; nature: string;
@@ -24,12 +29,32 @@ const todayIso = () => {
   const d = new Date();
   return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
 };
+const daysAgo = (iso: string) =>
+  Math.round((new Date(todayIso() + "T00:00:00").getTime() - new Date(iso + "T00:00:00").getTime()) / 86400000);
+const keyRules = (s: string, k: string) => {
+  if (k === "<") return s.slice(0, -1);
+  if (k === "." && s.includes(".")) return s;
+  if (s.replace(".", "").length >= 9) return s;
+  return (s + k).replace(/^0(?=\d)/, "");
+};
+/** "valued 8 months ago" · "never valued" — and whether that is getting old. */
+function valuedText(iso: string | null): { text: string; stale: boolean } {
+  if (!iso) return { text: "Never valued", stale: true };
+  const d = daysAgo(String(iso).slice(0, 10));
+  if (Number.isNaN(d)) return { text: `Valued ${dateLong(iso)}`, stale: false };
+  if (d <= 1) return { text: "Valued today", stale: false };
+  if (d < 31) return { text: `Valued ${d} days ago`, stale: false };
+  const m = Math.round(d / 30.4);
+  if (m < 12) return { text: `Valued ${m} month${m === 1 ? "" : "s"} ago`, stale: m >= 6 };
+  const y = Math.floor(d / 365);
+  return { text: `Valued ${y}+ year${y === 1 ? "" : "s"} ago`, stale: true };
+}
 
 type Act = "BUY" | "VALUE" | "SELL";
 
 export default function Assets() {
-  const { init, post, showToast, refreshInit } = useMF();
-  const [rows, setRows] = useState<Asset[]>([]);
+  const { post, refreshInit } = useMF();
+  const [rows, setRows] = useState<Asset[] | null>(null);
   const [totals, setTotals] = useState<{ cost: number; value: number } | null>(null);
   const [openId, setOpenId] = useState<number | null>(null);
   const [adding, setAdding] = useState(false);
@@ -37,80 +62,95 @@ export default function Assets() {
   const load = useCallback(async () => {
     const j = await post("assets");
     if (j) { setRows(j.assets ?? []); setTotals(j.totals ?? null); }
+    else setRows(r => r ?? []);
   }, [post]);
 
   useEffect(() => { load(); }, [load]);
 
   const after = async () => { setOpenId(null); await refreshInit(); await load(); };
+  const list = rows ?? [];
+  const open = openId != null ? list.find(a => a.id === openId) ?? null : null;
+  const gain = totals ? totals.value - totals.cost : 0;
 
   return (
-    <div style={{ maxWidth: 560, margin: "0 auto", padding: "0 16px 40px" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "18px 0 14px" }}>
-        <Link href="/mf17052606" style={{ textDecoration: "none", color: "var(--mf-ink-2)", fontSize: 20, lineHeight: 1 }}>‹</Link>
-        <div style={{ flex: 1, fontSize: 17, fontWeight: 600 }}>Assets</div>
-        <button onClick={() => setAdding(a => !a)} className="mf-tap"
-          style={{ border: "none", borderRadius: 999, padding: "7px 13px", fontSize: 13,
-            background: adding ? "var(--mf-have)" : "var(--mf-surface)",
-            color: adding ? "var(--mf-have-bg)" : "var(--mf-ink-2)",
-            boxShadow: adding ? "none" : "inset 0 0 0 1px var(--mf-line)" }}>
-          {adding ? "Close" : "New"}
-        </button>
-      </div>
+    <div className="mx-auto w-full max-w-[560px] px-4">
+      <TopBar back={BASE} title="Assets" sub="Property, gold, deposits"
+        right={<Button size="md" variant="secondary" className="h-10 px-3 text-[14px]" onClick={() => setAdding(true)}><IconPlus size={17} /> New</Button>} />
 
-      {totals && rows.length > 0 && (
-        <div className="mf-card" style={{ padding: "14px 16px", marginBottom: 12 }}>
-          <div style={{ fontSize: 12.5, color: "var(--mf-ink-2)" }}>Worth today</div>
-          <div className="mf-num" style={{ fontSize: 28, fontWeight: 600, letterSpacing: "-.02em", marginTop: 3 }}>
-            {money(totals.value)}
+      {totals && list.length > 0 && (
+        <>
+          <div className="grid grid-cols-2 gap-2">
+            <Card className="py-3">
+              <div className="text-[12px] font-semibold text-mf-ink-3">You paid</div>
+              <div className="mt-1 font-mf-mono text-[19px] text-mf-ink">{money(totals.cost)}</div>
+            </Card>
+            <Card className="py-3">
+              <div className="text-[12px] font-semibold text-mf-ink-3">Worth today</div>
+              <div className="mt-1 font-mf-mono text-[19px] text-mf-ink">{money(totals.value)}</div>
+            </Card>
           </div>
-          <div style={{ fontSize: 11.5, color: "var(--mf-ink-3)", marginTop: 6 }}>
-            paid <span className="mf-num">{money(totals.cost)}</span> ·{" "}
-            <span style={{ color: totals.value - totals.cost < 0 ? "var(--mf-owe)" : "var(--mf-have)" }}>
-              {totals.value - totals.cost < 0 ? "down " : "up "}
-              <span className="mf-num">{money(Math.abs(totals.value - totals.cost))}</span>
-            </span>
-          </div>
-        </div>
+          <p className="mb-4 mt-2 text-center text-[12.5px] text-mf-ink-3">
+            {Math.abs(gain) < 1 ? "Level with what you paid" : (
+              <span className={cx("font-mf-mono font-semibold", gain < 0 ? "text-mf-out" : "text-mf-in")}>
+                {money(Math.abs(gain))} {gain < 0 ? "down on cost" : "up on cost"}
+              </span>
+            )}
+          </p>
+        </>
       )}
 
-      {adding && <NewAsset onDone={async () => { setAdding(false); await load(); }} />}
-
-      {rows.length === 0 && !adding ? (
-        <div className="mf-card" style={{ padding: "14px 16px", fontSize: 13.5, color: "var(--mf-ink-2)", lineHeight: 1.6 }}>
-          No assets yet. Property, gold, deposits, a vehicle — anything you own that has a value
-          worth tracking in your net worth.
-        </div>
+      {rows === null ? (
+        <Card pad={false}>
+          {[0, 1, 2].map(i => (
+            <div key={i} className={cx("flex items-center gap-3 px-4 py-4", i < 2 && "border-b border-mf-line")}>
+              <div className="flex-1"><Skeleton className="h-4 w-36" /><Skeleton className="mt-2 h-3 w-24" /></div>
+              <Skeleton className="h-4 w-20" />
+            </div>
+          ))}
+        </Card>
+      ) : list.length === 0 ? (
+        <Card>
+          <Empty icon={<IconAsset size={22} />} title="No assets yet"
+            body="Property, gold, deposits, a vehicle — anything you own that has a value worth counting in your net worth."
+            action={<Button onClick={() => setAdding(true)}>Add an asset</Button>} />
+        </Card>
       ) : (
-        <div className="mf-card" style={{ padding: "0 14px" }}>
-          {rows.map((a, i) => (
-            <div key={a.id} style={{ borderTop: i === 0 ? "none" : "1px solid var(--mf-line)" }}>
-              <button onClick={() => setOpenId(openId === a.id ? null : a.id)} className="mf-tap"
-                style={{ width: "100%", border: "none", background: "none", padding: "12px 0",
-                  textAlign: "left", display: "flex", alignItems: "center", gap: 12 }}>
-                <span style={{ flex: 1, minWidth: 0 }}>
-                  <span style={{ display: "block", fontSize: 14, color: "var(--mf-ink)" }}>{a.name}</span>
-                  <span style={{ display: "block", fontSize: 11, color: "var(--mf-ink-3)", marginTop: 2 }}>
-                    {a.valued_as_of ? `valued ${a.valued_as_of}` : "never valued"}
-                    {a.income_generating ? " · earns" : ""}
+        <Card pad={false} className="overflow-hidden">
+          {list.map((a, i) => {
+            const v = valuedText(a.valued_as_of);
+            return (
+              <button key={a.id} type="button" onClick={() => setOpenId(a.id)}
+                className={cx("mf-noscale flex min-h-[62px] w-full items-center gap-3 px-4 py-2.5 text-left active:bg-mf-bg", i < list.length - 1 && "border-b border-mf-line")}>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-[15px] font-medium text-mf-ink">{a.name}</span>
+                  <span className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-[12px] text-mf-ink-3">
+                    {a.asset_type && <span>{a.asset_type}</span>}
+                    {a.asset_type && <span>·</span>}
+                    <span className={cx(v.stale && "font-semibold text-mf-warn")}>{v.text}</span>
+                    {a.income_generating && <><span>·</span><span>Earns</span></>}
                   </span>
                 </span>
-                <span style={{ textAlign: "right" }}>
-                  <span className="mf-num" style={{ display: "block", fontSize: 14 }}>
-                    {money(a.current_value ?? a.cost)}
-                  </span>
+                <span className="shrink-0 text-right">
+                  <span className="block font-mf-mono text-[15px] text-mf-ink">{money(a.current_value ?? a.cost)}</span>
                   {a.gain != null && Math.abs(a.gain) >= 1 && (
-                    <span className="mf-num" style={{ display: "block", fontSize: 11, marginTop: 2,
-                      color: a.gain < 0 ? "var(--mf-owe)" : "var(--mf-have)" }}>
+                    <span className={cx("mt-0.5 block font-mf-mono text-[12px]", a.gain < 0 ? "text-mf-out" : "text-mf-in")}>
                       {a.gain < 0 ? "" : "+"}{money(a.gain)}
                     </span>
                   )}
                 </span>
+                <IconChevron size={18} className="shrink-0 text-mf-ink-3" />
               </button>
-              {openId === a.id && <Actions a={a} onDone={after} />}
-            </div>
-          ))}
-        </div>
+            );
+          })}
+        </Card>
       )}
+
+      <Sheet open={!!open} onClose={() => setOpenId(null)} title={open ? open.name : ""}>
+        {open && <Actions key={open.id} a={open} onDone={after} />}
+      </Sheet>
+      <Sheet open={adding} onClose={() => setAdding(false)} title="New asset">
+        {adding && <NewAsset onDone={async () => { setAdding(false); await load(); }} />}
+      </Sheet>
     </div>
   );
 }
@@ -144,47 +184,42 @@ function Actions({ a, onDone }: { a: Asset; onDone: () => Promise<void> }) {
     }
   };
 
+  const hint = act === "VALUE" ? "No money moves — this records what it is worth today, and the date."
+    : act === "BUY" ? "Money leaves an account and becomes part of this asset. Net worth is unchanged."
+    : `Cost so far is ${money(a.cost)}. Anything above that is booked as a gain, anything below as a loss.`;
+
   return (
-    <div style={{ padding: "2px 0 14px" }}>
-      <div style={{ display: "flex", gap: 6, marginBottom: 10 }}>
+    <div className="pb-2">
+      <p className="mb-3 text-[12.5px] text-mf-ink-3">
+        Paid {money(a.cost)}{a.current_value != null ? ` · worth ${money(a.current_value)} as at ${dateLong(a.valued_as_of)}` : " · never valued"}
+      </p>
+
+      <ChipGroup label="What are you doing" hint={hint}>
         <Chip on={act === "VALUE"} onClick={() => setAct("VALUE")}>Update value</Chip>
         <Chip on={act === "BUY"} onClick={() => setAct("BUY")}>Put money in</Chip>
         <Chip on={act === "SELL"} onClick={() => setAct("SELL")}>Sell it</Chip>
-      </div>
-      <div style={{ fontSize: 11.5, color: "var(--mf-ink-3)", marginBottom: 10, lineHeight: 1.55 }}>
-        {act === "VALUE" ? "No money moves — this records what it is worth today, and the date."
-          : act === "BUY" ? "Money leaves an account and becomes part of this asset. Net worth is unchanged."
-          : `Cost so far is ${money(a.cost)}. Anything above that is booked as a gain, anything below as a loss.`}
-      </div>
+      </ChipGroup>
 
-      <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
-        <input value={amountStr} inputMode="decimal"
-          placeholder={act === "VALUE" ? "Worth today" : act === "BUY" ? "Amount" : "Sale proceeds"}
-          onChange={e => setAmountStr(e.target.value.replace(/[^0-9.]/g, ""))}
-          style={{ flex: 1, padding: "10px 12px", fontSize: 15, fontFamily: "var(--mf-mono)",
-            color: "var(--mf-ink)", border: "1px solid var(--mf-line)", borderRadius: 9, background: "var(--mf-surface)" }} />
-        <input type="date" value={dateIso} max={todayIso()}
-          onChange={e => e.target.value && setDateIso(e.target.value)}
-          style={{ padding: "10px 12px", fontSize: 13, color: "var(--mf-ink-2)", fontFamily: "inherit",
-            border: "1px solid var(--mf-line)", borderRadius: 9, background: "var(--mf-surface)" }} />
-      </div>
+      <AmountPad value={amountStr} onKey={k => setAmountStr(s => keyRules(s, k))}
+        label={act === "VALUE" ? "Worth today" : act === "BUY" ? "Amount" : "Sale proceeds"} />
+
+      <DateChips title={act === "VALUE" ? "Valued as at" : "On"} value={dateIso} onChange={setDateIso}
+        ago={daysAgo(dateIso)} label={dayLabel(dateIso)} today={todayIso()} yesterday={shiftIso(todayIso(), -1)} />
 
       {needsAccount && (
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 12 }}>
+        <ChipGroup label={act === "BUY" ? "Paid from" : "Money lands in"}>
           {accounts.map(x => (
             <Chip key={x.id} on={accountId === x.id} onClick={() => setAccountId(x.id)}>
               {x.bank_name}{x.owner_name ? " · " + x.owner_name : ""}
             </Chip>
           ))}
-        </div>
+        </ChipGroup>
       )}
 
-      <button onClick={go} disabled={!ok} className="mf-tap"
-        style={{ border: "none", borderRadius: 9, padding: "10px 18px", fontSize: 14, fontWeight: 600,
-          background: ok ? "var(--mf-have)" : "var(--mf-line)",
-          color: ok ? "var(--mf-have-bg)" : "var(--mf-ink-3)", cursor: ok ? "pointer" : "default" }}>
-        {busy ? "Saving…" : act === "VALUE" ? "Record value" : act === "BUY" ? "Record it" : "Record sale"}
-      </button>
+      <Button size="lg" full disabled={!ok} loading={busy} loadingText="Saving…" onClick={go}>
+        {act === "VALUE" ? "Record value" : act === "BUY" ? "Record it" : "Record sale"}
+        {amount > 0 ? ` · ${money(amount)}` : ""}
+      </Button>
     </div>
   );
 }
@@ -207,44 +242,17 @@ function NewAsset({ onDone }: { onDone: () => Promise<void> }) {
   };
 
   return (
-    <div className="mf-card" style={{ padding: 14, marginBottom: 12 }}>
-      <Lbl>Name</Lbl>
-      <Inp value={name} onChange={setName} placeholder="Flat in Jaipur" />
-      <Lbl>Kind (optional)</Lbl>
-      <Inp value={type} onChange={setType} placeholder="Property, gold, FD…" />
-      <Lbl>Over time</Lbl>
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 10 }}>
+    <div className="pb-2">
+      <Field label="Name"><TextInput value={name} onChange={e => setName(e.target.value)} placeholder="Flat in Jaipur" autoFocus /></Field>
+      <Field label="Kind (optional)"><TextInput value={type} onChange={e => setType(e.target.value)} placeholder="Property, gold, FD…" /></Field>
+      <ChipGroup label="Over time">
         {TRENDS.map(t => <Chip key={t.v} on={trend === t.v} onClick={() => setTrend(t.v)}>{t.label}</Chip>)}
-      </div>
-      <div style={{ display: "flex", gap: 6, marginBottom: 12 }}>
-        <Chip on={earns} onClick={() => setEarns(!earns)}>Earns income</Chip>
-      </div>
-      <button onClick={save} disabled={!ok} className="mf-tap"
-        style={{ border: "none", borderRadius: 9, padding: "10px 18px", fontSize: 14, fontWeight: 600,
-          background: ok ? "var(--mf-have)" : "var(--mf-line)",
-          color: ok ? "var(--mf-have-bg)" : "var(--mf-ink-3)", cursor: ok ? "pointer" : "default" }}>
-        {busy ? "Saving…" : "Add asset"}
-      </button>
+      </ChipGroup>
+      <SwitchRow label="Earns income" hint="Rent, interest or anything it pays you" on={earns} onChange={setEarns} last />
+      <Button size="lg" full className="mt-4" disabled={!ok} loading={busy} loadingText="Saving…" onClick={save}>Add asset</Button>
+      <p className="mt-3 px-1 text-[12px] leading-relaxed text-mf-ink-3">
+        Next: open it to put money in, or record what it is worth today.
+      </p>
     </div>
-  );
-}
-
-function Lbl({ children }: { children: React.ReactNode }) {
-  return <div style={{ fontSize: 11, letterSpacing: ".08em", textTransform: "uppercase", color: "var(--mf-ink-3)", margin: "0 0 5px 2px" }}>{children}</div>;
-}
-function Inp({ value, onChange, placeholder }: { value: string; onChange: (v: string) => void; placeholder?: string }) {
-  return (
-    <input value={value} placeholder={placeholder} onChange={e => onChange(e.target.value)}
-      style={{ width: "100%", padding: "10px 12px", fontSize: 14.5, marginBottom: 10, color: "var(--mf-ink)",
-        fontFamily: "inherit", border: "1px solid var(--mf-line)", borderRadius: 9, background: "var(--mf-surface)" }} />
-  );
-}
-function Chip({ on, onClick, children }: { on: boolean; onClick: () => void; children: React.ReactNode }) {
-  return (
-    <button onClick={onClick} className="mf-tap"
-      style={{ border: "none", borderRadius: 999, padding: "7px 13px", fontSize: 13,
-        background: on ? "var(--mf-have)" : "var(--mf-surface)",
-        color: on ? "var(--mf-have-bg)" : "var(--mf-ink-2)",
-        boxShadow: on ? "none" : "inset 0 0 0 1px var(--mf-line)" }}>{children}</button>
   );
 }
