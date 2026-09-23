@@ -186,7 +186,7 @@ export default function LedgerPage(){
   const setAll=(v:boolean)=>setOpenMap(()=>{ const n:Record<string,boolean>={}; groups.forEach(g=>{ n[g.k]=v; }); return n; });
 
   const pickDim=(d:LedgerDim)=>{ if(d===dim) return; setDim(d); setKey(""); setSrc(""); setDraft(""); setSearch(""); };
-  const back=()=>{ if(window.history.length>1) router.back(); else router.push("/lma960805/dashboard"); };
+  const back=()=>{ if(window.history.length>1) router.back(); else router.push("/lma960805/today"); };
 
   // ── header text ──
   const libName=(code:string)=>{

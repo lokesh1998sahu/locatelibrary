@@ -29,7 +29,8 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: "#6366f1",
+  themeColor: "#4f46e5",
+  viewportFit: "cover",   // lets the app use the area behind notches and home bars
 };
 
 export default function LmaLayout({ children }: { children: React.ReactNode }) {

@@ -8,6 +8,8 @@
 //   3) Pages call `useLMA()` to read libraries/branches/fees/shifts/etc.
 //   4) Shared toast + post() + duplicate-action guard (was duplicated in every page)
 //   5) Shared chip-builder hook `useScopeChips()` for the library/branch filter UI
+//   6) The app frame: bottom tab bar + toast. Colours and the reusable parts
+//      live in app/globals.css and ../_ui/kit.tsx.
 //
 // Result: switching tabs feels instant — no re-auth, no re-fetch. Toasts
 // triggered on page A stay visible after navigating away.
@@ -19,6 +21,8 @@
 // this module (e.g. `from "../_components/LMAProvider"`).
 
 import { createContext, useContext, useEffect, useState, useCallback, useRef, useMemo, ReactNode } from "react";
+import { usePathname } from "next/navigation";
+import { TabBar, ToastView, tabBarHidden, Button, TextInput } from "../_ui/kit";
 
 const API      = "/api/lma960805";
 const AUTH_API = API + "/auth";
@@ -107,6 +111,7 @@ export default function LMAProvider({ children }: { children: ReactNode }) {
   const [init, setInit]       = useState<LMAInitData|null>(null);
   const [loading, setLoading] = useState(false);
   const [toast, setToast]     = useState<ToastState>(null);
+  const pathname = usePathname() || "";
 
   // Ask the SERVER whether the httpOnly session cookie is still valid.
   // (The cookie is httpOnly by design, so JS cannot read it directly.)
@@ -241,48 +246,36 @@ export default function LMAProvider({ children }: { children: ReactNode }) {
 
   if (!unlocked) {
     return (
-      <div className="lma-app">
-        <div className="min-h-screen flex items-center justify-center px-4">
-          <div className="w-full max-w-sm bg-white rounded-2xl shadow-lg p-7 lma-slide-up">
-            <div className="text-center mb-5">
-              <div className="text-4xl mb-2">🔒</div>
-              <h1 className="text-xl font-extrabold text-lma-slate-900">LMA</h1>
-              <p className="text-[11px] text-lma-slate-500 mt-1">Locate Library Management</p>
-            </div>
-            <input
-              type="password"
-              autoFocus
-              disabled={pwBusy}
-              value={pwInput}
-              onChange={e => { setPwInput(e.target.value); setPwErr(""); }}
-              onKeyDown={e => { if (e.key === "Enter") tryUnlock(); }}
-              placeholder="Password"
-              className="w-full px-4 py-3 rounded-xl border-[1.5px] border-lma-slate-200 bg-lma-slate-50 focus:bg-white focus:border-lma-primary outline-none text-[15px] font-medium disabled:opacity-60"
-            />
-            {pwErr && <p className="text-sm text-lma-danger mt-2 font-medium">{pwErr}</p>}
-            <button
-              onClick={tryUnlock}
-              disabled={pwBusy}
-              className="w-full mt-4 py-3 rounded-xl bg-gradient-to-br from-lma-primary to-lma-primary-2 text-white font-bold text-[15px] shadow-md disabled:opacity-60"
-            >
-              {pwBusy ? "Signing in…" : "Unlock"}
-            </button>
+      <div className="lma-app grid min-h-[100dvh] place-items-center px-6">
+        <div className="w-full max-w-[360px]">
+          <div className="lma-glass-btn mx-auto mb-5 grid h-14 w-14 place-items-center rounded-[18px] text-white">
+            <span className="text-[24px]">🔒</span>
           </div>
+          <h1 className="text-center text-[22px] font-bold tracking-[-0.01em] text-lma-ink">LMA</h1>
+          <p className="mb-6 mt-1 text-center text-[14px] text-lma-ink-3">Locate Library Management</p>
+          <TextInput
+            type="password" autoFocus disabled={pwBusy} value={pwInput} aria-label="Password"
+            autoComplete="current-password"
+            onChange={e => { setPwInput(e.target.value); setPwErr(""); }}
+            onKeyDown={e => { if (e.key === "Enter") tryUnlock(); }}
+            placeholder="Password"
+          />
+          {pwErr && <p role="alert" className="mt-2 px-1 text-[13px] font-medium text-lma-out">{pwErr}</p>}
+          <Button size="lg" full className="mt-4" onClick={tryUnlock} disabled={!pwInput} loading={pwBusy} loadingText="Signing in…">
+            Unlock
+          </Button>
         </div>
       </div>
     );
   }
 
+  const withTabs = !tabBarHidden(pathname);
   return (
     <LMAContext.Provider value={{ init, refreshInit, loading, lock, showToast, post }}>
-      <div className="lma-app">
+      <div className="lma-app" style={{ paddingBottom: withTabs ? undefined : 0 }}>
         {children}
-        {/* Shared toast — renders once at layout level so it persists across page navigation */}
-        {toast && (
-          <div className={`fixed bottom-6 left-1/2 -translate-x-1/2 px-4 py-3 rounded-xl shadow-lg z-[100000] lma-slide-up text-[14px] font-semibold ${toast.type==="error" ? "bg-lma-danger text-white" : "bg-lma-slate-900 text-white"}`}>
-            {toast.msg}
-          </div>
-        )}
+        <TabBar onLock={lock} />
+        <ToastView toast={toast} />
       </div>
     </LMAContext.Provider>
   );

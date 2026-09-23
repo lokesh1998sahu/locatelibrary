@@ -364,3 +364,88 @@ body:has(.mf-app) { background: var(--color-mf-bg); }
   .mf-tap { transition: none; } .mf-tap:active { transform: none; }
   .mf-sheet-up, .mf-fade-in, .mf-toast-in, .mf-skeleton { animation: none; }
 }
+
+
+/* ============================================
+   LMA — GLASS LAYER (same kit patterns as MF 2.0)
+   Keeps every token above (bg-lma-primary, text-lma-slate-*)
+   so screens not yet redesigned look exactly as before.
+   Adds the neutral + glass set the new LMA kit uses:
+   bg-lma-brand, text-lma-ink, border-lma-line, rounded-lma …
+   ============================================ */
+@theme {
+  /* Brand — indigo, used as glass */
+  --color-lma-brand:        #4f46e5;
+  --color-lma-brand-strong: #3730a3;
+  --color-lma-brand-soft:   #eef0ff;
+
+  /* Ink + surfaces (every text colour passes contrast on white) */
+  --color-lma-ink:          #0f172a;
+  --color-lma-ink-2:        #475569;
+  --color-lma-ink-3:        #64748b;
+  --color-lma-line:         #e4e6ef;
+  --color-lma-bg:           #f5f6fa;
+  --color-lma-surface:      #ffffff;
+
+  /* Meaning, not decoration */
+  --color-lma-in:           #0f7a5a;
+  --color-lma-in-soft:      #e3f4ec;
+  --color-lma-out:          #b42318;
+  --color-lma-out-soft:     #fdecea;
+  --color-lma-warn-2:       #92400e;
+  --color-lma-warn-soft:    #fef3c7;
+
+  /* Type, shape, depth */
+  --radius-lma:             16px;
+  --shadow-lma-card:        0 1px 2px rgb(15 23 42 / 0.05), 0 1px 1px rgb(15 23 42 / 0.03);
+  --shadow-lma-float:       0 12px 32px -8px rgb(30 27 75 / 0.28);
+}
+
+/* Room for the tab bar on every screen (old ones use this class too) */
+.lma-page-body { padding-bottom: calc(92px + env(safe-area-inset-bottom)); }
+body:has(.lma-app) { background: var(--color-lma-bg); }
+.lma-app { background: var(--color-lma-bg); }
+
+/* The site-wide button rules (press-shrink, 50% when disabled) stay for older
+   screens; kit parts opt out where they have their own look. */
+.lma-app .lma-btn:disabled   { opacity: 1; cursor: not-allowed; }
+.lma-app .lma-noscale:active { transform: none; }
+
+.lma-app button:focus-visible, .lma-app [role=button]:focus-visible, .lma-app a:focus-visible,
+.lma-app input:focus-visible, .lma-app select:focus-visible, .lma-app textarea:focus-visible {
+  outline: 2px solid var(--color-lma-brand); outline-offset: 2px;
+}
+
+@layer components {
+  /* Glassy indigo: primary buttons, "on" chips, the + button */
+  .lma-glass-btn {
+    background: linear-gradient(180deg, #7c78f0 0%, #4f46e5 55%, #4338ca 100%);
+    box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.28), 0 8px 18px -8px rgb(67 56 202 / 0.65);
+  }
+  /* Glassy indigo panel: hero cards, toasts */
+  .lma-glass-dark {
+    background:
+      radial-gradient(120% 90% at 0% 0%, rgb(255 255 255 / 0.22), transparent 55%),
+      linear-gradient(160deg, #6366f1 0%, #4338ca 55%, #312e81 100%);
+    border: 1px solid rgb(255 255 255 / 0.14);
+    box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.18), 0 22px 44px -22px rgb(49 46 129 / 0.7);
+  }
+  /* Frosted bars: top bar, tab bar, save bar */
+  .lma-glass-light {
+    background: rgb(255 255 255 / 0.74);
+    -webkit-backdrop-filter: blur(20px) saturate(170%);
+    backdrop-filter: blur(20px) saturate(170%);
+  }
+  .lma-sheet-up { animation: lmaSheetUp .26s cubic-bezier(.2,.8,.2,1) both; }
+  .lma-fade-in  { animation: lmaFadeIn .18s ease both; }
+  .lma-toast-in { animation: lmaToastIn .2s ease both; }
+  .lma-skeleton { background: var(--color-lma-line); border-radius: 8px; animation: lmaPulse 1.4s ease-in-out infinite; }
+}
+@keyframes lmaSheetUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
+@keyframes lmaFadeIn  { from { opacity: 0; } to { opacity: 1; } }
+@keyframes lmaToastIn { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes lmaPulse   { 0%, 100% { opacity: 1; } 50% { opacity: .45; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .lma-slide-up, .lma-sheet-up, .lma-fade-in, .lma-toast-in, .lma-skeleton { animation: none; }
+}
