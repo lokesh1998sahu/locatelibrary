@@ -15,6 +15,8 @@ import BookingFlow from "../_components/BookingFlow";
 import { toIsoInput, fmtDMY, fmtDMYT, daysFromToday } from "../_lib/dates";
 import { normGender } from "../_lib/genderTheme";
 import { TagBankNote } from "../_components/TagBank";
+import { ScopeChips, Sheet, Segmented, Chip, Button, IconButton, Skeleton, Empty, inputCls, cx } from "../_ui/kit";
+import { IconSearch, IconClose, IconDots, IconSeat, IconChevron } from "../_ui/icons";
 
 const API = "/api/lma960805";
 
@@ -154,6 +156,9 @@ export default function BoardPage(){
   const [showPngMenu,setShowPngMenu]=useState(false);
   const [customScale,setCustomScale]=useState("2.5");
   const boardRef = useRef<HTMLDivElement>(null);
+  const [menuOpen,setMenuOpen]=useState(false);     // ⋯ : plan, highlight, zoom, lists, PNG, refresh
+  const [q,setQ]=useState("");                       // search: seat, name, student id, receipt or phone
+  const [flash,setFlash]=useState("");               // seat briefly highlighted after a search jump
 
   
 
@@ -233,114 +238,189 @@ export default function BoardPage(){
   // chip list (libraries + branches, no "All")
   const chips = useScopeChips({ includeAll: false });
 
+  // Opens straight into the library used last (or the first one).
+  const SCOPE_KEY="lma.board.scope";
+  useEffect(()=>{
+    if(scope||chips.length===0) return;
+    let saved=""; try{ saved=window.localStorage.getItem(SCOPE_KEY)||""; }catch{ /* storage blocked */ }
+    setScope(chips.find(c=>c.code===saved)?.code||chips[0].code);
+  },[chips,scope]);
+  const pickScope=(code:string)=>{
+    if(code===scope) return;
+    setScope(code); setBoard(null); setLoading(true); setQ("");
+    try{ window.localStorage.setItem(SCOPE_KEY,code); }catch{ /* storage blocked */ }
+  };
+
+  // Search: seat number (exact), or a name / student id / receipt / phone on any lane or side list.
+  type Hit={ seat:string; title:string; sub:string; cell?:BoardCell; item?:SidePanelItem };
+  const hits=useMemo<Hit[]>(()=>{
+    const t=q.trim(); if(!board||!t) return [];
+    const T=t.toUpperCase(); const digits=t.replace(/\D/g,"");
+    const match=(o:any)=>!!o&&(
+      String(o.name||"").toUpperCase().includes(T)||String(o.student_id||"").toUpperCase().includes(T)||
+      String(o.receipt_no||"").toUpperCase()===T||
+      (digits.length>=4&&(o.phones||[]).some((p:any)=>normalizePhone(String(p?.number||"")).includes(digits))));
+    const out:Hit[]=[];
+    board.sections.forEach(sec=>sec.seats.forEach(cell=>{
+      if(cell.cell_type==="DEAD") return;
+      const label=String(cell.display_label||"");
+      const lanes:[string,any][]=[["Full day",cell.fullday],["Morning",cell.morning],["Evening",cell.evening]];
+      if(label.toUpperCase()===T){
+        out.unshift({ seat:label, title:`Seat ${label}`, sub:lanes.filter(([,o])=>o).map(([n,o])=>`${n}: ${o.name}`).join(" · ")||"Free", cell });
+        return;
+      }
+      lanes.forEach(([n,o])=>{ if(match(o)) out.push({ seat:label, title:o.name, sub:`${n} · ${o.student_id}${o.fees_due_balance>0?` · dues ₹${o.fees_due_balance}`:""}`, cell }); });
+    }));
+    [...(board.unassigned||[]),...(board.floating||[]),...(board.otherShift||[])].forEach(it=>{
+      if(match(it)) out.push({ seat:it.temporary_seat?`was ${it.temporary_seat}`:"—", title:it.name, sub:`Not on a seat · ${it.shift_name||it.shift}`, item:it });
+    });
+    return out.slice(0,30);
+  },[board,q]);
+  const openHit=(h:Hit)=>{
+    setQ("");
+    if(h.item){ setDetail({cell:panelItemToCell(h.item),panel:true}); return; }
+    if(h.cell){
+      const label=String(h.cell.display_label);
+      document.querySelector(`[data-seat="${label.replace(/"/g,"")}"]`)?.scrollIntoView({behavior:"smooth",block:"center"});
+      setFlash(label); setTimeout(()=>setFlash(""),2600);
+      setDetail({cell:h.cell});
+    }
+  };
+
+  // Settings tucked in the ⋯ menu stay visible here when they are not the default.
+  const tucked=[shiftView!=="ALL"?(shiftView==="FULL DAY"?"Full day":shiftView[0]+shiftView.slice(1).toLowerCase()):"",
+    genderM?"♂ highlighted":"", genderF?"♀ highlighted":"", zoomPx?"Zoomed":""].filter(Boolean);
+  const LEGEND:{k:string;label:string;swatch:React.CSSProperties}[]=[
+    ...(["OK","EXPIRING_PRIMARY","EXPIRING","EXPIRED","DUES"] as const).map(k=>({k,label:COLOR[k].label,swatch:{background:COLOR[k].bg,border:`1px solid ${COLOR[k].border}`}})),
+    {k:"BLOCKED",label:"Blocked",swatch:{background:"repeating-linear-gradient(45deg,#fecaca,#fecaca 2px,#fee2e2 2px,#fee2e2 4px)",border:"1px solid #b91c1c"}},
+    {k:"VACANT",label:"Vacant",swatch:{background:"#f1f5f9",border:"1px solid #e2e8f0"}},
+  ];
+
   return (
    <div className="lma-page-body max-w-md mx-auto px-4 pt-4">
       {openRno && <ReceiptModal receiptNo={openRno} onClose={()=>setOpenRno(null)} onSaved={loadBoard}/>}
      {openStu && <StudentModal studentId={openStu.id} library={openStu.library} crossOrigin={openStu.crossOrigin} onClose={()=>setOpenStu(null)} onSaved={loadBoard}/>}
       {renew && <BookingFlow renewReceiptNo={renew.rno} libCode={renew.libCode} presetSeat={renew.seat} presetShift={renew.shift} onClose={()=>setRenew(null)} onComplete={loadBoard}/>}
       {addBk && <BookingFlow addMode libCode={addBk.libCode} presetSeat={addBk.seat} presetShift={addBk.shift} onClose={()=>setAddBk(null)} onComplete={loadBoard}/>}
-      <header className="mb-3">
-        {/* Row 1 — back · Seat Chart + library name · refresh (top-right) */}
-        <div className="flex items-center gap-3">
-          <Link href="/lma960805" className="text-xl text-lma-slate-600 hover:text-lma-slate-900">←</Link>
-          <div className="flex-1 min-w-0">
-            <h1 className="text-xl font-extrabold tracking-tight text-lma-slate-900 leading-tight">Seat Chart</h1>
-            {resolved.libName&&<p className="text-[12px] font-bold text-lma-slate-500 truncate">{resolved.libName}</p>}
+      <header className="lma-glass-light sticky top-0 z-30 -mx-4 mb-2 px-4 pb-2 pt-[calc(env(safe-area-inset-top)+10px)]">
+        <div className="flex items-center gap-1">
+          <div className="min-w-0 flex-1">
+            <h1 className="truncate text-[19px] font-bold tracking-[-0.01em] text-lma-ink">Seat chart</h1>
+            <p className="truncate text-[12px] font-medium text-lma-ink-3">
+              {resolved.libName||"Pick a library"}{board&&occ?` · ${occ.occPct}% full`:""}{loading?" · updating…":""}
+            </p>
           </div>
-          <button onClick={loadBoard} disabled={loading} className="w-9 h-9 shrink-0 rounded-xl bg-lma-slate-100 text-lma-slate-600 font-bold disabled:opacity-50">{loading?"·":"↻"}</button>
-        </div>
-
-        {/* Row 2 — library / branch pills */}
-        <div className="mt-2.5"><div className="flex gap-1.5 overflow-x-auto -mx-4 px-4 pb-1">
-          {chips.map(c=>(
-            <button key={c.code} onClick={()=>{if(c.code!==scope){setScope(c.code);setBoard(null);setLoading(true);}}} style={scope===c.code&&c.color?{background:c.color,color:"#fff"}:undefined} className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-bold whitespace-nowrap ${scope===c.code&&!c.color?"bg-lma-slate-900 text-white":scope===c.code?"":"bg-white text-lma-slate-600"} shadow-sm`}>{c.emoji} {c.label}</button>
-          ))}
-        </div></div>
-
-        {/* Row 3 — zoom · vacant seats · PNG */}
-        <div className="flex items-center gap-2 mt-2.5">
-          <div className="inline-flex items-center rounded-xl bg-lma-slate-100 overflow-hidden shrink-0">
-            <button onClick={()=>setZoomPx(z=> z===0?0:(z<=44?0:z-14))} disabled={zoomPx===0} className="px-3 py-2 text-sm font-extrabold text-lma-slate-600 disabled:opacity-40">−</button>
-            <button onClick={()=>setZoomPx(z=> z===0?44:Math.min(z+14,100))} className="px-3 py-2 text-sm font-extrabold text-lma-primary">+</button>
-          </div>
-          <button onClick={()=>setShowVacList(true)} disabled={!board} className="flex-1 h-10 rounded-xl bg-lma-accent text-white text-[12px] font-bold disabled:opacity-40 flex items-center justify-center gap-1.5"><span className="text-base leading-none">🪑</span>Vacant seats{board&&<span className="text-[11px] font-extrabold opacity-80">· {legendCounts.VACANT}</span>}</button>
-        <div className="relative shrink-0">
-  <button onClick={()=>setShowPngMenu(v=>!v)} disabled={exporting||!board}
-    className="h-10 px-4 rounded-xl bg-lma-primary text-white text-[12px] font-bold disabled:opacity-50">
-    {exporting?"…":"⬇ PNG"}
-  </button>
-  {showPngMenu&&(
-    <div className="absolute right-0 top-10 z-50 bg-white rounded-xl shadow-lg border border-lma-slate-200 p-2 flex flex-col gap-1 min-w-[120px]" onClick={e=>e.stopPropagation()}>
-      <div className="text-[10px] font-bold text-lma-slate-400 px-1 pb-0.5">Detailed · with names</div>
-      {([{label:"⬇ HD",scale:2.5},{label:"⬇ MD",scale:1.8},{label:"⬇ SD",scale:1.2}]).map(o=>(
-        <button key={o.scale} onClick={()=>{ setShowPngMenu(false); downloadPng(o.scale); }}
-          className="text-xs font-bold px-3 py-2 rounded-lg bg-lma-primary/10 text-lma-primary hover:bg-lma-primary hover:text-white text-center w-full">
-          {o.label} · {o.scale}x
-        </button>
-      ))}
-      <div className="h-px bg-lma-slate-200 my-1"/>
-      <div className="text-[10px] font-bold text-lma-slate-400 px-1 pb-0.5">Vacancy chart · no names</div>
-      {([{label:"⬇ HD",scale:2.5},{label:"⬇ MD",scale:1.8},{label:"⬇ SD",scale:1.2}]).map(o=>(
-        <button key={"v"+o.scale} onClick={()=>{ setShowPngMenu(false); downloadPng(o.scale,"board-vacancy-export"); }}
-          className="text-xs font-bold px-3 py-2 rounded-lg bg-lma-accent/10 text-lma-accent hover:bg-lma-accent hover:text-white text-center w-full">
-          {o.label} · {o.scale}x
-        </button>
-      ))}
-      <div className="h-px bg-lma-slate-200 my-1"/>
-      <div className="flex gap-1 items-center">
-        <button onClick={()=>setCustomScale(v=>String(Math.max(1.2,parseFloat(v)-0.1).toFixed(1)))}
-          className="text-xs font-extrabold px-2 py-1.5 rounded-lg bg-lma-slate-100 text-lma-slate-700 flex items-center justify-center">−</button>
-        <input type="number" min={1.2} max={2.5} step={0.1} value={customScale}
-          onChange={e=>setCustomScale(e.target.value)}
-          className="w-12 text-xs px-1 py-1.5 rounded-lg border border-lma-slate-200 bg-lma-slate-50 text-center font-bold leading-none"/>
-        <button onClick={()=>setCustomScale(v=>String(Math.min(2.5,parseFloat(v)+0.1).toFixed(1)))}
-          className="text-xs font-extrabold px-2 py-1.5 rounded-lg bg-lma-slate-100 text-lma-slate-700 flex items-center justify-center">＋</button>
-        <button onClick={()=>{ const v=parseFloat(customScale); if(v>=1.2&&v<=2.5){ setShowPngMenu(false); downloadPng(v); } else alert("Enter 1.2 – 2.5"); }}
-          className="text-xs font-bold px-2 py-1.5 rounded-lg bg-lma-primary text-white flex items-center justify-center">⬇</button>
-      </div>
-      <div className="text-[9px] text-lma-slate-400 text-center">custom (1.2 – 2.5)</div>
-    </div>
-  )}
-  {showPngMenu&&<div className="fixed inset-0 z-40" onClick={()=>setShowPngMenu(false)}/>}
-        </div>
+          <IconButton label="Chart options" onClick={()=>setMenuOpen(true)} className="-mr-2"><IconDots size={22}/></IconButton>
         </div>
       </header>
+
+      <ScopeChips chips={chips} value={scope} onChange={pickScope}/>
+
+      {/* search — jumps straight to the seat */}
+      <div className="relative mb-3">
+        <IconSearch size={18} className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-lma-ink-3"/>
+        <input value={q} onChange={e=>setQ(e.target.value)} placeholder="Seat, name, ID or phone" aria-label="Search seats"
+          onKeyDown={e=>{ if(e.key==="Enter"&&hits.length===1) openHit(hits[0]); if(e.key==="Escape") setQ(""); }}
+          className={cx(inputCls,"pl-10 pr-11")}/>
+        {q&&<button type="button" aria-label="Clear search" onClick={()=>setQ("")} className="lma-btn absolute right-1 top-1/2 grid h-10 w-10 -translate-y-1/2 place-items-center text-lma-ink-3"><IconClose size={18}/></button>}
+        {q.trim()&&board&&(
+          <div className="absolute inset-x-0 top-[54px] z-20 max-h-[55dvh] overflow-y-auto rounded-lma border border-lma-line bg-lma-surface shadow-lma-float">
+            {hits.length===0
+              ? <p className="px-4 py-3 text-[13px] text-lma-ink-3">Nothing matches “{q.trim()}” in {resolved.label}.</p>
+              : hits.map((h,idx)=>(
+                <button key={idx} type="button" onClick={()=>openHit(h)}
+                  className="lma-noscale flex w-full items-center gap-3 border-b border-lma-line px-4 py-2.5 text-left last:border-b-0 active:bg-lma-bg">
+                  <span className="grid h-9 min-w-[40px] place-items-center rounded-[10px] bg-lma-brand-soft px-1.5 font-lma-mono text-[12.5px] font-semibold text-lma-brand">{h.seat}</span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-[14.5px] font-medium text-lma-ink">{h.title}</span>
+                    <span className="block truncate text-[12px] text-lma-ink-3">{h.sub}</span>
+                  </span>
+                </button>
+              ))}
+          </div>
+        )}
+      </div>
+
+      {/* legend counts — the numbers you watch; tap one to show only those seats */}
+      <div className="-mx-4 mb-2 flex gap-1.5 overflow-x-auto px-4 pb-1 [scrollbar-width:none]">
+        {LEGEND.map(L=>{ const on=colorFilter===L.k; return (
+          <button key={L.k} type="button" aria-pressed={on} onClick={()=>setColorFilter(f=>f===L.k?"":L.k)}
+            className={cx("lma-btn inline-flex h-9 shrink-0 items-center gap-1.5 rounded-full px-3 text-[12.5px] font-semibold",
+              on?"lma-glass-btn text-white":"bg-lma-surface text-lma-ink-2 ring-1 ring-inset ring-lma-line")}>
+            <span aria-hidden="true" className="h-2.5 w-2.5 shrink-0 rounded-[3px]" style={L.swatch}/>
+            <span className={cx("font-lma-mono font-semibold",on?"text-white":"text-lma-ink")}>{legendCounts[L.k]??0}</span>
+            <span className={on?"text-white/85":"text-lma-ink-3"}>{L.label}</span>
+          </button>
+        ); })}
+      </div>
+
+      {(tucked.length>0||colorFilter)&&(
+        <div className="mb-3 flex items-center gap-2 rounded-[12px] bg-lma-brand-soft px-3 py-2 text-[12px] font-semibold text-lma-brand">
+          <span className="min-w-0 flex-1 truncate">
+            Showing {colorFilter?(LEGEND.find(L=>L.k===colorFilter)?.label||colorFilter).toLowerCase()+" only":"all seats"}{tucked.length?` · ${tucked.join(" · ")}`:""}
+          </span>
+          <button type="button" onClick={()=>{ setColorFilter(""); setShiftView("ALL"); setGenderM(false); setGenderF(false); setZoomPx(0); }}
+            className="lma-btn shrink-0 rounded-[8px] px-2 py-1 underline">Reset</button>
+        </div>
+      )}
+
       {showVacList&&board&&<VacancyListDialog board={board} libCode={resolved.lib} scopeCode={resolved.branch||resolved.lib} onClose={()=>setShowVacList(false)}/>}
 
-      {/* shift view toggle */}
-      <div className="bg-white rounded-2xl p-1 flex gap-1 mb-3 shadow-sm">
-        {(["ALL","MORNING","EVENING","FULL DAY"] as ShiftView[]).map(v=>(
-          <button key={v} onClick={()=>setShiftView(v)} className={`flex-1 py-2 rounded-xl text-[11px] font-bold transition ${shiftView===v?"bg-lma-slate-900 text-white":"text-lma-slate-500"}`}>{v==="FULL DAY"?"Full":v.charAt(0)+v.slice(1).toLowerCase()}</button>
-        ))}
-      </div>
+      {/* ⋯ menu: everything used less often */}
+      <Sheet open={menuOpen} onClose={()=>setMenuOpen(false)} title="Chart options">
+        <div className="mb-1.5 px-1 text-[12px] font-bold uppercase tracking-[0.08em] text-lma-ink-3">Show plan</div>
+        <Segmented className="mb-4" value={shiftView} onChange={setShiftView}
+          options={[{v:"ALL",label:"All"},{v:"MORNING",label:"Morning"},{v:"EVENING",label:"Evening"},{v:"FULL DAY",label:"Full"}]}/>
+        <div className="mb-1.5 px-1 text-[12px] font-bold uppercase tracking-[0.08em] text-lma-ink-3">Highlight</div>
+        <div className="mb-4 flex gap-2">
+          <Chip on={genderM} onClick={()=>setGenderM(v=>!v)}>♂ Male</Chip>
+          <Chip on={genderF} onClick={()=>setGenderF(v=>!v)}>♀ Female</Chip>
+        </div>
+        <div className="mb-1.5 px-1 text-[12px] font-bold uppercase tracking-[0.08em] text-lma-ink-3">Zoom</div>
+        <div className="mb-4 flex items-center gap-2">
+          <Button variant="secondary" className="w-12" aria-label="Zoom out" disabled={zoomPx===0} onClick={()=>setZoomPx(z=> z===0?0:(z<=44?0:z-14))}>−</Button>
+          <span className="flex-1 text-center text-[13px] font-semibold text-lma-ink-2">{zoomPx?`${zoomPx}px per seat`:"Fit to screen"}</span>
+          <Button variant="secondary" className="w-12" aria-label="Zoom in" onClick={()=>setZoomPx(z=> z===0?44:Math.min(z+14,100))}>+</Button>
+        </div>
+        <div className="mb-1.5 px-1 text-[12px] font-bold uppercase tracking-[0.08em] text-lma-ink-3">Lists &amp; refresh</div>
+        <div className="mb-4 grid grid-cols-2 gap-2">
+          <Button variant="secondary" disabled={!board} onClick={()=>{ setMenuOpen(false); setShowVacList(true); }}>Vacant seats</Button>
+          <Button variant="secondary" loading={loading} loadingText="Refreshing…" onClick={()=>{ setMenuOpen(false); loadBoard(); }}>Refresh</Button>
+        </div>
+        <div className="mb-1.5 px-1 text-[12px] font-bold uppercase tracking-[0.08em] text-lma-ink-3">Download PNG</div>
+        <p className="mb-2 px-1 text-[12px] text-lma-ink-3">Detailed · with names</p>
+        <div className="mb-3 grid grid-cols-3 gap-2">
+          {([{label:"HD",scale:2.5},{label:"MD",scale:1.8},{label:"SD",scale:1.2}]).map(o=>(
+            <Button key={o.scale} variant="secondary" disabled={exporting||!board} onClick={()=>{ setMenuOpen(false); downloadPng(o.scale); }}>{o.label} · {o.scale}x</Button>
+          ))}
+        </div>
+        <p className="mb-2 px-1 text-[12px] text-lma-ink-3">Vacancy chart · no names</p>
+        <div className="mb-3 grid grid-cols-3 gap-2">
+          {([{label:"HD",scale:2.5},{label:"MD",scale:1.8},{label:"SD",scale:1.2}]).map(o=>(
+            <Button key={"v"+o.scale} variant="secondary" disabled={exporting||!board} onClick={()=>{ setMenuOpen(false); downloadPng(o.scale,"board-vacancy-export"); }}>{o.label} · {o.scale}x</Button>
+          ))}
+        </div>
+        <p className="mb-2 px-1 text-[12px] text-lma-ink-3">Custom size (1.2 – 2.5)</p>
+        <div className="flex items-center gap-2 pb-2">
+          <Button variant="secondary" className="w-12" onClick={()=>setCustomScale(v=>String(Math.max(1.2,parseFloat(v)-0.1).toFixed(1)))}>−</Button>
+          <input type="number" min={1.2} max={2.5} step={0.1} value={customScale} onChange={e=>setCustomScale(e.target.value)} aria-label="Custom scale"
+            className={cx(inputCls,"h-11 w-20 text-center font-lma-mono")}/>
+          <Button variant="secondary" className="w-12" onClick={()=>setCustomScale(v=>String(Math.min(2.5,parseFloat(v)+0.1).toFixed(1)))}>+</Button>
+          <Button className="flex-1" disabled={exporting||!board} onClick={()=>{ const v=parseFloat(customScale); if(v>=1.2&&v<=2.5){ setMenuOpen(false); downloadPng(v); } else showToast("Enter a size between 1.2 and 2.5","error"); }}>Download</Button>
+        </div>
+      </Sheet>
 
-      {/* gender overlay toggle */}
-      <div className="flex items-center gap-2 mb-3">
-        <span className="text-[10px] font-bold text-lma-slate-400 uppercase tracking-wide">Highlight</span>
-        <button onClick={()=>setGenderM(v=>!v)} style={genderM?{background:"#3b82f6",color:"#fff"}:undefined} className={`px-3 py-1.5 rounded-full text-[11px] font-bold shadow-sm transition ${genderM?"":"bg-white text-lma-slate-500"}`}>♂ Male</button>
-        <button onClick={()=>setGenderF(v=>!v)} style={genderF?{background:"#ec4899",color:"#fff"}:undefined} className={`px-3 py-1.5 rounded-full text-[11px] font-bold shadow-sm transition ${genderF?"":"bg-white text-lma-slate-500"}`}>♀ Female</button>
-      </div>
-
-      {/* legend */}
-      <div className="flex gap-3 mb-3 text-[10px] text-lma-slate-500 overflow-x-auto whitespace-nowrap pb-1">
-        {(["OK","EXPIRING_PRIMARY","EXPIRING","EXPIRED","DUES"] as const).map((k)=>{const v=COLOR[k];const on=colorFilter===k;return (<button key={k} onClick={()=>setColorFilter(f=>f===k?"":k)} className={`flex items-center gap-1 shrink-0 px-1.5 py-0.5 rounded-lg transition ${on?"bg-lma-slate-900 text-white font-bold":""}`}><span className="w-3 h-3 rounded inline-block" style={{background:v.bg,border:`1px solid ${v.border}`}}></span>{v.label} · {legendCounts[k]}</button>);})}
-        <button onClick={()=>setColorFilter(f=>f==="BLOCKED"?"":"BLOCKED")} className={`flex items-center gap-1 shrink-0 px-1.5 py-0.5 rounded-lg transition ${colorFilter==="BLOCKED"?"bg-lma-slate-900 text-white font-bold":""}`}><span className="w-3 h-3 rounded inline-block" style={{background:"repeating-linear-gradient(45deg,#fecaca,#fecaca 2px,#fee2e2 2px,#fee2e2 4px)",border:"1px solid #b91c1c"}}></span>Blocked · {legendCounts.BLOCKED}</button><button onClick={()=>setColorFilter(f=>f==="VACANT"?"":"VACANT")} className={`flex items-center gap-1 shrink-0 px-1.5 py-0.5 rounded-lg transition ${colorFilter==="VACANT"?"bg-lma-slate-900 text-white font-bold":""}`}><span className="w-3 h-3 rounded inline-block bg-lma-slate-100 border border-lma-slate-200"></span>Vacant · {legendCounts.VACANT}</button>
-      </div>
-
-      {loading&&!board?(
-        <div className="text-center text-sm text-lma-slate-500 py-8">Loading chart…</div>
+      {(!board&&(loading||(!scope&&chips.length>0)))?(
+        <div className="rounded-lma border border-lma-line bg-lma-surface p-3 shadow-lma-card" aria-label="Loading the chart">
+          <div className="grid grid-cols-8 gap-1">{Array.from({length:32}).map((_,k)=><Skeleton key={k} className="aspect-square rounded"/>)}</div>
+        </div>
       ):!board?(
-        !scope ? (
-          <div className="flex flex-col items-center justify-center text-center py-20 px-6 rounded-2xl bg-lma-slate-900 mt-4">
-            <div className="text-4xl mb-3">🪑</div>
-            <div className="text-lg font-extrabold text-white">Select a Library to View Seat Chart</div>
-            <div className="text-[12px] text-lma-slate-400 mt-1.5 font-medium">Tap a library pill above to load its seat board.</div>
-          </div>
-        ) : (
-          <div className="text-center text-sm text-lma-slate-500 py-8">No data.</div>
-        )
+        chips.length===0
+          ? <Empty icon={<IconSeat size={22}/>} title="No libraries yet" body="Add a library in Settings and its seat chart appears here."/>
+          : <Empty icon={<IconSeat size={22}/>} title="Couldn’t load the chart" body="Check the connection, then use ⋯ → Refresh."
+              action={<Button onClick={loadBoard}>Try again</Button>}/>
       ):(
-        <div id="board-export-area" style={{background:"#fff",padding:"12px",borderRadius:"12px"}}>
+        <div id="board-export-area" className="rounded-lma border border-lma-line bg-lma-surface p-3 shadow-lma-card">
           {/* export header */}
           <div className="text-center mb-3">
             <div className="text-base font-extrabold text-lma-slate-900">{resolved.label}</div>
@@ -358,14 +438,25 @@ export default function BoardPage(){
                     const r=Math.floor(idx/sec.cols)+1,c=(idx%sec.cols)+1;
                     const cell=sec.seats.find(s=>s.row_in_section===r&&s.col_in_section===c);
                     if(!cell) return <div key={idx} className="aspect-square"/>;
-                    return <SeatTile key={idx} cell={cell} shiftView={shiftView} genderM={genderM} genderF={genderF} colorFilter={colorFilter} onOpen={()=>setDetail({cell})}/>;
+                    const label=String(cell.display_label||"");
+                    return (
+                      <div key={idx} data-seat={label.replace(/"/g,"")} className={flash&&flash===label?"relative rounded ring-4 ring-lma-brand ring-offset-1 animate-pulse":"relative"}>
+                        <SeatTile cell={cell} shiftView={shiftView} genderM={genderM} genderF={genderF} colorFilter={colorFilter} onOpen={()=>setDetail({cell})}/>
+                      </div>
+                    );
                   })}
                 </div>
               </div>
             </div>
           ))}
 
-          {/* side panels */}
+          {/* not on a seat: bookings without a fixed seat, in one clear group */}
+          {((board.unassigned?.length||0)+(board.floating?.length||0)+(board.otherShift?.length||0))>0&&(
+            <div className="mt-5 flex items-baseline justify-between px-1">
+              <h2 className="text-[12px] font-bold uppercase tracking-[0.08em] text-lma-ink-3">Not on a seat</h2>
+              <span className="font-lma-mono text-[12px] font-semibold text-lma-ink-3">{(board.unassigned?.length||0)+(board.floating?.length||0)+(board.otherShift?.length||0)}</span>
+            </div>
+          )}
           <SidePanel title="Unassigned (booked, no seat)" items={board.unassigned} emoji="📋" colorFilter={colorFilter} onTap={(it)=>setDetail({cell:panelItemToCell(it),panel:true})}/>
           <SidePanel title="Floating (temp-vacated)" items={board.floating} emoji="🌀" colorFilter={colorFilter} onTap={(it)=>setDetail({cell:panelItemToCell(it),panel:true})} onReAllot={(it)=>setReAllot({receipt_no:it.receipt_no,name:it.name,student_id:it.student_id,shift:it.shift,original:it.temporary_seat,phones:it.phones})}/>
           <SidePanel title="Other shift (no fixed seat)" items={board.otherShift} emoji="🔄" colorFilter={colorFilter} onTap={(it)=>setDetail({cell:panelItemToCell(it),panel:true})}/>
@@ -416,14 +507,14 @@ export default function BoardPage(){
       {shareEvent&&(
         <div className="fixed inset-0 z-[10001] flex items-center justify-center px-6" onClick={()=>setShareEvent(null)}>
           <div className="absolute inset-0 bg-black/40"/>
-          <div className="relative w-full max-w-xs bg-white rounded-2xl p-5 lma-slide-up" onClick={e=>e.stopPropagation()}>
-            <h4 className="text-sm font-extrabold text-lma-slate-900 mb-1">{shareEvent.label}</h4>
+          <div className="lma-sheet-up relative w-full max-w-xs rounded-[20px] bg-lma-surface p-5 shadow-lma-float" onClick={e=>e.stopPropagation()}>
+            <h4 className="mb-1 text-[16px] font-bold text-lma-ink">{shareEvent.label}</h4>
             <p className="text-[12px] text-lma-slate-500 mb-3">Send the student a WhatsApp update?</p>
             <pre className="text-[10px] text-lma-slate-600 whitespace-pre-wrap font-mono bg-lma-slate-50 rounded-lg p-2.5 max-h-40 overflow-y-auto mb-3">{shareEvent.text}</pre>
             <div className="grid grid-cols-3 gap-2">
-              <button onClick={()=>setShareEvent(null)} className="py-2.5 rounded-xl bg-lma-slate-100 text-lma-slate-600 font-bold text-xs">Skip</button>
-              <button onClick={()=>{ navigator.clipboard.writeText(shareEvent.text); showToast("Copied"); }} className="py-2.5 rounded-xl bg-lma-slate-100 text-lma-slate-600 font-bold text-xs">Copy</button>
-              <WhatsAppButton phones={shareEvent.phones} text={shareEvent.text} label="Send" className="w-full py-2.5 rounded-xl bg-lma-accent text-white font-bold text-xs text-center disabled:opacity-40"/>
+              <button onClick={()=>setShareEvent(null)} className="h-11 rounded-[12px] bg-lma-bg text-[13px] font-semibold text-lma-ink-2 ring-1 ring-inset ring-lma-line">Skip</button>
+              <button onClick={()=>{ navigator.clipboard.writeText(shareEvent.text); showToast("Copied"); }} className="h-11 rounded-[12px] bg-lma-bg text-[13px] font-semibold text-lma-ink-2 ring-1 ring-inset ring-lma-line">Copy</button>
+              <WhatsAppButton phones={shareEvent.phones} text={shareEvent.text} label="Send" className="h-11 w-full rounded-[12px] bg-[#16a34a] text-[13px] font-semibold text-white text-center disabled:opacity-40"/>
             </div>
           </div>
         </div>
@@ -568,54 +659,64 @@ function SeatTile({ cell, shiftView, onOpen, genderM, genderF, colorFilter }:{ c
   function SidePanel({ title, items, emoji, onReAllot, onTap, colorFilter }:{ title:string; items:SidePanelItem[]; emoji:string; onReAllot?:(it:SidePanelItem)=>void; onTap?:(it:SidePanelItem)=>void; colorFilter?:string }){
   const [open,setOpen]=useState((items?.length||0)<=6);   // collapsed by default when long (>6)
   if(!items||items.length===0) return null;
-  // Full-tile color scheme (matches seat tiles), with legible text per state.
-  const look=(it:SidePanelItem)=>{
-    const dueGold = it.has_dues;
-    if(it.color==="EXPIRED")  return { bg:"#6b0a0a", fg:"#ffffff", sub:"rgba(255,255,255,0.78)", ring:dueGold?"#f59e0b":"" };
-    if(it.color==="EXPIRING" && (it as any).urgent) return { bg:"#dc2626", fg:"#ffffff", sub:"rgba(255,255,255,0.85)", ring:dueGold?"#f59e0b":"" };
-    if(it.color==="EXPIRING") return { bg:"#fee2e2", fg:"#991b1b", sub:"#b91c1c", ring:dueGold?"#f59e0b":"" };
-    if(dueGold)               return { bg:"#fde68a", fg:"#92400e", sub:"#a16207", ring:"" };
-    return { bg:"#dcfce7", fg:"#15803d", sub:"#16a34a", ring:"" };
+  // Same meanings as the seat tiles: a coloured edge says the state, the row stays readable.
+  const tone=(it:SidePanelItem)=>{
+    if(it.color==="EXPIRED")                       return { edge:"#6b0a0a", tint:"#fbeaea", fg:"#6b0a0a", word:"Expired" };
+    if(it.color==="EXPIRING" && (it as any).urgent) return { edge:"#dc2626", tint:"#fdecec", fg:"#b91c1c", word:"Expiring soon" };
+    if(it.color==="EXPIRING")                      return { edge:"#fca5a5", tint:"#fff1f2", fg:"#b91c1c", word:"Expiring" };
+    if(it.has_dues)                                return { edge:"#f59e0b", tint:"#fffbeb", fg:"#92400e", word:"Dues" };
+    return                                                { edge:"#16a34a", tint:"#f0fdf4", fg:"#15803d", word:"Active" };
   };
   return (
-    <div className="mt-3 bg-lma-slate-50 rounded-xl p-3">
-      <button onClick={()=>setOpen(o=>!o)} className="w-full flex items-center gap-1.5 text-[11px] font-bold text-lma-slate-600 mb-2">
-        <span className="inline-block w-3 text-lma-slate-400" style={{transform:open?"rotate(90deg)":"none"}}>▸</span>
-        <span>{emoji} {title} · {items.length}</span>
+    <section className="mt-2 overflow-hidden rounded-lma border border-lma-line bg-lma-surface">
+      <button type="button" onClick={()=>setOpen(o=>!o)} aria-expanded={open}
+        className="lma-noscale flex w-full items-center gap-2 px-3.5 py-3 text-left active:bg-lma-bg">
+        <span aria-hidden="true" className="text-[15px]">{emoji}</span>
+        <span className="min-w-0 flex-1 truncate text-[14px] font-semibold text-lma-ink">{title}</span>
+        <span className="rounded-full bg-lma-bg px-2 py-0.5 font-lma-mono text-[12px] font-semibold text-lma-ink-2">{items.length}</span>
+        <IconChevron size={16} className={cx("shrink-0 text-lma-ink-3 transition", open?"rotate-90":"")}/>
       </button>
-      {open && (
-      <div className="space-y-1.5">
-        {items.map(it=>{
-          const L=look(it);
-          const itMatch = !colorFilter ? true : (colorFilter==="DUES" ? (!!it.has_dues||it.fees_due_balance>0) : ((it.color==="EXPIRING"&&(it as any).urgent)?"EXPIRING_PRIMARY":(it.color||"OK"))===colorFilter);
-          return (
-          <div key={it.receipt_no} className="rounded-lg px-2.5 py-1.5 flex items-center gap-2 text-[11px]"
-               style={{background:L.bg, boxShadow:L.ring?`inset 0 0 0 2px ${L.ring}`:undefined, opacity:itMatch?1:0.32}}>
-            <button onClick={()=>onTap&&onTap(it)} className="flex items-center gap-2 flex-1 min-w-0 text-left">
-              <span className="font-extrabold shrink-0" style={{color:L.fg}}>{it.student_id}</span>
-              <span className="truncate flex-1 font-medium" style={{color:L.fg}}>{it.name}</span>
-              <span className="shrink-0" style={{color:L.sub}}>{it.shift_name||it.shift}</span>
-              {it.temporary_seat&&<span className="text-[9px] font-bold px-1 rounded shrink-0" style={{color:L.fg,background:"rgba(255,255,255,0.35)"}}>was {it.temporary_seat}</span>}
-              {it.fees_due_balance>0&&<span className="text-[10px] font-extrabold px-1.5 py-0.5 rounded shrink-0" style={{color:"#92400e",background:"#fde68a"}}>₹{it.fees_due_balance}</span>}
-              {it.booking_to&&<span className="shrink-0" style={{color:L.sub}}>{fmtDMY(it.booking_to)}</span>}
-            </button>
-            {onReAllot&&<button onClick={()=>onReAllot(it)} className="text-[9px] font-extrabold text-white bg-lma-primary px-2 py-1 rounded shrink-0">Re-Allot</button>}
-          </div>
-          );
-        })}
-      </div>
+      {open&&(
+        <div className="border-t border-lma-line">
+          {items.map(it=>{
+            const L=tone(it);
+            const itMatch = !colorFilter ? true : (colorFilter==="DUES" ? (!!it.has_dues||it.fees_due_balance>0) : ((it.color==="EXPIRING"&&(it as any).urgent)?"EXPIRING_PRIMARY":(it.color||"OK"))===colorFilter);
+            return (
+              <div key={it.receipt_no} className="flex items-stretch border-b border-lma-line last:border-b-0" style={{opacity:itMatch?1:0.32, background:L.tint}}>
+                <span aria-hidden="true" className="w-1.5 shrink-0" style={{background:L.edge}}/>
+                <button type="button" onClick={()=>onTap&&onTap(it)} className="lma-noscale flex min-w-0 flex-1 items-center gap-2.5 px-3 py-2.5 text-left active:brightness-95">
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-[14px] font-semibold text-lma-ink">{it.name}</span>
+                    <span className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-[11.5px] text-lma-ink-2">
+                      <span className="font-lma-mono">{it.student_id}</span>
+                      <span aria-hidden="true">·</span><span>{it.shift_name||it.shift}</span>
+                      {it.booking_to&&<><span aria-hidden="true">·</span><span style={{color:L.fg}} className="font-semibold">{L.word==="Expired"?"expired":"till"} {fmtDMY(it.booking_to)}</span></>}
+                      {it.temporary_seat&&<><span aria-hidden="true">·</span><span className="font-semibold">was seat {it.temporary_seat}</span></>}
+                    </span>
+                  </span>
+                  {it.fees_due_balance>0&&<span className="shrink-0 rounded-md px-1.5 py-0.5 font-lma-mono text-[11px] font-bold" style={{color:"#92400e",background:"#fde68a"}}>₹{it.fees_due_balance}</span>}
+                </button>
+                {onReAllot&&(
+                  <button type="button" onClick={()=>onReAllot(it)} className="lma-glass-btn my-2 mr-2 shrink-0 rounded-[10px] px-3 text-[12px] font-semibold text-white">
+                    {it.temporary_seat?"Restore":"Re-allot"}
+                  </button>
+                )}
+              </div>
+            );
+          })}
+        </div>
       )}
-    </div>
+    </section>
   );
 }
 // ── DETAIL SHEET (occupied seat tap) ─────────────────────────────
 // #26: on-demand copy row for a board occupant. Board occupancy doesn't carry
 // receipt_text/registration_text, so fetch the receipt by receipt_no when a copy
 // button is tapped. Group copy only for NEW receipts that have registration_text.
-function CollectDueInline({ receiptNo, balance, post, showToast, onChanged, onEvent }:{ receiptNo:string; balance:number; post:(a:string,p:any)=>Promise<any>; showToast:(m:string,t?:"success"|"error")=>void; onChanged:()=>void; onEvent?:(text:string)=>void }){
+function CollectDueInline({ receiptNo, balance, post, showToast, onChanged, onEvent, startOpen, onCancel }:{ startOpen?:boolean; onCancel?:()=>void; receiptNo:string; balance:number; post:(a:string,p:any)=>Promise<any>; showToast:(m:string,t?:"success"|"error")=>void; onChanged:()=>void; onEvent?:(text:string)=>void }){
   const { init }=useLMA();
   const modes=(init?.paymentTags||[]).filter(t=>t.active).map(t=>t.tag_name);
-  const [open,setOpen]=useState(false);
+  const [open,setOpen]=useState(!!startOpen);
   const [amt,setAmt]=useState(String(balance||""));
   const [date,setDate]=useState(new Date().toISOString().slice(0,10));
   const [mode,setMode]=useState("");
@@ -630,19 +731,20 @@ function CollectDueInline({ receiptNo, balance, post, showToast, onChanged, onEv
     setBusy(false);
     if(r&&r.ok!==false){ if(r.whatsapp_text&&onEvent) onEvent(String(r.whatsapp_text)); else showToast("Due collected"); setOpen(false); onChanged(); } else setErr((r&&r.error)||"Could not collect due");
   };
-  if(!open) return <button onClick={()=>setOpen(true)} className="mt-1.5 w-full py-2 rounded-lg bg-lma-danger/10 text-lma-danger font-bold text-xs">💰 Collect Due (₹{balance})</button>;
+  if(!open) return <button type="button" onClick={()=>setOpen(true)} className="h-12 w-full rounded-[14px] bg-[#fef3c7] text-[14px] font-bold text-[#92400e] ring-1 ring-inset ring-[#f5d88a]">Collect due · ₹{balance}</button>;
   return (
-    <div className="mt-1.5 rounded-lg border border-lma-danger/30 bg-lma-danger/5 p-2.5 space-y-2">
-      <input type="date" value={date} onChange={e=>setDate(e.target.value)} className="w-full px-2 py-1.5 rounded-md border border-lma-slate-300 text-sm bg-white"/>
-      <div className="flex gap-2">
-        <input type="number" inputMode="decimal" value={amt} onChange={e=>setAmt(e.target.value)} placeholder="Amount" className="flex-1 min-w-0 px-2 py-1.5 rounded-md border border-lma-slate-300 text-sm"/>
-        <select value={mode} onChange={e=>setMode(e.target.value)} className="px-2 py-1.5 rounded-md border border-lma-slate-300 text-sm bg-white"><option value="">Mode…</option>{modes.map(m=><option key={m} value={m}>{m}</option>)}</select>
+    <div className="space-y-3 rounded-[16px] border border-[#f5d88a] bg-[#fffbeb] p-3.5">
+      <div className="flex items-baseline justify-between"><span className="text-[14px] font-semibold text-[#92400e]">Collect due</span><span className="font-lma-mono text-[13px] font-semibold text-[#92400e]">owed ₹{balance}</span></div>
+      <div className="grid grid-cols-2 gap-2">
+        <input type="number" inputMode="decimal" value={amt} onChange={e=>setAmt(e.target.value)} placeholder="Amount ₹" aria-label="Amount" className={cx(inputCls,"font-lma-mono")}/>
+        <input type="date" value={date} onChange={e=>setDate(e.target.value)} aria-label="Date" className={inputCls}/>
       </div>
+      <select value={mode} onChange={e=>setMode(e.target.value)} aria-label="Paid by" className={inputCls}><option value="">Paid by…</option>{modes.map(m=><option key={m} value={m}>{m}</option>)}</select>
       {mode&&<TagBankNote tag={mode} right/>}
-      {err&&<div className="text-[11px] font-bold text-lma-danger">{err}</div>}
-      <div className="flex gap-2">
-        <button disabled={busy} onClick={()=>{setOpen(false);setErr("");}} className="flex-1 py-1.5 rounded-md bg-lma-slate-100 text-lma-slate-600 font-bold text-xs disabled:opacity-50">Cancel</button>
-        <button disabled={busy} onClick={submit} className="flex-1 py-1.5 rounded-md bg-lma-danger text-white font-bold text-xs disabled:opacity-50">{busy?"…":"Collect"}</button>
+      {err&&<div role="alert" className="text-[12.5px] font-semibold text-lma-out">{err}</div>}
+      <div className="grid grid-cols-2 gap-2">
+        <Button variant="secondary" disabled={busy} onClick={()=>{ setErr(""); if(onCancel) onCancel(); else setOpen(false); }}>Cancel</Button>
+        <Button loading={busy} loadingText="Saving…" onClick={submit}>Collect ₹{Number(amt)||0}</Button>
       </div>
     </div>
   );
@@ -667,20 +769,21 @@ function RefundInline({ receiptNo, post, showToast, onChanged, onEvent }:{ recei
     setBusy(false);
     if(r&&r.ok!==false){ if(r.whatsapp_text&&onEvent) onEvent(String(r.whatsapp_text)); else showToast("Refund issued"); setOpen(false); onChanged(); } else setErr((r&&r.error)||"Could not issue refund");
   };
-  if(!open) return <button onClick={()=>setOpen(true)} className="mt-2 w-full py-1.5 rounded-lg bg-lma-slate-100 text-lma-slate-600 font-bold text-[11px]">↩ Issue Refund</button>;
+  if(!open) return <button type="button" onClick={()=>setOpen(true)} className={ROW_CLS}><RowIcon>{Ic.refund}</RowIcon><span className="flex-1">Issue refund</span><IconChevron size={16} className="text-lma-ink-3"/></button>;
   return (
-    <div className="mt-2 rounded-lg border border-lma-slate-300 bg-lma-slate-50 p-2.5 space-y-2">
-      <input type="date" value={date} onChange={e=>setDate(e.target.value)} className="w-full px-2 py-1.5 rounded-md border border-lma-slate-300 text-sm bg-white"/>
-      <div className="flex gap-2">
-        <input type="number" inputMode="decimal" value={amt} onChange={e=>setAmt(e.target.value)} placeholder="Refund amount" className="flex-1 min-w-0 px-2 py-1.5 rounded-md border border-lma-slate-300 text-sm"/>
-        <select value={mode} onChange={e=>setMode(e.target.value)} className="px-2 py-1.5 rounded-md border border-lma-slate-300 text-sm bg-white"><option value="">Mode…</option>{modes.map(m=><option key={m} value={m}>{m}</option>)}</select>
+    <div className="space-y-3 bg-lma-bg px-3.5 py-3.5">
+      <div className="flex items-center gap-2 text-[14px] font-semibold text-lma-ink"><RowIcon>{Ic.refund}</RowIcon>Issue refund</div>
+      <div className="grid grid-cols-2 gap-2">
+        <input type="number" inputMode="decimal" value={amt} onChange={e=>setAmt(e.target.value)} placeholder="Amount ₹" aria-label="Refund amount" className={cx(inputCls,"font-lma-mono")}/>
+        <input type="date" value={date} onChange={e=>setDate(e.target.value)} aria-label="Refund date" className={inputCls}/>
       </div>
+      <select value={mode} onChange={e=>setMode(e.target.value)} aria-label="Refund mode" className={inputCls}><option value="">Refund paid by…</option>{modes.map(m=><option key={m} value={m}>{m}</option>)}</select>
       {mode&&<TagBankNote tag={mode} right/>}
-      <input value={reason} onChange={e=>setReason(e.target.value)} placeholder="Reason (optional)" className="w-full px-2 py-1.5 rounded-md border border-lma-slate-300 text-sm"/>
-      {err&&<div className="text-[11px] font-bold text-lma-danger">{err}</div>}
-      <div className="flex gap-2">
-        <button disabled={busy} onClick={()=>{setOpen(false);setErr("");}} className="flex-1 py-1.5 rounded-md bg-lma-slate-100 text-lma-slate-600 font-bold text-xs disabled:opacity-50">Cancel</button>
-        <button disabled={busy} onClick={submit} className="flex-1 py-1.5 rounded-md bg-lma-warn text-white font-bold text-xs disabled:opacity-50">{busy?"…":"Refund"}</button>
+      <input value={reason} onChange={e=>setReason(e.target.value)} placeholder="Reason (optional)" className={inputCls}/>
+      {err&&<div role="alert" className="text-[12.5px] font-semibold text-lma-out">{err}</div>}
+      <div className="grid grid-cols-2 gap-2">
+        <Button variant="secondary" disabled={busy} onClick={()=>{setOpen(false);setErr("");}}>Cancel</Button>
+        <Button variant="danger" loading={busy} loadingText="Refunding…" onClick={submit}>Refund</Button>
       </div>
     </div>
   );
@@ -703,10 +806,13 @@ function MoneyTrailInline({ receiptNo }:{ receiptNo:string }){
     setBusy(false);
   };
   return (
-    <div className="mt-2">
-      <button onClick={load} className="w-full py-1.5 rounded-lg bg-lma-slate-100 text-lma-slate-600 font-bold text-[11px]">📈 Money Trail {open?"▴":"▾"}</button>
+    <div>
+      <button type="button" onClick={load} aria-expanded={open} className={ROW_CLS}>
+        <RowIcon>{Ic.trail}</RowIcon><span className="flex-1">Money trail</span>
+        <IconChevron size={16} className={cx("text-lma-ink-3 transition",open?"rotate-90":"")}/>
+      </button>
       {open&&(
-        <div className="mt-1.5 rounded-lg border border-lma-slate-200 bg-white p-2 text-[11px]">
+        <div className="border-t border-lma-line bg-lma-bg px-3.5 py-3 text-[12.5px]">
           {busy&&<div className="text-lma-slate-400">Loading…</div>}
           {err&&<div className="font-bold text-lma-danger">{err}</div>}
           {t&&!busy&&!err&&(
@@ -735,15 +841,34 @@ function MoneyTrailInline({ receiptNo }:{ receiptNo:string }){
 
 function DetailCopyRow({ occupant, lib, branch, showToast }:{ occupant:Occupant; lib:string; branch:string; showToast:(m:string,t?:"success"|"error")=>void }){
   return (
-    <ContactCopyButton name={occupant.name} library={branch||lib} studentId={occupant.student_id} phones={occupant.phones} onCopied={showToast} wrapperClassName="w-full" className="w-full py-2 rounded-[10px] bg-lma-slate-100 text-lma-slate-600 font-semibold text-xs whitespace-nowrap"/>
+    <div className="relative">
+      <span className="pointer-events-none absolute left-3.5 top-1/2 z-[1] -translate-y-1/2"><RowIcon><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><rect x="8" y="8" width="11" height="12" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h8"/></svg></RowIcon></span>
+      <ContactCopyButton name={occupant.name} library={branch||lib} studentId={occupant.student_id} phones={occupant.phones} onCopied={showToast} wrapperClassName="w-full" label="Copy contact" className={ROW_CLS+" pl-[62px]"}/>
+    </div>
   );
 }
+
+// ── SEAT SHEET ROWS: one look for every item in a booking's "More" drawer ──
+const ROW_CLS="lma-noscale flex min-h-[52px] w-full items-center gap-3 px-3.5 py-2 text-left text-[14px] font-medium text-lma-ink active:bg-lma-bg disabled:opacity-50";
+function RowIcon({ children, tone }:{ children:React.ReactNode; tone?:"out"|"warn" }){
+  return <span aria-hidden="true" className={cx("grid h-8 w-8 shrink-0 place-items-center rounded-[10px]",
+    tone==="out"?"bg-lma-out-soft text-lma-out":tone==="warn"?"bg-lma-warn-soft text-lma-warn-2":"bg-lma-bg text-lma-ink-2")}>{children}</span>;
+}
+const Ic={
+  stop:<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round"><circle cx="12" cy="12" r="8"/><path d="M9.5 9.5h5v5h-5z"/></svg>,
+  cross:<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round"><path d="M7 7l10 10M17 7 7 17"/></svg>,
+  pause:<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round"><path d="M9 6.5v11M15 6.5v11"/></svg>,
+  float:<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round"><path d="M4 12c2-3 4-3 6 0s4 3 6 0 4-3 4-3"/></svg>,
+  trail:<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><path d="M4 19h16"/><path d="M6 15l4-4 3 3 5-6"/></svg>,
+  refund:<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><path d="M4.5 9.5h9A5 5 0 0 1 18.5 15v.5"/><path d="M8 5.5 4 9.5l4 4"/></svg>,
+  clock:<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round"><circle cx="12" cy="12" r="8"/><path d="M12 8v4l2.5 1.5"/></svg>,
+};
 
 // ── LANE WRAPPER (a labeled section inside the unified seat card) ──
 function Lane({ emoji, label, tone, children }:{ emoji:string; label:string; tone:string; children:React.ReactNode }){
   return (
     <div>
-      <div className={`flex items-center gap-1.5 mb-1.5 text-[11px] font-extrabold uppercase tracking-wide ${tone}`}>
+      <div className={`mb-2 flex items-center gap-1.5 px-1 text-[12px] font-bold uppercase tracking-[0.08em] ${tone}`}>
         <span>{emoji}</span><span>{label}</span>
       </div>
       {children}
@@ -824,16 +949,26 @@ function DetailSheet({ cell, panel, onClose, scope, lib, branch, post, showToast
       return t||"";
     };
     return (
-      <div className="rounded-[14px] p-3 border" style={{ background:"#fff", borderColor:"#e7e9f3" }}>
+      <div className="rounded-[18px] border border-lma-line bg-lma-surface p-3.5 shadow-lma-card">
         <div>
-          <button onClick={()=>onViewStudent(o.student_id, o.is_cross_library)} className="inline-block max-w-full -ml-1.5 text-[15.5px] font-bold text-lma-slate-900 hover:underline truncate rounded-md px-1.5 py-0.5" style={{ background:o.gender?(normGender(o.gender)==="F"?"#fbe4ef":"#d3e4ff"):"transparent" }}>{o.name}</button>
+          <span className="inline-block max-w-full -ml-1 whitespace-normal break-words rounded-lg px-2 py-0.5 text-[17px] font-bold leading-snug text-lma-ink" style={{ background:o.gender?(normGender(o.gender)==="F"?"#fbe4ef":"#d3e4ff"):"transparent" }}>{o.name}</span>
         </div>
-        <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
-          {cross
-            ? <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[11px] font-semibold" style={{ background:"#f3effe", color:"#7c3aed", boxShadow:"inset 0 0 0 1px #e4d9fb", fontFamily:mono }}><svg width="10" height="10" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round"><path d="M8 12l4-4M7.5 7H6a4 4 0 000 8h1.5M12.5 13H14a4 4 0 000-8h-1.5"/></svg>{o.student_id}-{o.is_cross_library}</span>
-            : <span className="px-1.5 py-0.5 rounded-md text-[11px] font-semibold" style={{ background:"#f1f2fa", color:"#52566f", boxShadow:"inset 0 0 0 1px #e7e9f3", fontFamily:mono }}>{o.student_id}</span>}
-          <span style={{ color:"#cfd2e3", fontWeight:700 }}>·</span>
-          <button onClick={()=>onViewReceipt(o.receipt_no)} className="text-[11.5px] font-semibold underline decoration-dotted" style={{ color:"#646882", fontFamily:mono }}>{o.receipt_no}</button>
+        {/* who and which receipt — both open their window */}
+        <div className="mt-2.5 grid grid-cols-2 gap-2">
+          <button type="button" onClick={()=>onViewStudent(o.student_id, o.is_cross_library)} aria-label={`Open student ${o.student_id}`}
+            className={`lma-noscale flex min-h-[48px] min-w-0 items-center rounded-[12px] px-3 text-left ring-1 ring-inset active:brightness-95 ${cross?"bg-[#f5f0ff] ring-[#e4d9fb]":"bg-lma-bg ring-lma-line"}`}>
+            <span className="min-w-0 flex-1">
+              <span className="flex items-center justify-between gap-1 text-[10.5px] font-bold uppercase tracking-[0.06em] text-lma-ink-3"><span className="truncate">Student</span><svg aria-hidden="true" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.6} strokeLinecap="round" strokeLinejoin="round" className="shrink-0"><path d="M8 16 16 8M9 8h7v7"/></svg></span>
+              <span className={`flex items-center gap-1 truncate font-lma-mono text-[13.5px] font-semibold ${cross?"text-[#7c3aed]":"text-lma-ink"}`}>{cross&&<svg aria-hidden="true" width="12" height="12" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" className="shrink-0"><path d="M8 12l4-4M7.5 7H6a4 4 0 000 8h1.5M12.5 13H14a4 4 0 000-8h-1.5"/></svg>}<span className="truncate">{cross?`${o.student_id}-${o.is_cross_library}`:o.student_id}</span></span>
+            </span>
+          </button>
+          <button type="button" onClick={()=>onViewReceipt(o.receipt_no)} aria-label={`Open receipt ${o.receipt_no}`}
+            className="lma-noscale flex min-h-[48px] min-w-0 items-center gap-1.5 rounded-[12px] bg-lma-bg pl-3 pr-2 text-left ring-1 ring-inset ring-lma-line active:brightness-95">
+            <span className="min-w-0 flex-1">
+              <span className="flex items-center justify-between gap-1 text-[10.5px] font-bold uppercase tracking-[0.06em] text-lma-ink-3"><span className="truncate">Receipt</span><svg aria-hidden="true" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.6} strokeLinecap="round" strokeLinejoin="round" className="shrink-0"><path d="M8 16 16 8M9 8h7v7"/></svg></span>
+              <span className="block truncate font-lma-mono text-[13.5px] font-semibold text-lma-ink">{o.receipt_no}</span>
+            </span>
+          </button>
         </div>
         <div className="flex items-center gap-1.5 mt-2 text-[12.5px] font-semibold flex-wrap" style={{ color:sColor }}>
           {st==="EXPIRED"
@@ -847,28 +982,29 @@ function DetailSheet({ cell, panel, onClose, scope, lib, branch, post, showToast
         </div>
         {o.fees_due_balance>0&&<div className="inline-flex items-center gap-1 mt-2 px-2.5 py-1 rounded-lg text-[12px] font-extrabold" style={{ background:"#fcecca", color:"#b45309", boxShadow:"inset 0 0 0 1px rgba(180,83,9,.18)", fontFamily:mono }}>₹{o.fees_due_balance} due</div>}
         {o.remark&&<div className="text-[11px] mt-1.5 italic" style={{ color:"#646882" }}>📝 {o.remark}</div>}
-        <div className="flex gap-2 mt-3">
-          {o.fees_due_balance>0&&<button disabled={busy} onClick={()=>tglLane(o.receipt_no,"collect")} className="flex-1 h-11 rounded-[12px] text-white text-[13.5px] font-bold flex items-center justify-center disabled:opacity-50" style={{ background:"#4f46e5" }}>Collect ₹{o.fees_due_balance}</button>}
-          <button onClick={()=>onRenew(o.receipt_no, cell.display_label, o.shift)} className="flex-1 h-11 rounded-[12px] text-[13.5px] font-bold flex items-center justify-center" style={{ background:"#eef0fe", color:"#4f46e5" }}>Renew</button>
-          <WhatsAppButton phones={o.phones} label="💬" chat className="h-11 px-3 rounded-[12px] flex items-center justify-center shrink-0 text-[15px] bg-[#e7f6ef] text-[#0d9488]" variants={[...(o.fees_due_balance>0&&o.dues_status==="PENDING"?[{label:"Dues reminder",text:duesReminder(o)}]:[]),...((o.color==="EXPIRING"||o.color==="EXPIRED")?[{label:"Renewal reminder",text:remind(o)}]:[]),...(o.color==="EXPIRED"?[{label:"Follow-up · deposit fees",text:followUpPay(o)},{label:"Follow-up · confirm continuing",text:followUpAsk(o)}]:[]),...(o.receipt_no?[{label:"📋 Student copy",text:"",getText:()=>fetchCopy("student")}]:[]),...(o.receipt_type!=="RENEWAL"?[{label:"📢 Group copy",text:"",getText:()=>fetchCopy("group"),pick:true}]:[])]}/>
-          <button onClick={()=>tglLane(o.receipt_no,"more")} className="w-11 h-11 rounded-[12px] flex items-center justify-center text-[20px] shrink-0" style={{ background:"#f1f2fa", color:"#646882" }}>⋯</button>
+        {/* in the order they are used: renew · collect dues · whatsapp · re-allot · more */}
+        <div className={`mt-3 grid gap-2 ${o.fees_due_balance>0?"grid-cols-2":"grid-cols-1"}`}>
+          <button onClick={()=>onRenew(o.receipt_no, cell.display_label, o.shift)} className="lma-glass-btn h-12 rounded-[14px] text-white text-[15px] font-bold flex items-center justify-center gap-1.5 active:brightness-95"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round"><path d="M5 11V9.5A3.5 3.5 0 0 1 8.5 6H18l-3-3"/><path d="M19 13v1.5a3.5 3.5 0 0 1-3.5 3.5H6l3 3"/></svg>Renew</button>
+          {o.fees_due_balance>0&&<button disabled={busy} onClick={()=>tglLane(o.receipt_no,"collect")} className="h-12 rounded-[14px] text-white text-[15px] font-bold flex items-center justify-center gap-1.5 disabled:opacity-50 shadow-[inset_0_1px_0_rgb(255_255_255/0.28),0_8px_18px_-8px_rgb(180_83_9/0.6)]" style={{ background:"linear-gradient(180deg,#f5a524 0%,#d97706 60%,#b45309 100%)" }}>Collect ₹{o.fees_due_balance}</button>}
         </div>
-        {laneUI.rno===o.receipt_no&&laneUI.sec==="collect"&&o.fees_due_balance>0&&<div className="mt-2"><CollectDueInline receiptNo={o.receipt_no} balance={o.fees_due_balance} post={post} showToast={showToast} onChanged={onChanged} onEvent={(t)=>onShare(t,"Due collected",o.phones)}/></div>}
-        {laneUI.rno===o.receipt_no&&laneUI.sec==="more"&&<div className="mt-2 space-y-2 pt-2 border-t" style={{ borderColor:"#eef0f8" }}>
-          <div className="grid grid-cols-2 gap-2">
-            {o.color==="EXPIRED"
-              ? <button disabled={busy} onClick={()=>doNotRenew(o)} className="py-2 rounded-[10px] bg-lma-slate-100 text-lma-slate-600 font-semibold text-xs disabled:opacity-50">Do not renew</button>
-              : <button disabled={busy} onClick={()=>setConfirmCancel(o)} className="py-2 rounded-[10px] font-semibold text-xs disabled:opacity-50" style={{ background:"#fdf2f4", color:"#be123c" }}>Cancel</button>}
-            {o.temporary_seat
-              ? <div className="py-2 rounded-lg bg-lma-warn/10 text-lma-warn font-bold text-xs text-center">Floating · was {o.temporary_seat}</div>
-              : <button disabled={busy} onClick={()=>setConfirmVacate(o)} className="py-2 rounded-[10px] bg-lma-slate-100 text-lma-slate-600 font-semibold text-xs disabled:opacity-50">Temp-Vacate</button>}
-            <button disabled={busy} onClick={()=>onReAllot(o)} className="py-2 rounded-[10px] bg-lma-slate-100 text-lma-slate-600 font-semibold text-xs disabled:opacity-50">{o.temporary_seat?"Re-Allot (restore)":"Re-Allot"}</button>
-          </div>
+        <div className="mt-2 grid grid-cols-[1.3fr_1fr_1fr] gap-2">
+          <WhatsAppButton phones={o.phones} label="WhatsApp" chat className="h-12 w-full whitespace-nowrap rounded-[14px] flex items-center justify-center text-[13px] font-semibold bg-[#e3f6ec] text-[#0b7a52] ring-1 ring-inset ring-[#c6ecd8] disabled:opacity-40" variants={[...(o.fees_due_balance>0&&o.dues_status==="PENDING"?[{label:"Dues reminder",text:duesReminder(o)}]:[]),...((o.color==="EXPIRING"||o.color==="EXPIRED")?[{label:"Renewal reminder",text:remind(o)}]:[]),...(o.color==="EXPIRED"?[{label:"Follow-up · deposit fees",text:followUpPay(o)},{label:"Follow-up · confirm continuing",text:followUpAsk(o)}]:[]),...(o.receipt_no?[{label:"📋 Student copy",text:"",getText:()=>fetchCopy("student")}]:[]),...(o.receipt_type!=="RENEWAL"?[{label:"📢 Group copy",text:"",getText:()=>fetchCopy("group"),pick:true}]:[])]}/>
+          <button disabled={busy} onClick={()=>onReAllot(o)} className="h-12 w-full rounded-[14px] flex items-center justify-center text-[13px] font-semibold bg-lma-brand-soft text-lma-brand ring-1 ring-inset ring-[#dcdffb] disabled:opacity-50">{o.temporary_seat?"Restore":"Re-allot"}</button>
+          <button onClick={()=>tglLane(o.receipt_no,"more")} aria-expanded={laneUI.rno===o.receipt_no&&laneUI.sec==="more"} className={`h-12 w-full rounded-[14px] flex items-center justify-center gap-1 text-[13px] font-semibold ring-1 ring-inset ${laneUI.rno===o.receipt_no&&laneUI.sec==="more"?"bg-lma-ink text-white ring-lma-ink":"bg-lma-bg text-lma-ink-2 ring-lma-line"}`}>More<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.4} strokeLinecap="round" style={{transform:laneUI.rno===o.receipt_no&&laneUI.sec==="more"?"rotate(180deg)":"none",transition:"transform .15s"}}><path d="M6 9l6 6 6-6"/></svg></button>
+        </div>
+        {laneUI.rno===o.receipt_no&&laneUI.sec==="collect"&&o.fees_due_balance>0&&<div className="mt-3"><CollectDueInline startOpen onCancel={()=>tglLane(o.receipt_no,"collect")} receiptNo={o.receipt_no} balance={o.fees_due_balance} post={post} showToast={showToast} onChanged={onChanged} onEvent={(t)=>onShare(t,"Due collected",o.phones)}/></div>}
+        {laneUI.rno===o.receipt_no&&laneUI.sec==="more"&&<div className="mt-3 divide-y divide-lma-line overflow-hidden rounded-[16px] border border-lma-line bg-lma-surface">
+          {o.color==="EXPIRED"
+            ? <button disabled={busy} onClick={()=>doNotRenew(o)} className={ROW_CLS}><RowIcon>{Ic.stop}</RowIcon><span className="flex-1">Do not renew</span><span className="text-[12px] text-lma-ink-3">close the seat</span></button>
+            : <button disabled={busy} onClick={()=>setConfirmCancel(o)} className={ROW_CLS}><RowIcon tone="out">{Ic.cross}</RowIcon><span className="flex-1 text-lma-out">Cancel booking</span><span className="text-[12px] text-lma-ink-3">with refund</span></button>}
+          {o.temporary_seat
+            ? <div className={ROW_CLS}><RowIcon tone="warn">{Ic.float}</RowIcon><span className="flex-1 text-lma-warn-2">Floating · was seat {o.temporary_seat}</span></div>
+            : <button disabled={busy} onClick={()=>setConfirmVacate(o)} className={ROW_CLS}><RowIcon>{Ic.pause}</RowIcon><span className="flex-1">Temp-vacate</span><span className="text-[12px] text-lma-ink-3">park, seat held</span></button>}
           <MoneyTrailInline receiptNo={o.receipt_no}/>
           <RefundInline receiptNo={o.receipt_no} post={post} showToast={showToast} onChanged={onChanged} onEvent={(t)=>onShare(t,"Refund issued",o.phones)}/>
           <DetailCopyRow occupant={o} lib={lib} branch={branch} showToast={showToast}/>
-          <button onClick={()=>loadHist(o.shift)} className="w-full py-2 rounded-[10px] bg-lma-slate-100 text-lma-slate-600 font-semibold text-xs">{histBusy===shKey(o.shift)?"…":`🕘 Past 5 on this seat · ${shKey(o.shift)}`}</button>
-          {histBlock(o.shift)}
+          <button onClick={()=>loadHist(o.shift)} className={ROW_CLS}><RowIcon>{Ic.clock}</RowIcon><span className="flex-1">Past 5 on this seat</span><span className="text-[12px] text-lma-ink-3">{histBusy===shKey(o.shift)?"loading…":shKey(o.shift)}</span></button>
+          {histBlock(o.shift)&&<div className="px-3.5 py-2">{histBlock(o.shift)}</div>}
         </div>}
       </div>
     );
@@ -914,7 +1050,7 @@ const BlockPanel=(blk:BlockInfo)=>{
     const bd = exp?"#efdada":"#dfe2ee";
     const mono2 = "'JetBrains Mono',ui-monospace,monospace";
     return (
-    <div className="rounded-[14px] p-3 border" style={{ background:bg, borderColor:bd }}>
+    <div className="rounded-[18px] p-3.5 border" style={{ background:bg, borderColor:bd }}>
       <div className="flex items-center gap-1.5 text-[12.5px] font-semibold" style={{ color:bc }}>
         <svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round"><rect x="4.5" y="9" width="11" height="7.5" rx="1.6"/><path d="M6.8 9V6.5a3.2 3.2 0 016.4 0V9"/></svg>
         <span>{exp?"Block ended":"Blocked"}</span>
@@ -923,8 +1059,8 @@ const BlockPanel=(blk:BlockInfo)=>{
       <div className="text-[11.5px] mt-1.5" style={{ color:"#646882" }}><span className="font-bold">Reason: </span>{blk.reason||"—"}</div>
       {(blk.block_from||blk.block_to)&&<div className="text-[11.5px] mt-0.5" style={{ color:"#646882" }}><span className="font-bold">Dates: </span><span style={{ fontFamily:mono2 }}>{blk.block_from||"…"} → {blk.block_to||"…"}</span></div>}
       <div className="grid grid-cols-2 gap-2 mt-3">
-        <button disabled={busy} onClick={()=>onEdit(cell.display_label,blk)} className="h-[38px] rounded-[11px] text-[12.5px] font-bold flex items-center justify-center disabled:opacity-50" style={{ background:"#fff", color:bc, boxShadow:"inset 0 0 0 1.5px "+bd }}>Edit</button>
-        <button disabled={busy} onClick={()=>removeBlock(blk)} className="h-[38px] rounded-[11px] text-[12.5px] font-bold flex items-center justify-center gap-1 disabled:opacity-50" style={{ background:"#fff", color:bc, boxShadow:"inset 0 0 0 1.5px "+bd }}><svg width="13" height="13" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round"><rect x="4.5" y="9" width="11" height="7.5" rx="1.6"/><path d="M6.8 9V6.5a3.2 3.2 0 015.9-1.4"/></svg>Unblock</button>
+        <button disabled={busy} onClick={()=>onEdit(cell.display_label,blk)} className="h-11 rounded-[12px] text-[13px] font-semibold flex items-center justify-center disabled:opacity-50" style={{ background:"#fff", color:bc, boxShadow:"inset 0 0 0 1.5px "+bd }}>Edit</button>
+        <button disabled={busy} onClick={()=>removeBlock(blk)} className="h-11 rounded-[12px] text-[13px] font-semibold flex items-center justify-center gap-1 disabled:opacity-50" style={{ background:"#fff", color:bc, boxShadow:"inset 0 0 0 1.5px "+bd }}><svg width="13" height="13" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round"><rect x="4.5" y="9" width="11" height="7.5" rx="1.6"/><path d="M6.8 9V6.5a3.2 3.2 0 015.9-1.4"/></svg>Unblock</button>
       </div>
     </div>
     );
@@ -937,24 +1073,24 @@ const BlockPanel=(blk:BlockInfo)=>{
       const isAdd=chooseMode==="ADD";
       const pick=(s:"MORNING"|"EVENING"|"FULL DAY")=>{ if(isAdd){ goBook(s); } else { setChooseMode(""); onBlock(cell.display_label,s); } };
       return (
-        <div className="rounded-[14px] p-3 border border-dashed" style={vac}>
-          <div className="text-[11px] font-bold mb-2" style={{ color:"#9a9eb6" }}>{isAdd?"Book which shift?":"Block which shift?"}</div>
+        <div className="rounded-[18px] border border-dashed border-[#cfd3e6] bg-lma-surface p-3.5">
+          <div className="mb-2 px-0.5 text-[12px] font-bold uppercase tracking-[0.08em] text-lma-ink-3">{isAdd?"Book which shift?":"Block which shift?"}</div>
           <div className="grid grid-cols-3 gap-2">
             {(["MORNING","EVENING","FULL DAY"] as const).map(s=>(
-              <button key={s} onClick={()=>pick(s)} className="py-2.5 rounded-[11px] font-bold text-xs" style={isAdd?{ background:"#eef0fe", color:"#4f46e5" }:{ background:"#eef0f6", color:"#4c5270" }}>{s==="FULL DAY"?"Full Day":s.charAt(0)+s.slice(1).toLowerCase()}</button>
+              <button key={s} onClick={()=>pick(s)} className={`h-11 rounded-[12px] font-semibold text-[13px] ${isAdd?"lma-glass-btn text-white":"bg-lma-bg text-lma-ink-2 ring-1 ring-inset ring-lma-line"}`}>{s==="FULL DAY"?"Full Day":s.charAt(0)+s.slice(1).toLowerCase()}</button>
             ))}
           </div>
-          <button onClick={()=>setChooseMode("")} className="w-full mt-2 py-1.5 rounded-lg font-bold text-[11px]" style={{ color:"#9a9eb6" }}>Back</button>
+          <button onClick={()=>setChooseMode("")} className="mt-2 h-10 w-full rounded-[12px] text-[13px] font-semibold text-lma-ink-3">Back</button>
         </div>
       );
     }
     const shLbl = shift?(shift==="FULL DAY"?"Full Day":shift.charAt(0)+shift.slice(1).toLowerCase()):"";
     return (
-      <div className="rounded-[14px] p-3 border border-dashed" style={vac}>
+      <div className="rounded-[18px] border border-dashed border-[#cfd3e6] bg-lma-surface p-3.5">
         {held&&<p className="text-[11px] font-semibold mb-2" style={{ color:"#b45309" }}>⚠ Held by <b>{held.name||held.student_id}</b> (temp-vacate). Use another seat unless you mean to reassign it.</p>}
         <div className="grid grid-cols-2 gap-2">
-          <button onClick={()=>{ if(shift) goBook(shift); else setChooseMode("ADD"); }} className="py-2.5 rounded-[11px] text-white font-bold text-xs flex items-center justify-center gap-1" style={{ background:"#4f46e5" }}><svg width="13" height="13" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth={2.4} strokeLinecap="round"><path d="M10 4.5v11M4.5 10h11"/></svg>{shift?`Book ${shLbl}`:"Book"}</button>
-          <button onClick={()=>{ if(shift) onBlock(cell.display_label,shift); else setChooseMode("BLOCK"); }} className="py-2.5 rounded-[11px] font-bold text-xs flex items-center justify-center gap-1" style={{ background:"#eef0f6", color:"#4c5270" }}><svg width="13" height="13" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round"><rect x="4.5" y="9" width="11" height="7.5" rx="1.6"/><path d="M6.8 9V6.5a3.2 3.2 0 016.4 0V9"/></svg>Block</button>
+          <button onClick={()=>{ if(shift) goBook(shift); else setChooseMode("ADD"); }} className="lma-glass-btn h-12 whitespace-nowrap rounded-[14px] px-2 text-white font-bold text-[14px] flex items-center justify-center gap-1.5 active:brightness-95" aria-label={shift?`Book ${shLbl}`:"Book"}><svg width="13" height="13" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth={2.4} strokeLinecap="round"><path d="M10 4.5v11M4.5 10h11"/></svg>Book</button>
+          <button onClick={()=>{ if(shift) onBlock(cell.display_label,shift); else setChooseMode("BLOCK"); }} className="h-12 rounded-[14px] font-semibold text-[14px] flex items-center justify-center gap-1.5 bg-lma-bg text-lma-ink-2 ring-1 ring-inset ring-lma-line"><svg width="13" height="13" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round"><rect x="4.5" y="9" width="11" height="7.5" rx="1.6"/><path d="M6.8 9V6.5a3.2 3.2 0 016.4 0V9"/></svg>Block</button>
         </div>
         {shift
           ? <><button onClick={()=>loadHist(shift)} className="w-full mt-2 py-1.5 rounded-lg font-bold text-[11px]" style={{ background:"#fff", color:"#9a9eb6", boxShadow:"inset 0 0 0 1px #e7e9f3" }}>{histBusy===shift?"…":"🕘 Past bookings here"}</button>{histBlock(shift)}</>
@@ -999,29 +1135,41 @@ const BlockPanel=(blk:BlockInfo)=>{
 
   return (
     <div className="fixed inset-0 z-[9998] flex items-end justify-center" onClick={onClose}>
-      <div className="absolute inset-0 bg-black/50 backdrop-blur-sm"/>
-      <div role="dialog" aria-label={`Seat ${cell.display_label} · ${summary}`} className="relative w-full max-w-md rounded-t-[28px] p-4 pb-5 max-h-[88vh] overflow-y-auto lma-slide-up motion-reduce:animate-none" style={{ background:"#fcfcff" }} onClick={e=>e.stopPropagation()}>
-        <div className="w-9 h-[5px] rounded-full mx-auto mb-3" style={{ background:"#dfe1ee" }}/>
-        <div className="flex justify-end mb-3">
-          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-extrabold" style={{ background:(((init?.libraries||[]).find(l=>l.library_code===lib)?.color)||"#4f46e5")+"1a", color:((init?.libraries||[]).find(l=>l.library_code===lib)?.color)||"#4f46e5" }}>
-            <span>{((init?.libraries||[]).find(l=>l.library_code===lib)?.emoji)||"📚"}</span><span>{branch||lib}</span>
-          </span>
+      <div className="lma-fade-in absolute inset-0 bg-[rgb(15_23_42/0.5)]"/>
+      <div role="dialog" aria-modal="true" aria-label={`Seat ${cell.display_label} · ${summary}`} className="lma-sheet-up relative w-full max-w-[560px] max-h-[90dvh] overflow-y-auto overscroll-contain rounded-t-[24px] bg-lma-bg px-4 pt-2 pb-[calc(env(safe-area-inset-bottom)+18px)] shadow-lma-float" onClick={e=>e.stopPropagation()}>
+        <div className="mx-auto mb-3 h-1.5 w-10 rounded-full bg-[#dfe1ee]"/>
+        {/* header: just the library — the seat number and each half's state are in the column and lanes below */}
+        <div className="mb-3 flex items-center justify-between gap-3">
+          {(()=>{
+            const libRow=(init?.libraries||[]).find(l=>l.library_code===lib);
+            const brRow:any=branch?(init?.branches||[]).find((b:any)=>b.branch_code===branch):null;
+            const c=(brRow&&brRow.color)||libRow?.color||"#4f46e5";
+            const e=(brRow&&brRow.emoji)||libRow?.emoji||"📚";
+            return (
+              <span className="inline-flex h-10 items-center gap-2 rounded-full pl-3 pr-4 text-[15px] font-bold tracking-[0.01em]"
+                style={{ background:c+"1a", color:c, boxShadow:`inset 0 0 0 1px ${c}33` }}>
+                <span aria-hidden="true" className="text-[16px] leading-none">{e}</span><span>{branch||lib}</span>
+              </span>
+            );
+          })()}
+          <button type="button" aria-label="Close" onClick={onClose} className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-lma-surface text-lma-ink-2 ring-1 ring-inset ring-lma-line active:bg-lma-bg">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg>
+          </button>
         </div>
-        <div className="flex gap-3 items-stretch">
+        <div className="flex items-stretch gap-3">
           <SeatToken cell={cell}/>
-          <div className="flex-1 min-w-0">{body}</div>
+          <div className="min-w-0 flex-1">{body}</div>
         </div>
-        <button onClick={onClose} className="w-full mt-4 py-3 rounded-xl bg-lma-slate-100 text-lma-slate-600 font-bold">Close</button>
 
         {confirmVacate&&(
           <div className="fixed inset-0 z-[9999] flex items-center justify-center px-6" onClick={()=>setConfirmVacate(null)}>
             <div className="absolute inset-0 bg-black/40"/>
-            <div className="relative w-full max-w-xs bg-white rounded-2xl p-5 lma-slide-up" onClick={e=>e.stopPropagation()}>
-              <h4 className="text-sm font-extrabold text-lma-slate-900 mb-1">Temp-Vacate seat {cell.display_label}?</h4>
+            <div className="lma-sheet-up relative w-full max-w-xs rounded-[20px] bg-lma-surface p-5 shadow-lma-float" onClick={e=>e.stopPropagation()}>
+              <h4 className="mb-1 text-[16px] font-bold text-lma-ink">Temp-Vacate seat {cell.display_label}?</h4>
               <p className="text-[12px] text-lma-slate-500 mb-4">{confirmVacate.student_id} · {confirmVacate.name} will be parked. Seat {cell.display_label} is freed but held for them until you re-allot.</p>
               <div className="flex gap-2">
-                <button onClick={()=>setConfirmVacate(null)} className="flex-1 py-2.5 rounded-xl bg-lma-slate-100 text-lma-slate-600 font-bold text-sm">No</button>
-                <button disabled={busy} onClick={()=>{const o=confirmVacate;setConfirmVacate(null);doVacate(o);}} className="flex-1 py-2.5 rounded-xl bg-lma-warn text-white font-bold text-sm disabled:opacity-50">Park</button>
+                <button onClick={()=>setConfirmVacate(null)} className="h-11 flex-1 rounded-[12px] bg-lma-bg text-[14px] font-semibold text-lma-ink-2 ring-1 ring-inset ring-lma-line">No</button>
+                <button disabled={busy} onClick={()=>{const o=confirmVacate;setConfirmVacate(null);doVacate(o);}} className="h-11 flex-1 rounded-[12px] bg-[#d97706] text-[14px] font-semibold text-white disabled:opacity-50">Park</button>
               </div>
             </div>
           </div>

@@ -34,4 +34,5 @@ export const IconAlert = (p: P) => <Svg {...p}><path d="M12 4 21 19.5H3L12 4Z" /
 export const IconCheck = (p: P) => <Svg {...p}><path d="M5 12.5 9.5 17 19 7.5" /></Svg>;
 export const IconBackspace = (p: P) => <Svg {...p}><path d="M9 5.5h10a1.5 1.5 0 0 1 1.5 1.5v10a1.5 1.5 0 0 1-1.5 1.5H9L3.5 12 9 5.5Z" /><path d="M11.5 9.5l5 5M16.5 9.5l-5 5" /></Svg>;
 export const IconBolt = (p: P) => <Svg {...p}><path d="M13.5 3 5.5 13.5h5L10 21l8.5-10.5h-5L13.5 3Z" /></Svg>;
+export const IconDots = (p: P) => <Svg {...p}><circle cx="6" cy="12" r="1.3" fill="currentColor" stroke="none" /><circle cx="12" cy="12" r="1.3" fill="currentColor" stroke="none" /><circle cx="18" cy="12" r="1.3" fill="currentColor" stroke="none" /></Svg>;
 export const IconHome = (p: P) => <Svg {...p}><path d="M4 10.5 12 4l8 6.5" /><path d="M6 9.5V20h12V9.5" /><path d="M10 20v-5h4v5" /></Svg>;
