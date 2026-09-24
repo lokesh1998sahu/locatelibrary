@@ -301,6 +301,53 @@ export function Stepper({ value, onChange, min = 0, max = 30, unit }: {
   );
 }
 
+// ── Money entry parts (keypad + date chips; same as MF 2.0) ────────
+/** Amount display + keypad. The page owns the value and the typing rules (onKey). */
+export function AmountPad({ value, onKey, label = "Amount" }: { value: string; onKey: (k: string) => void; label?: string }) {
+  const total = Number(value || 0);
+  return (
+    <Card className="mb-5 text-center">
+      <div className="text-[12px] font-bold uppercase tracking-[0.08em] text-lma-ink-3">{label}</div>
+      <div aria-live="polite"
+        className={cx("mt-1 font-lma-mono text-[40px] font-medium leading-tight tracking-[-0.02em]", total > 0 ? "text-lma-ink" : "text-lma-ink-3")}>
+        ₹{typedAmount(value)}
+      </div>
+      <div className="mt-3 grid grid-cols-3 gap-2">
+        {PAD_KEYS.map(k => (
+          <button key={k} type="button" onClick={() => onKey(k)}
+            aria-label={k === "<" ? "Delete last digit" : k === "." ? "Decimal point" : k}
+            className="lma-btn grid h-12 place-items-center rounded-[12px] bg-lma-bg font-lma-mono text-[20px] font-medium text-lma-ink active:bg-lma-line">
+            {k === "<" ? <IconBackspace size={22} /> : k}
+          </button>
+        ))}
+      </div>
+    </Card>
+  );
+}
+const PAD_KEYS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", ".", "0", "<"];
+
+/** When: Today · Yesterday · Other date (native picker). The page passes its own date maths. */
+export function DateChips({ value, onChange, ago, label, today, yesterday, title = "When" }: {
+  value: string; onChange: (iso: string) => void; ago: number; label: string; today: string; yesterday: string; title?: string;
+}) {
+  return (
+    <ChipGroup label={title} hint={ago > 1 ? <span className="font-medium text-lma-warn-2">{ago} days ago</span> : undefined}>
+      <Chip on={ago === 0} onClick={() => onChange(today)}>Today</Chip>
+      <Chip on={ago === 1} onClick={() => onChange(yesterday)}>Yesterday</Chip>
+      <label className={cx("lma-noscale relative inline-flex min-h-[40px] cursor-pointer items-center gap-2 rounded-full px-4 text-[14px] font-medium",
+        ago > 1 ? ACTIVE : "bg-lma-surface text-lma-ink-2 ring-1 ring-inset ring-lma-line")}>
+        <IconCalendar size={16} />
+        {ago > 1 ? label : "Other date"}
+        <input type="date" value={value} max={today} aria-label="Pick a date"
+          onChange={e => e.target.value && onChange(e.target.value)}
+          className="absolute inset-0 h-full w-full cursor-pointer opacity-0" />
+      </label>
+    </ChipGroup>
+  );
+}
+
+/** Save bar pinned to the bottom: says what is still missing, then saves. */
+
 // ── Library / branch chips ──────────────────────────────────────────
 // Every LMA screen filters by library or branch. Pages get the list from
 // useScopeChips() in LMAProvider and pass it in, so this file stays pure UI.

@@ -59,7 +59,11 @@ interface LMAContextValue {
   showToast: (msg:string, type?:ToastKind) => void;
   // Shared POST helper (with duplicate-action guard + auto toast on backend error)
   post: (action:string, payload:any) => Promise<any | null>;
+  // Shared confirm dialog (the app's own look — never the browser's popup).
+  // Resolves true on the confirm button, false on cancel / tap outside.
+  confirm: (o:ConfirmOpts) => Promise<boolean>;
 }
+export interface ConfirmOpts { title:string; body?:string; confirmLabel?:string; cancelLabel?:string; danger?:boolean }
 
 const LMAContext = createContext<LMAContextValue | null>(null);
 
@@ -111,6 +115,9 @@ export default function LMAProvider({ children }: { children: ReactNode }) {
   const [init, setInit]       = useState<LMAInitData|null>(null);
   const [loading, setLoading] = useState(false);
   const [toast, setToast]     = useState<ToastState>(null);
+  const [ask, setAsk]         = useState<(ConfirmOpts & { resolve:(v:boolean)=>void }) | null>(null);
+  const confirmDialog = useCallback((o:ConfirmOpts) => new Promise<boolean>(resolve => setAsk({ ...o, resolve })), []);
+  const answer = (v:boolean) => { setAsk(a => { a?.resolve(v); return null; }); };
   const pathname = usePathname() || "";
 
   // Ask the SERVER whether the httpOnly session cookie is still valid.
@@ -271,11 +278,25 @@ export default function LMAProvider({ children }: { children: ReactNode }) {
 
   const withTabs = !tabBarHidden(pathname);
   return (
-    <LMAContext.Provider value={{ init, refreshInit, loading, lock, showToast, post }}>
+    <LMAContext.Provider value={{ init, refreshInit, loading, lock, showToast, post, confirm: confirmDialog }}>
       <div className="lma-app" style={{ paddingBottom: withTabs ? undefined : 0 }}>
         {children}
         <TabBar onLock={lock} />
         <ToastView toast={toast} />
+        {ask && (
+          <div className="fixed inset-0 z-[10060] flex items-center justify-center px-6" onClick={() => answer(false)}>
+            <div className="lma-fade-in absolute inset-0 bg-[rgb(15_23_42/0.45)]"/>
+            <div role="alertdialog" aria-modal="true" aria-label={ask.title}
+              className="lma-sheet-up relative w-full max-w-sm rounded-[20px] bg-lma-surface p-5 shadow-lma-float" onClick={e => e.stopPropagation()}>
+              <h4 className="mb-1 text-[16px] font-bold leading-snug text-lma-ink">{ask.title}</h4>
+              {ask.body && <p className="mb-4 whitespace-pre-line text-[13px] leading-relaxed text-lma-ink-3">{ask.body}</p>}
+              <div className={`grid grid-cols-2 gap-2 ${ask.body ? "" : "mt-4"}`}>
+                <Button variant="secondary" className="whitespace-nowrap" onClick={() => answer(false)}>{ask.cancelLabel || "Cancel"}</Button>
+                <Button variant={ask.danger ? "danger" : "primary"} className="whitespace-nowrap" onClick={() => answer(true)} autoFocus>{ask.confirmLabel || "OK"}</Button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </LMAContext.Provider>
   );

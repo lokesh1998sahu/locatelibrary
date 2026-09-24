@@ -30,7 +30,7 @@ type LinkFilter = "ANY"|"TRUE"|"FALSE";
 function homeLib(it:any){ return (it.is_cross_library && it.is_cross_library!=="NO") ? it.is_cross_library : (it.branch||it.library); }
 
 export default function RefundsPage(){
-  const { init, showToast, post } = useLMA();
+  const { init, showToast, post, confirm: ask } = useLMA();
   const [openRno, setOpenRno] = useState<string|null>(null);
   const [openStu, setOpenStu] = useState<{ id:string; library:string }|null>(null);
 
@@ -143,7 +143,7 @@ export default function RefundsPage(){
               <div className="grid grid-cols-3 gap-2 mt-2.5">
                 <button onClick={()=>setViewFor(r)} className="py-2 rounded-lg bg-lma-slate-100 text-lma-slate-600 font-bold text-xs">View</button>
                 <button onClick={()=>setEditFor(r)} className="py-2 rounded-lg bg-lma-accent/10 text-lma-accent font-bold text-xs">Edit</button>
-                <button onClick={async()=>{ if(!confirm(`Delete refund ${r.refund_id}? This cannot be undone.`))return; const x=await post("deleteRefund",{refund_id:r.refund_id}); if(x){showToast("Refund deleted");load();} }} className="py-2 rounded-lg bg-lma-danger/10 text-lma-danger font-bold text-xs">Delete</button>
+                <button onClick={async()=>{ if(!(await ask({ title:`Delete refund ${r.refund_id}?`, body:"This can’t be undone.", confirmLabel:"Delete refund", danger:true })))return; const x=await post("deleteRefund",{refund_id:r.refund_id}); if(x){showToast("Refund deleted");load();} }} className="py-2 rounded-lg bg-lma-danger/10 text-lma-danger font-bold text-xs">Delete</button>
               </div>
             </div>
           ))}

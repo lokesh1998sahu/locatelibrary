@@ -52,7 +52,7 @@ interface EditEvent { letter:string; edited_at:string; remark:string; changed_fi
 export default function ReceiptModal({ receiptNo, onClose, onSaved, context }:{
   receiptNo:string; onClose:()=>void; onSaved?:()=>void; context?:"dues"|"refunds";
 }) {
-  const { init, post, showToast } = useLMA();
+  const { init, post, showToast, confirm: ask } = useLMA();
   const [receipt,setReceipt] = useState<Receipt|null>(null);
   const [loading,setLoading] = useState(true);
   const [mode,setMode]       = useState<"view"|"edit"|"history">("view");
@@ -81,7 +81,7 @@ export default function ReceiptModal({ receiptNo, onClose, onSaved, context }:{
   },[receiptNo]);
 
   const refresh = async () => { const rc=await fetchReceipt(); setReceipt(rc); onSaved && onSaved(); };
-  const doNotRenew = async () => { if(!receipt) return; if(!confirm(`Flag receipt ${receipt.receipt_no} as Do-Not-Renew?`)) return; const r=await post("markReceiptDoNotRenew",{receipt_no:receipt.receipt_no}); if(r&&r.ok!==false){ showToast("Marked: do not renew"); refresh(); } else showToast((r&&r.error)||"Failed","error"); };
+  const doNotRenew = async () => { if(!receipt) return; if(!(await ask({ title:`Do not renew ${receipt.receipt_no}?`, body:`${receipt.name} will stop appearing in renewal lists.`, confirmLabel:"Do not renew", danger:true }))) return; const r=await post("markReceiptDoNotRenew",{receipt_no:receipt.receipt_no}); if(r&&r.ok!==false){ showToast("Marked: do not renew"); refresh(); } else showToast((r&&r.error)||"Failed","error"); };
 
   const openHistory = async () => {
     setMode("history");
@@ -108,48 +108,62 @@ export default function ReceiptModal({ receiptNo, onClose, onSaved, context }:{
     <>
       <Sheet onClose={onClose} cardStyle={receipt?genderCardStyle(receipt.gender):undefined}>
         {loading ? (
-          <div className="py-10 text-center text-sm text-lma-slate-500">Loading…</div>
+          <div className="py-10 text-center text-sm text-lma-ink-3">Loading…</div>
         ) : !receipt ? (
           <div className="py-10 text-center">
-            <p className="text-sm text-lma-slate-500 mb-4">Receipt not found.</p>
-            <button onClick={onClose} className="px-5 py-2.5 rounded-xl bg-lma-slate-100 text-lma-slate-600 font-bold text-sm">Close</button>
+            <p className="text-sm text-lma-ink-3 mb-4">Receipt not found.</p>
+            <button onClick={onClose} className="px-5 py-2.5 rounded-[14px] bg-lma-surface text-lma-ink-2 ring-1 ring-inset ring-lma-line font-semibold text-sm">Close</button>
           </div>
         ) : mode === "view" ? (
           <>
-            <h3 className="text-base font-extrabold text-lma-slate-900 mb-1">{receipt.receipt_no}</h3>
-            <button onClick={()=>setShowStudent(true)} className="block text-left text-xs text-lma-primary font-bold hover:underline mb-2">{receipt.student_id} · {receipt.name}</button>
-            <div className="flex flex-wrap items-center gap-1.5 mb-3 text-[10px]">
-              <span className="font-bold px-2 py-0.5 rounded bg-lma-slate-100 text-lma-slate-600">{receipt.branch||receipt.library}</span>
-              {receipt.seat_no&&<span className="font-bold px-2 py-0.5 rounded bg-lma-slate-100 text-lma-slate-600">Seat {receipt.seat_no}</span>}
-              <span className="font-bold px-2 py-0.5 rounded bg-lma-slate-100 text-lma-slate-600">{receipt.shift_name||receipt.shift}</span>
-              {(()=>{ const b=rcptStatus(receipt); return <span className={`font-bold px-2 py-0.5 rounded ${b.cls}`}>{b.label}</span>; })()}
-              <span className="font-bold px-2 py-0.5 rounded bg-lma-slate-100 text-lma-slate-600 ml-auto">until {fmtDMY(receipt.booking_to)}</span>
+            <div className="mb-3 flex items-start gap-3">
+              <div className="min-w-0 flex-1">
+                <div className="text-[11px] font-bold uppercase tracking-[0.08em] text-lma-ink-3">Receipt</div>
+                <div className="mt-0.5 flex flex-wrap items-center gap-2">
+                  <h3 className="font-lma-mono text-[22px] font-semibold leading-none tracking-[-0.01em] text-lma-ink">{receipt.receipt_no}</h3>
+                  {(()=>{ const b=rcptStatus(receipt); return <span className={`rounded-md px-2 py-0.5 text-[11px] font-bold ${b.cls}`}>{b.label}</span>; })()}
+                </div>
+                {receipt.generated_at&&<div className="mt-1 text-[12px] text-lma-ink-3">Created {fmtDMYT(receipt.generated_at)}</div>}
+              </div>
+              <button type="button" aria-label="Close" onClick={onClose} className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-lma-surface text-lma-ink-2 ring-1 ring-inset ring-lma-line active:bg-lma-bg"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
             </div>
-            {receipt.generated_at&&<div className="text-[10px] text-lma-slate-400 mb-2">Created {fmtDMYT(receipt.generated_at)}</div>}
-            <pre className="text-[11px] text-lma-slate-700 whitespace-pre-wrap font-mono bg-lma-slate-50 rounded-lg p-3 max-h-56 overflow-y-auto">{receipt.receipt_text}</pre>
-            {receipt.remark&&<div className="text-[11px] text-lma-slate-500 mt-1.5 italic">📝 {receipt.remark}</div>}
-            <MoneyTrail receiptNo={receipt.receipt_no}/>
+            <div className="mb-3 rounded-[18px] border border-lma-line bg-lma-surface p-3.5 shadow-lma-card">
+              <div className="flex items-start gap-3">
+                <div className="min-w-0 flex-1 text-[17px] font-bold leading-snug text-lma-ink">{receipt.name}</div>
+                <button type="button" onClick={()=>setShowStudent(true)} aria-label={`Open student ${receipt.student_id}`}
+                  className="lma-noscale shrink-0 rounded-[12px] bg-lma-bg px-3 py-1.5 text-left ring-1 ring-inset ring-lma-line active:brightness-95">
+                  <span className="flex items-center justify-between gap-2 text-[10.5px] font-bold uppercase tracking-[0.06em] text-lma-ink-3">Student<svg aria-hidden="true" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.6} strokeLinecap="round" strokeLinejoin="round" className="shrink-0"><path d="M8 16 16 8M9 8h7v7"/></svg></span>
+                  <span className="block font-lma-mono text-[13.5px] font-semibold text-lma-ink">{receipt.student_id}</span>
+                </button>
+              </div>
+              <div className="mt-2.5 flex flex-wrap items-center gap-1.5 text-[12px]">
+                <span className="rounded-md bg-lma-bg px-2 py-0.5 font-semibold text-lma-ink-2 ring-1 ring-inset ring-lma-line">{receipt.branch||receipt.library}</span>
+                {receipt.seat_no&&<span className="rounded-md bg-lma-bg px-2 py-0.5 font-semibold text-lma-ink-2 ring-1 ring-inset ring-lma-line">Seat {receipt.seat_no}</span>}
+                <span className="rounded-md bg-lma-bg px-2 py-0.5 font-semibold text-lma-ink-2 ring-1 ring-inset ring-lma-line">{receipt.shift_name||receipt.shift}</span>
+                <span className="ml-auto font-semibold text-lma-ink-2">till {fmtDMY(receipt.booking_to)}</span>
+              </div>
+              {receipt.fees_due_balance>0&&<div className="mt-2.5 inline-flex rounded-md bg-[#fef3c7] px-2 py-0.5 font-lma-mono text-[12px] font-bold text-[#92400e] ring-1 ring-inset ring-[#f5d88a]">₹{receipt.fees_due_balance} due</div>}
+            </div>
+            <pre className="max-h-56 overflow-y-auto whitespace-pre-wrap rounded-[14px] border border-lma-line bg-lma-surface p-3 font-lma-mono text-[12px] leading-relaxed text-lma-ink-2">{receipt.receipt_text}</pre>
+            {receipt.remark&&<div className="mt-2 rounded-[12px] bg-lma-surface px-3 py-2 text-[12.5px] italic text-lma-ink-2 ring-1 ring-inset ring-lma-line">{receipt.remark}</div>}
+            <div className="mt-3 grid grid-cols-2 gap-2">
+              <button onClick={()=>setStudentSend(true)} className="h-12 rounded-[14px] bg-[#e3f6ec] text-[14.5px] font-semibold text-[#0b7a52] ring-1 ring-inset ring-[#c6ecd8]">WhatsApp</button>
+              <button onClick={()=>setMode("edit")} className="lma-glass-btn h-12 rounded-[14px] text-[15px] font-bold text-white">Edit</button>
+            </div>
             {context!=="refunds"&&receipt.fees_due_balance>0&&<CollectDueInline receiptNo={receipt.receipt_no} balance={receipt.fees_due_balance} post={post} showToast={showToast} onChanged={refresh} onEvent={(t)=>{setShareLabel("Due collected");setShareText(t);}}/>}
             {context!=="dues"&&<RefundInline receiptNo={receipt.receipt_no} post={post} showToast={showToast} onChanged={refresh} onEvent={(t)=>{setShareLabel("Refund issued");setShareText(t);}}/>}
-            <div className={`grid gap-2 mt-3 ${receipt.type==="NEW"&&receipt.registration_text?"grid-cols-4":"grid-cols-3"}`}>
-              <button onClick={()=>setStudentSend(true)} className="py-2.5 rounded-xl bg-lma-accent/10 text-lma-accent font-bold text-xs">📋 Student</button>
-              {receipt.type==="NEW"&&receipt.registration_text&&(
-                <button onClick={()=>{ navigator.clipboard.writeText(receipt.registration_text); showToast("Group copy"); }} className="py-2.5 rounded-xl bg-lma-primary/10 text-lma-primary font-bold text-xs">📢 Group</button>
-              )}
-              <ContactCopyButton name={receipt.name} library={receipt.branch||receipt.library} studentId={receipt.student_id} phones={receipt.phones} onCopied={showToast} className="w-full py-2.5 rounded-xl bg-lma-warn/10 text-lma-warn font-bold text-xs whitespace-nowrap"/><WhatsAppButton phones={receipt.phones} className="w-full py-2.5 rounded-xl bg-lma-accent/10 text-lma-accent font-bold text-xs disabled:opacity-40"/>
-            </div>
             {(() => {
               const bookingActions = (<>
                 <div className="grid grid-cols-2 gap-2 mt-2">
-                  <button onClick={()=>setShowRenew(true)} className="py-2.5 rounded-xl bg-lma-accent/10 text-lma-accent font-bold text-xs">🔄 Renew</button>
-                  <button onClick={()=>setShowReAllot(true)} className="py-2.5 rounded-xl bg-lma-slate-100 text-lma-slate-600 font-bold text-xs">🔀 Re-Allot</button>
+                  <button onClick={()=>setShowRenew(true)} className="h-12 rounded-[14px] bg-lma-brand-soft text-[14.5px] font-semibold text-lma-brand ring-1 ring-inset ring-[#dcdffb]">Renew</button>
+                  <button onClick={()=>setShowReAllot(true)} className="h-12 rounded-[14px] bg-lma-brand-soft text-[14.5px] font-semibold text-lma-brand ring-1 ring-inset ring-[#dcdffb]">Re-allot</button>
                 </div>
                 {(()=>{ const st=(receipt.status||"").toUpperCase();
-                  if(st==="CANCELLED") return <div className="mt-2 py-2.5 rounded-xl bg-lma-danger/10 text-lma-danger font-bold text-xs text-center">Cancelled</div>;
-                  if(st==="RENEWED") return <div className="mt-2 py-2.5 rounded-xl bg-lma-slate-100 text-lma-slate-500 font-bold text-xs text-center">Renewed</div>;
+                  if(st==="CANCELLED") return <div className="mt-2 rounded-[12px] bg-lma-out-soft py-2.5 text-center text-[13px] font-semibold text-lma-out">Cancelled</div>;
+                  if(st==="RENEWED") return <div className="mt-2 rounded-[12px] bg-lma-surface py-2.5 text-center text-[13px] font-semibold text-lma-ink-3 ring-1 ring-inset ring-lma-line">Renewed</div>;
                   const iso=toIsoInput(receipt.booking_to); const expired=!!iso&&iso<new Date().toISOString().slice(0,10);
-                  if(expired||st==="DO_NOT_RENEW") return <button onClick={doNotRenew} className="mt-2 w-full py-2.5 rounded-xl bg-lma-warn/10 text-lma-warn font-bold text-xs">🚫 Do Not Renew</button>;
-                  return <button onClick={()=>setShowCancel(true)} className="mt-2 w-full py-2.5 rounded-xl bg-lma-danger/10 text-lma-danger font-bold text-xs">✕ Cancel Booking</button>;
+                  if(expired||st==="DO_NOT_RENEW") return <button onClick={doNotRenew} className="mt-2 h-11 w-full rounded-[12px] bg-lma-surface text-[13.5px] font-semibold text-lma-ink-2 ring-1 ring-inset ring-lma-line">Do not renew</button>;
+                  return <button onClick={()=>setShowCancel(true)} className="mt-2 h-11 w-full rounded-[12px] bg-lma-surface text-[13.5px] font-semibold text-lma-out ring-1 ring-inset ring-lma-line">Cancel booking</button>;
                 })()}
               </>);
               const opposite = context==="dues"
@@ -157,21 +171,25 @@ export default function ReceiptModal({ receiptNo, onClose, onSaved, context }:{
                 : (context==="refunds" && receipt.fees_due_balance>0 ? <CollectDueInline receiptNo={receipt.receipt_no} balance={receipt.fees_due_balance} post={post} showToast={showToast} onChanged={refresh} onEvent={(t)=>{setShareLabel("Due collected");setShareText(t);}}/> : null);
               return context ? <MoreActions>{opposite}{bookingActions}</MoreActions> : bookingActions;
             })()}
-            <div className="grid grid-cols-2 gap-2 mt-2">
-              <button onClick={()=>setMode("edit")} className="py-2.5 rounded-xl bg-lma-primary text-white font-bold text-xs">✏️ Edit</button>
-              <button onClick={openHistory} className="py-2.5 rounded-xl bg-lma-slate-100 text-lma-slate-600 font-bold text-xs">History</button>
+            <div className={`mt-2 grid gap-2 ${receipt.type==="NEW"&&receipt.registration_text?"grid-cols-3":"grid-cols-2"}`}>
+              {receipt.type==="NEW"&&receipt.registration_text&&(
+                <button onClick={()=>{ navigator.clipboard.writeText(receipt.registration_text); showToast("Group copy"); }} className="h-11 rounded-[12px] bg-lma-surface text-[13px] font-semibold text-lma-ink-2 ring-1 ring-inset ring-lma-line">Group copy</button>
+              )}
+              <ContactCopyButton name={receipt.name} library={receipt.branch||receipt.library} studentId={receipt.student_id} phones={receipt.phones} onCopied={showToast} label="Copy contact" wrapperClassName="relative w-full" className="h-11 w-full rounded-[12px] bg-lma-surface text-[13px] font-semibold text-lma-ink-2 ring-1 ring-inset ring-lma-line"/>
+              <button onClick={openHistory} className="h-11 rounded-[12px] bg-lma-surface text-[13px] font-semibold text-lma-ink-2 ring-1 ring-inset ring-lma-line">Edit history</button>
             </div>
+            <div className="mt-2"><MoneyTrail receiptNo={receipt.receipt_no}/></div>
           </>
         ) : mode === "history" ? (
           <>
             <div className="flex items-center justify-between mb-3">
-              <h3 className="text-base font-extrabold text-lma-slate-900">Edit history · {receipt.receipt_no}</h3>
-              <button onClick={()=>setMode("view")} className="text-lma-slate-400 text-2xl leading-none">×</button>
+              <h3 className="text-[18px] font-bold tracking-[-0.01em] text-lma-ink">Edit history · {receipt.receipt_no}</h3>
+              <button type="button" aria-label="Close" onClick={()=>setMode("view")} className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-lma-surface text-lma-ink-2 ring-1 ring-inset ring-lma-line active:bg-lma-bg"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
             </div>
             {history===null ? (
-              <p className="text-sm text-lma-slate-500">Loading…</p>
+              <p className="text-sm text-lma-ink-3">Loading…</p>
             ) : history.length===0 ? (
-              <p className="text-sm text-lma-slate-500">No edits recorded yet.</p>
+              <p className="text-sm text-lma-ink-3">No edits recorded yet.</p>
             ) : (
               <div className="space-y-2">{history.map(ev=><EditEventCard key={ev.letter} ev={ev} phones={receipt.phones}/>)}</div>
             )}
@@ -187,29 +205,29 @@ export default function ReceiptModal({ receiptNo, onClose, onSaved, context }:{
 
       {studentSend && receipt && (
         <div className="fixed inset-0 z-[10002] flex items-center justify-center px-6" onClick={()=>setStudentSend(false)}>
-          <div className="absolute inset-0 bg-black/40"/>
-          <div className="relative w-full max-w-xs bg-white rounded-2xl p-5 lma-slide-up" onClick={e=>e.stopPropagation()}>
-            <h4 className="text-sm font-extrabold text-lma-slate-900 mb-1">Student receipt</h4>
-            <p className="text-[12px] text-lma-slate-500 mb-3">Copy the text, or send it on WhatsApp.</p>
+          <div className="absolute inset-0 bg-[rgb(15_23_42/0.45)]"/>
+          <div className="lma-sheet-up relative w-full max-w-xs rounded-[20px] bg-lma-surface p-5 shadow-lma-float" onClick={e=>e.stopPropagation()}>
+            <h4 className="text-sm font-bold text-lma-ink mb-1">Student receipt</h4>
+            <p className="text-[12px] text-lma-ink-3 mb-3">Copy the text, or send it on WhatsApp.</p>
             <div className="grid grid-cols-3 gap-2">
-              <button onClick={()=>setStudentSend(false)} className="py-2.5 rounded-xl bg-lma-slate-100 text-lma-slate-600 font-bold text-xs">Cancel</button>
-              <button onClick={()=>{ navigator.clipboard.writeText(receipt.receipt_text); showToast("Student copy"); setStudentSend(false); }} className="py-2.5 rounded-xl bg-lma-slate-100 text-lma-slate-600 font-bold text-xs">Copy</button>
-              <WhatsAppButton phones={receipt.phones} text={receipt.receipt_text} label="Send" className="w-full py-2.5 rounded-xl bg-lma-accent text-white font-bold text-xs text-center disabled:opacity-40"/>
+              <button onClick={()=>setStudentSend(false)} className="h-11 rounded-[12px] bg-lma-bg text-[13px] font-semibold text-lma-ink-2 ring-1 ring-inset ring-lma-line">Cancel</button>
+              <button onClick={()=>{ navigator.clipboard.writeText(receipt.receipt_text); showToast("Student copy"); setStudentSend(false); }} className="h-11 rounded-[12px] bg-lma-bg text-[13px] font-semibold text-lma-ink-2 ring-1 ring-inset ring-lma-line">Copy</button>
+              <WhatsAppButton phones={receipt.phones} text={receipt.receipt_text} label="Send" className="h-11 w-full rounded-[12px] bg-[#16a34a] text-[13px] font-semibold text-white text-center disabled:opacity-40"/>
             </div>
           </div>
         </div>
       )}
       {shareText && (
         <div className="fixed inset-0 z-[10001] flex items-center justify-center px-6" onClick={()=>setShareText(null)}>
-          <div className="absolute inset-0 bg-black/40"/>
-          <div className="relative w-full max-w-xs bg-white rounded-2xl p-5 lma-slide-up" onClick={e=>e.stopPropagation()}>
-            <h4 className="text-sm font-extrabold text-lma-slate-900 mb-1">{shareLabel}</h4>
-            <p className="text-[12px] text-lma-slate-500 mb-3">Send the student a WhatsApp update?</p>
-            <pre className="text-[10px] text-lma-slate-600 whitespace-pre-wrap font-mono bg-lma-slate-50 rounded-lg p-2.5 max-h-40 overflow-y-auto mb-3">{shareText}</pre>
+          <div className="absolute inset-0 bg-[rgb(15_23_42/0.45)]"/>
+          <div className="lma-sheet-up relative w-full max-w-xs rounded-[20px] bg-lma-surface p-5 shadow-lma-float" onClick={e=>e.stopPropagation()}>
+            <h4 className="text-sm font-bold text-lma-ink mb-1">{shareLabel}</h4>
+            <p className="text-[12px] text-lma-ink-3 mb-3">Send the student a WhatsApp update?</p>
+            <pre className="text-[10px] text-lma-ink-2 whitespace-pre-wrap font-mono bg-lma-bg rounded-lg p-2.5 max-h-40 overflow-y-auto mb-3">{shareText}</pre>
             <div className="grid grid-cols-3 gap-2">
-              <button onClick={()=>setShareText(null)} className="py-2.5 rounded-xl bg-lma-slate-100 text-lma-slate-600 font-bold text-xs">Skip</button>
-              <button onClick={()=>{ navigator.clipboard.writeText(shareText); showToast("Copied"); }} className="py-2.5 rounded-xl bg-lma-slate-100 text-lma-slate-600 font-bold text-xs">Copy</button>
-              <WhatsAppButton phones={receipt?.phones} text={shareText} label="Send" className="w-full py-2.5 rounded-xl bg-lma-accent text-white font-bold text-xs text-center disabled:opacity-40"/>
+              <button onClick={()=>setShareText(null)} className="h-11 rounded-[12px] bg-lma-bg text-[13px] font-semibold text-lma-ink-2 ring-1 ring-inset ring-lma-line">Skip</button>
+              <button onClick={()=>{ navigator.clipboard.writeText(shareText); showToast("Copied"); }} className="h-11 rounded-[12px] bg-lma-bg text-[13px] font-semibold text-lma-ink-2 ring-1 ring-inset ring-lma-line">Copy</button>
+              <WhatsAppButton phones={receipt?.phones} text={shareText} label="Send" className="h-11 w-full rounded-[12px] bg-[#16a34a] text-[13px] font-semibold text-white text-center disabled:opacity-40"/>
             </div>
           </div>
         </div>
@@ -220,6 +238,7 @@ export default function ReceiptModal({ receiptNo, onClose, onSaved, context }:{
 
 // ── EDIT FORM ────────────────────────────────────────────────────
 function EditForm({ receipt, init, onCancel, onSave }:{ receipt:Receipt; init:any; onCancel:()=>void; onSave:(p:any)=>void }){
+  const { confirm: ask } = useLMA();
   const [name,setName]=useState(receipt.name);
   const [seat,setSeat]=useState(receipt.seat_no);
   const [shift,setShift]=useState(receipt.shift);
@@ -270,14 +289,14 @@ function EditForm({ receipt, init, onCancel, onSave }:{ receipt:Receipt; init:an
   const libObj=init.libraries.find((l:any)=>l.library_code===library);
   const libBranches=init.branches.filter((b:any)=>b.library_code===library&&b.active);
 
-  const save=()=>{
+  const save=async()=>{
     const validPays=pays.filter(p=>p.mode&&p.amount!=="").map(p=>({mode:p.mode,amount:Number(p.amount),date:p.date||"",...(p.move?{move_bank:true}:{})}));
     const shiftObj=activeShifts.find((s:any)=>s.shift_key.toUpperCase()===shift.toUpperCase());
     const cleanPhones=phones.filter(p=>p.number.trim()).map(p=>({number:normalizePhoneR(p.number),tag:(p.tag||"").toUpperCase()}));
     const nameChanged=(name||"").trim().toUpperCase()!==(receipt.name||"").trim().toUpperCase();
     let cascade=false;
     if(nameChanged){
-      cascade=window.confirm("Name changed. Also update the student's master record (STUDENTS sheet)?\n\nOK = update master too\nCancel = only this receipt");
+      cascade=await ask({ title:"Name changed", body:"Also update the student's own record with the new name? Other receipts of this student will show it too.", confirmLabel:"Update student too", cancelLabel:"Only this receipt" });
     }
     onSave({
       receipt_no:receipt.receipt_no,
@@ -296,34 +315,34 @@ function EditForm({ receipt, init, onCancel, onSave }:{ receipt:Receipt; init:an
 
   return (
     <div>
-      <h3 className="text-base font-extrabold text-lma-slate-900 mb-1">Edit {receipt.receipt_no}</h3>
-      <p className="text-[11px] text-lma-slate-500 mb-3">Every edit is logged in history.</p>
+      <h3 className="text-base font-bold text-lma-ink mb-1">Edit {receipt.receipt_no}</h3>
+      <p className="text-[11px] text-lma-ink-3 mb-3">Every edit is logged in history.</p>
       <MoneyTrail receiptNo={receipt.receipt_no}/>
       {editCount!==null&&editCount>0&&(
-        <div className="mt-2 text-[11px] text-lma-slate-500 bg-lma-slate-50 rounded-lg px-2.5 py-1.5">📝 This receipt has <b>{editCount}</b> past edit{editCount>1?"s":""} — open History to see old→new details.</div>
+        <div className="mt-2 text-[11px] text-lma-ink-3 bg-lma-bg rounded-lg px-2.5 py-1.5">📝 This receipt has <b>{editCount}</b> past edit{editCount>1?"s":""} — open History to see old→new details.</div>
       )}
       <L>Name</L><I value={name} onChange={e=>setName(e.target.value.toUpperCase())}/>
       <div className="grid grid-cols-2 gap-3">
         <div><L>Seat</L>
           {isOther
-            ? <div className="w-full px-3.5 py-2.5 rounded-xl border-[1.5px] border-lma-slate-200 bg-lma-slate-50 text-[14px] font-medium text-lma-slate-400">no seat (OTHER)</div>
-            : <button type="button" onClick={()=>setSeatPickerOpen(true)} className="w-full px-3.5 py-2.5 rounded-xl border-[1.5px] border-lma-slate-200 bg-lma-slate-50 text-[14px] font-medium text-left flex items-center justify-between">
-                <span className={seat?"text-lma-slate-900":"text-lma-slate-400"}>{seat||"tap to pick / blank = unassigned"}</span>
-                <span className="text-lma-primary text-xs font-bold">{seat?"Change":"Pick"}</span>
+            ? <div className="w-full h-12 px-3.5 rounded-[14px] border border-lma-line bg-lma-surface text-[15px] font-medium text-lma-ink outline-none focus:border-lma-brand text-lma-ink-3">no seat (OTHER)</div>
+            : <button type="button" onClick={()=>setSeatPickerOpen(true)} className="w-full h-12 px-3.5 rounded-[14px] border border-lma-line bg-lma-surface text-[15px] font-medium text-lma-ink outline-none focus:border-lma-brand text-left flex items-center justify-between">
+                <span className={seat?"text-lma-ink":"text-lma-ink-3"}>{seat||"tap to pick / blank = unassigned"}</span>
+                <span className="text-lma-brand text-xs font-bold">{seat?"Change":"Pick"}</span>
               </button>}
         </div>
         <div><L>Shift</L>
-          <select value={shift} onChange={e=>onShiftChange(e.target.value)} className="w-full px-3 py-2.5 rounded-xl border-[1.5px] border-lma-slate-200 bg-lma-slate-50 text-sm font-medium">
+          <select value={shift} onChange={e=>onShiftChange(e.target.value)} className="w-full h-12 px-3.5 rounded-[14px] border border-lma-line bg-lma-surface text-[15px] font-medium text-lma-ink outline-none focus:border-lma-brand">
             {activeShifts.map((s:any)=><option key={s.shift_key} value={s.shift_key}>{s.shift_name}</option>)}
           </select>
         </div>
       </div>
       <L>Time window</L><I value={shiftTime} onChange={e=>setShiftTime(e.target.value)} placeholder="e.g. 7AM to 2PM"/>
       <div className="grid grid-cols-2 gap-3">
-        <div><L>From</L><I type="date" value={toIsoInput(bookingFrom)} onChange={e=>setBookingFrom(normDateR(e.target.value))}/>{bookingFrom && <span className="block text-[10px] font-bold text-lma-slate-500 mt-1">{fmtDMY(bookingFrom)}</span>}</div>
-        <div><L>To</L><I type="date" value={toIsoInput(bookingTo)} onChange={e=>setBookingTo(normDateR(e.target.value))}/>{bookingTo && <span className="block text-[10px] font-bold text-lma-slate-500 mt-1">{fmtDMY(bookingTo)}</span>}</div>
+        <div><L>From</L><I type="date" value={toIsoInput(bookingFrom)} onChange={e=>setBookingFrom(normDateR(e.target.value))}/>{bookingFrom && <span className="block text-[10px] font-bold text-lma-ink-3 mt-1">{fmtDMY(bookingFrom)}</span>}</div>
+        <div><L>To</L><I type="date" value={toIsoInput(bookingTo)} onChange={e=>setBookingTo(normDateR(e.target.value))}/>{bookingTo && <span className="block text-[10px] font-bold text-lma-ink-3 mt-1">{fmtDMY(bookingTo)}</span>}</div>
       </div>
-      <L>Receipt date</L><I type="date" value={toIsoInput(receiptDate)} onChange={e=>setReceiptDate(normDateR(e.target.value))}/>{receiptDate && <span className="block text-[10px] font-bold text-lma-slate-500 mt-1">{fmtDMY(receiptDate)}</span>}
+      <L>Receipt date</L><I type="date" value={toIsoInput(receiptDate)} onChange={e=>setReceiptDate(normDateR(e.target.value))}/>{receiptDate && <span className="block text-[10px] font-bold text-lma-ink-3 mt-1">{fmtDMY(receiptDate)}</span>}
       <L>Fee (₹)</L><I type="number" value={fee} onChange={e=>setFee(e.target.value)}/>
       {shiftChanged&&(
         <div className="mt-1 mb-1 text-[11px] font-semibold text-lma-warn bg-lma-warn/10 rounded-lg px-2.5 py-1.5">
@@ -337,22 +356,22 @@ function EditForm({ receipt, init, onCancel, onSave }:{ receipt:Receipt; init:an
       {pays.map((p,i)=>(
         <div key={i} className="mb-2">
           <div className="flex gap-2">
-            <select value={p.mode} onChange={e=>setPay(i,"mode",e.target.value)} className="flex-1 px-2.5 py-2.5 rounded-xl border-[1.5px] border-lma-slate-200 bg-lma-slate-50 text-sm font-medium">
+            <select value={p.mode} onChange={e=>setPay(i,"mode",e.target.value)} className="flex-1 h-12 px-3.5 rounded-[14px] border border-lma-line bg-lma-surface text-[15px] font-medium text-lma-ink outline-none focus:border-lma-brand">
               <option value="">Mode…</option>
               {init.paymentTags.filter((t:any)=>t.active).map((t:any)=><option key={t.tag_name} value={t.tag_name}>{t.tag_name}</option>)}
             </select>
-            <input type="number" value={p.amount} onChange={e=>setPay(i,"amount",e.target.value)} placeholder="₹" className="w-24 px-3 py-2.5 rounded-xl border-[1.5px] border-lma-slate-200 bg-lma-slate-50 text-sm font-medium"/>
+            <input type="number" value={p.amount} onChange={e=>setPay(i,"amount",e.target.value)} placeholder="₹" className="w-24 h-12 px-3.5 rounded-[14px] border border-lma-line bg-lma-surface text-[15px] font-medium text-lma-ink outline-none focus:border-lma-brand"/>
             {pays.length>1&&<button onClick={()=>setPays(pays.filter((_,j)=>j!==i))} className="px-2 text-lma-danger font-bold">✕</button>}
           </div>
           {p.mode&&<BankCheck tag={p.mode} savedTag={p.savedMode} savedBank={p.savedBank} move={p.move} onMove={v=>setMove(i,v)}/>}
           {p.mode&&<div className="flex items-center gap-2 mt-1.5">
-            <span className="text-[10px] font-bold text-lma-slate-400 shrink-0">Paid on</span>
-            <input type="date" value={toIsoInput(p.date||"")} onChange={e=>setPay(i,"date",normDateR(e.target.value))} className="flex-1 px-2.5 py-2 rounded-lg border-[1.5px] border-lma-slate-200 bg-lma-slate-50 text-xs font-medium"/>
-            {p.date&&<span className="text-[10px] font-bold text-lma-slate-500 shrink-0">{fmtDMY(p.date)}</span>}
+            <span className="text-[10px] font-bold text-lma-ink-3 shrink-0">Paid on</span>
+            <input type="date" value={toIsoInput(p.date||"")} onChange={e=>setPay(i,"date",normDateR(e.target.value))} className="flex-1 px-2.5 py-2 rounded-lg border-[1.5px] border-lma-line bg-lma-bg text-xs font-medium"/>
+            {p.date&&<span className="text-[10px] font-bold text-lma-ink-3 shrink-0">{fmtDMY(p.date)}</span>}
           </div>}
         </div>
       ))}
-      {pays.length<3&&<button onClick={()=>setPays([...pays,{mode:"",amount:"",date:"",savedMode:"",savedBank:"",move:false}])} className="text-xs font-bold text-lma-primary">+ Add payment</button>}
+      {pays.length<3&&<button onClick={()=>setPays([...pays,{mode:"",amount:"",date:"",savedMode:"",savedBank:"",move:false}])} className="text-xs font-bold text-lma-brand">+ Add payment</button>}
       <L>Fees Due (₹)</L><I type="number" value={feesDue} onChange={e=>setFeesDue(e.target.value)}/>
 
       <L>Phones</L>
@@ -362,30 +381,30 @@ function EditForm({ receipt, init, onCancel, onSave }:{ receipt:Receipt; init:an
             onChange={e=>{const n=[...phones];n[i]={...n[i],number:normalizePhoneR(e.target.value)};setPhones(n);}}
             onBlur={()=>{const n=[...phones];n[i]={...n[i],number:normalizePhoneR(n[i].number)};setPhones(n);}}
             placeholder={i===0?"SELF (primary)":`Phone ${i+1}`}
-            className="flex-1 px-3 py-2.5 rounded-xl border-[1.5px] border-lma-slate-200 bg-lma-slate-50 text-sm font-medium"/>
-          <input value={ph.tag} onChange={e=>{const n=[...phones];n[i]={...n[i],tag:e.target.value.toUpperCase()};setPhones(n);}} placeholder="TAG" className="w-20 px-2 py-2.5 rounded-xl border-[1.5px] border-lma-slate-200 bg-lma-slate-50 text-sm font-medium uppercase"/>
-          {i>0&&<button type="button" onClick={()=>setPhones(phones.filter((_,j)=>j!==i))} className="px-3 rounded-xl bg-lma-slate-100 text-lma-slate-500 font-extrabold text-lg leading-none">×</button>}
+            className="flex-1 h-12 px-3.5 rounded-[14px] border border-lma-line bg-lma-surface text-[15px] font-medium text-lma-ink outline-none focus:border-lma-brand"/>
+          <input value={ph.tag} onChange={e=>{const n=[...phones];n[i]={...n[i],tag:e.target.value.toUpperCase()};setPhones(n);}} placeholder="TAG" className="w-20 h-12 px-3.5 rounded-[14px] border border-lma-line bg-lma-surface text-[15px] font-medium text-lma-ink outline-none focus:border-lma-brand uppercase"/>
+          {i>0&&<button type="button" onClick={()=>setPhones(phones.filter((_,j)=>j!==i))} className="px-3 rounded-[14px] bg-lma-bg text-lma-ink-3 font-bold text-lg leading-none">×</button>}
         </div>
       ))}
-      {phones.length<4&&<button type="button" onClick={()=>setPhones([...phones,{number:"",tag:""}])} className="text-xs font-bold text-lma-primary mb-1">+ Add phone</button>}
+      {phones.length<4&&<button type="button" onClick={()=>setPhones([...phones,{number:"",tag:""}])} className="text-xs font-bold text-lma-brand mb-1">+ Add phone</button>}
 
-      <button onClick={()=>setShowAdvanced(v=>!v)} className="block text-xs font-bold text-lma-slate-500 mt-2">{showAdvanced?"▾ Hide advanced":"▸ Advanced (ID, library, branch, cross)"}</button>
+      <button onClick={()=>setShowAdvanced(v=>!v)} className="block text-xs font-bold text-lma-ink-3 mt-2">{showAdvanced?"▾ Hide advanced":"▸ Advanced (ID, library, branch, cross)"}</button>
       {showAdvanced&&(
-        <div className="mt-1 bg-lma-slate-50 rounded-xl p-3 space-y-2">
+        <div className="mt-1 bg-lma-bg rounded-[14px] p-3 space-y-2">
           <div><L>Student ID</L><I value={studentId} onChange={e=>setStudentId(e.target.value.toUpperCase())}/></div>
           <div className="grid grid-cols-2 gap-3">
             <div><L>Library</L>
-              <select value={library} onChange={e=>{setLibrary(e.target.value);setBranch("");}} className="w-full px-3 py-2.5 rounded-xl border-[1.5px] border-lma-slate-200 bg-white text-sm font-medium">
+              <select value={library} onChange={e=>{setLibrary(e.target.value);setBranch("");}} className="w-full h-12 px-3.5 rounded-[14px] border border-lma-line bg-lma-surface text-[15px] font-medium text-lma-ink outline-none focus:border-lma-brand">
                 {init.libraries.filter((l:any)=>l.active).map((l:any)=><option key={l.library_code} value={l.library_code}>{l.library_code}</option>)}
               </select>
             </div>
             <div><L>Branch</L>
               {libObj?.has_branches&&libBranches.length>0
-                ? <select value={branch} onChange={e=>setBranch(e.target.value)} className="w-full px-3 py-2.5 rounded-xl border-[1.5px] border-lma-slate-200 bg-white text-sm font-medium">
+                ? <select value={branch} onChange={e=>setBranch(e.target.value)} className="w-full h-12 px-3.5 rounded-[14px] border border-lma-line bg-lma-surface text-[15px] font-medium text-lma-ink outline-none focus:border-lma-brand">
                     <option value="">—</option>
                     {libBranches.map((b:any)=><option key={b.branch_code} value={b.branch_code}>{b.branch_code}</option>)}
                   </select>
-                : <div className="w-full px-3.5 py-2.5 rounded-xl border-[1.5px] border-lma-slate-200 bg-white text-[14px] font-medium text-lma-slate-400">no branches</div>}
+                : <div className="w-full h-12 px-3.5 rounded-[14px] border border-lma-line bg-lma-surface text-[15px] font-medium text-lma-ink outline-none focus:border-lma-brand text-lma-ink-3">no branches</div>}
             </div>
           </div>
           <div><L>Cross-library origin (blank = not cross)</L><I value={isCross} onChange={e=>setIsCross(e.target.value.toUpperCase())} placeholder="e.g. KAL"/></div>
@@ -403,8 +422,8 @@ function EditForm({ receipt, init, onCancel, onSave }:{ receipt:Receipt; init:an
         />
       )}
       <div className="flex gap-2.5 mt-4">
-        <button onClick={onCancel} className="flex-1 py-3 rounded-xl bg-lma-slate-100 text-lma-slate-600 font-bold">Cancel</button>
-        <button onClick={save} className="flex-1 py-3 rounded-xl bg-gradient-to-br from-lma-primary to-lma-primary-2 text-white font-bold shadow-md">Save</button>
+        <button onClick={onCancel} className="flex-1 py-3 rounded-[14px] bg-lma-surface text-lma-ink-2 ring-1 ring-inset ring-lma-line font-semibold">Cancel</button>
+        <button onClick={save} className="flex-1 py-3 rounded-[14px] lma-glass-btn text-white font-bold">Save</button>
       </div>
     </div>
   );
@@ -414,7 +433,7 @@ function MoreActions({ children }:{ children:React.ReactNode }){
   const [open,setOpen]=useState(false);
   return (
     <div className="mt-2">
-      <button onClick={()=>setOpen(o=>!o)} className="w-full py-2 rounded-xl bg-lma-slate-100 text-lma-slate-500 font-bold text-[11px]">⋯ More actions {open?"▴":"▾"}</button>
+      <button onClick={()=>setOpen(o=>!o)} aria-expanded={open} className={`h-11 w-full rounded-[12px] text-[13.5px] font-semibold ring-1 ring-inset ${open?"bg-lma-ink text-white ring-lma-ink":"bg-lma-surface text-lma-ink-2 ring-lma-line"}`}>More actions {open?"▴":"▾"}</button>
       {open && <div className="mt-1">{children}</div>}
     </div>
   );
@@ -438,18 +457,18 @@ function CollectDueInline({ receiptNo, balance, post, showToast, onChanged, onEv
     setBusy(false);
     if(r&&r.ok!==false){ if(r.whatsapp_text&&onEvent) onEvent(String(r.whatsapp_text)); else showToast("Due collected"); setOpen(false); onChanged(); } else setErr((r&&r.error)||"Could not collect due");
   };
-  if(!open) return <button onClick={()=>setOpen(true)} className="mt-2 w-full py-2 rounded-xl bg-lma-danger/10 text-lma-danger font-bold text-xs">💰 Collect Due (₹{balance})</button>;
+  if(!open) return <button onClick={()=>setOpen(true)} className="mt-2 h-12 w-full rounded-[14px] bg-[#fef3c7] text-[14px] font-bold text-[#92400e] ring-1 ring-inset ring-[#f5d88a]">Collect due · ₹{balance}</button>;
   return (
-    <div className="mt-2 rounded-xl border border-lma-danger/30 bg-lma-danger/5 p-3 space-y-2">
-      <input type="date" value={date} onChange={e=>setDate(e.target.value)} className="w-full px-3 py-2 rounded-lg border border-lma-slate-300 text-sm bg-white"/>
+    <div className="mt-2 rounded-[14px] border border-lma-danger/30 bg-lma-danger/5 p-3 space-y-2">
+      <input type="date" value={date} onChange={e=>setDate(e.target.value)} className="w-full px-3 py-2 rounded-lg border border-lma-line text-sm bg-white"/>
       <div className="flex gap-2">
-        <input type="number" inputMode="decimal" value={amt} onChange={e=>setAmt(e.target.value)} placeholder="Amount" className="flex-1 min-w-0 px-3 py-2 rounded-lg border border-lma-slate-300 text-sm"/>
-        <select value={mode} onChange={e=>setMode(e.target.value)} className="px-2 py-2 rounded-lg border border-lma-slate-300 text-sm bg-white"><option value="">Mode…</option>{modes.map(m=><option key={m} value={m}>{m}</option>)}</select>
+        <input type="number" inputMode="decimal" value={amt} onChange={e=>setAmt(e.target.value)} placeholder="Amount" className="flex-1 min-w-0 px-3 py-2 rounded-lg border border-lma-line text-sm"/>
+        <select value={mode} onChange={e=>setMode(e.target.value)} className="px-2 py-2 rounded-lg border border-lma-line text-sm bg-white"><option value="">Mode…</option>{modes.map(m=><option key={m} value={m}>{m}</option>)}</select>
       </div>
       {mode&&<TagBankNote tag={mode} right/>}
       {err&&<div className="text-[11px] font-bold text-lma-danger">{err}</div>}
       <div className="flex gap-2">
-        <button disabled={busy} onClick={()=>{setOpen(false);setErr("");}} className="flex-1 py-2 rounded-lg bg-lma-slate-100 text-lma-slate-600 font-bold text-xs disabled:opacity-50">Cancel</button>
+        <button disabled={busy} onClick={()=>{setOpen(false);setErr("");}} className="flex-1 py-2 rounded-lg bg-lma-surface text-lma-ink-2 ring-1 ring-inset ring-lma-line font-semibold text-xs disabled:opacity-50">Cancel</button>
         <button disabled={busy} onClick={submit} className="flex-1 py-2 rounded-lg bg-lma-danger text-white font-bold text-xs disabled:opacity-50">{busy?"…":"Collect"}</button>
       </div>
     </div>
@@ -475,19 +494,19 @@ function RefundInline({ receiptNo, post, showToast, onChanged, onEvent }:{ recei
     setBusy(false);
     if(r&&r.ok!==false){ if(r.whatsapp_text&&onEvent) onEvent(String(r.whatsapp_text)); else showToast("Refund issued"); setOpen(false); onChanged(); } else setErr((r&&r.error)||"Could not issue refund");
   };
-  if(!open) return <button onClick={()=>setOpen(true)} className="mt-2 w-full py-2 rounded-xl bg-lma-slate-100 text-lma-slate-600 font-bold text-xs">↩ Issue Refund (standalone)</button>;
+  if(!open) return <button onClick={()=>setOpen(true)} className="mt-2 h-11 w-full rounded-[12px] bg-lma-surface text-[13.5px] font-semibold text-lma-ink-2 ring-1 ring-inset ring-lma-line">Issue refund</button>;
   return (
-    <div className="mt-2 rounded-xl border border-lma-slate-300 bg-lma-slate-50 p-3 space-y-2">
-      <input type="date" value={date} onChange={e=>setDate(e.target.value)} className="w-full px-3 py-2 rounded-lg border border-lma-slate-300 text-sm bg-white"/>
+    <div className="mt-2 rounded-[14px] border border-lma-line bg-lma-bg p-3 space-y-2">
+      <input type="date" value={date} onChange={e=>setDate(e.target.value)} className="w-full px-3 py-2 rounded-lg border border-lma-line text-sm bg-white"/>
       <div className="flex gap-2">
-        <input type="number" inputMode="decimal" value={amt} onChange={e=>setAmt(e.target.value)} placeholder="Refund amount" className="flex-1 min-w-0 px-3 py-2 rounded-lg border border-lma-slate-300 text-sm"/>
-        <select value={mode} onChange={e=>setMode(e.target.value)} className="px-2 py-2 rounded-lg border border-lma-slate-300 text-sm bg-white"><option value="">Mode…</option>{modes.map(m=><option key={m} value={m}>{m}</option>)}</select>
+        <input type="number" inputMode="decimal" value={amt} onChange={e=>setAmt(e.target.value)} placeholder="Refund amount" className="flex-1 min-w-0 px-3 py-2 rounded-lg border border-lma-line text-sm"/>
+        <select value={mode} onChange={e=>setMode(e.target.value)} className="px-2 py-2 rounded-lg border border-lma-line text-sm bg-white"><option value="">Mode…</option>{modes.map(m=><option key={m} value={m}>{m}</option>)}</select>
       </div>
       {mode&&<TagBankNote tag={mode} right/>}
-      <input value={reason} onChange={e=>setReason(e.target.value)} placeholder="Reason (optional)" className="w-full px-3 py-2 rounded-lg border border-lma-slate-300 text-sm"/>
+      <input value={reason} onChange={e=>setReason(e.target.value)} placeholder="Reason (optional)" className="w-full px-3 py-2 rounded-lg border border-lma-line text-sm"/>
       {err&&<div className="text-[11px] font-bold text-lma-danger">{err}</div>}
       <div className="flex gap-2">
-        <button disabled={busy} onClick={()=>{setOpen(false);setErr("");}} className="flex-1 py-2 rounded-lg bg-lma-slate-100 text-lma-slate-600 font-bold text-xs disabled:opacity-50">Cancel</button>
+        <button disabled={busy} onClick={()=>{setOpen(false);setErr("");}} className="flex-1 py-2 rounded-lg bg-lma-surface text-lma-ink-2 ring-1 ring-inset ring-lma-line font-semibold text-xs disabled:opacity-50">Cancel</button>
         <button disabled={busy} onClick={submit} className="flex-1 py-2 rounded-lg bg-lma-warn text-white font-bold text-xs disabled:opacity-50">{busy?"…":"Refund"}</button>
       </div>
     </div>
@@ -498,23 +517,23 @@ function rcptStatus(r:{status:string;cancelled_on?:string}):{label:string;cls:st
   const st=(r.status||"").toUpperCase();
   if(st==="CANCELLED"){ const d=r.cancelled_on?Math.floor((Date.now()-new Date(r.cancelled_on).getTime())/86400000):NaN; const ago=isNaN(d)?"":(d<=0?" · today":` · ${d}d ago`); return {label:"Cancelled"+ago, cls:"bg-lma-danger/15 text-lma-danger"}; }
   if(st==="DO_NOT_RENEW") return {label:"Do Not Renew", cls:"bg-lma-warn/15 text-lma-warn"};
-  if(st==="RENEWED")      return {label:"Renewed",      cls:"bg-lma-slate-200 text-lma-slate-600"};
+  if(st==="RENEWED")      return {label:"Renewed",      cls:"bg-lma-line text-lma-ink-2"};
   return {label:"Active", cls:"bg-lma-accent/15 text-lma-accent"};
 }
 
 function Sheet({ onClose, children, cardStyle }:{ onClose:()=>void; children:React.ReactNode; cardStyle?:React.CSSProperties }){
   return (
     <div className="fixed inset-0 z-[9998] flex items-end justify-center" onClick={onClose}>
-      <div className="absolute inset-0 bg-black/50 backdrop-blur-sm"/>
-      <div className="relative w-full max-w-md bg-white rounded-t-3xl p-5 max-h-[88vh] overflow-y-auto lma-slide-up" style={cardStyle} onClick={e=>e.stopPropagation()}>
-        <div className="w-9 h-1 bg-lma-slate-200 rounded-full mx-auto mb-4"/>
+      <div className="lma-fade-in absolute inset-0 bg-[rgb(15_23_42/0.5)]"/>
+      <div role="dialog" aria-modal="true" className="lma-sheet-up relative w-full max-w-[560px] max-h-[90dvh] overflow-y-auto overscroll-contain rounded-t-[24px] bg-lma-bg px-4 pt-2 pb-[calc(env(safe-area-inset-bottom)+18px)] shadow-lma-float" style={cardStyle} onClick={e=>e.stopPropagation()}>
+        <div className="mx-auto mb-3 h-1.5 w-10 rounded-full bg-[#dfe1ee]"/>
         {children}
       </div>
     </div>
   );
 }
-function L({ children }:{ children:React.ReactNode }){ return <label className="block text-[11px] font-bold text-lma-slate-500 uppercase tracking-wide mb-1 mt-2">{children}</label>; }
-function I({className="",...props}:React.InputHTMLAttributes<HTMLInputElement>){ return <input {...props} className={`w-full px-3.5 py-2.5 rounded-xl border-[1.5px] border-lma-slate-200 bg-lma-slate-50 focus:bg-white focus:border-lma-primary outline-none text-[14px] font-medium ${className}`}/>; }
+function L({ children }:{ children:React.ReactNode }){ return <label className="mb-1.5 mt-3 block px-1 text-[12px] font-bold uppercase tracking-[0.08em] text-lma-ink-3">{children}</label>; }
+function I({className="",...props}:React.InputHTMLAttributes<HTMLInputElement>){ return <input {...props} className={`w-full h-12 px-3.5 rounded-[14px] border border-lma-line bg-lma-surface text-[15px] font-medium text-lma-ink outline-none focus:border-lma-brand ${className}`}/>; }
 
 const FIELD_LABELS:Record<string,string>={
   seat_no:"Seat", temporary_seat:"Temp-vacated seat", shift:"Shift", shift_name:"Shift name", shift_time:"Shift time",
@@ -535,30 +554,30 @@ function EditEventCard({ev,phones}:{ev:EditEvent;phones?:PhoneEntry[]}){
   const after=safeParse(ev.after);
   const fields=(ev.changed_fields||"").split(",").map(x=>x.trim()).filter(Boolean);
   return (
-    <div className="border border-lma-slate-200 rounded-xl p-3">
+    <div className="border border-lma-line rounded-[14px] p-3">
       <div className="flex items-center gap-2 mb-1.5">
-        <span className="text-xs font-extrabold text-lma-slate-900">Edit {ev.letter}</span>
-        <span className="text-[10px] text-lma-slate-400 ml-auto">{ev.edited_at}</span>
+        <span className="text-xs font-bold text-lma-ink">Edit {ev.letter}</span>
+        <span className="text-[10px] text-lma-ink-3 ml-auto">{ev.edited_at}</span>
       </div>
       {fields.length===0?(
-        <div className="text-[11px] text-lma-slate-500">No field-level changes recorded.</div>
+        <div className="text-[11px] text-lma-ink-3">No field-level changes recorded.</div>
       ):(
         <div className="space-y-1">
           {fields.map(fk=>(
             <div key={fk} className="flex items-center gap-1.5 text-[11px]">
-              <span className="font-semibold text-lma-slate-600 w-28 shrink-0 truncate">{fieldLabel(fk)}</span>
+              <span className="font-semibold text-lma-ink-2 w-28 shrink-0 truncate">{fieldLabel(fk)}</span>
               <span className="text-lma-danger line-through truncate max-w-[90px]">{dispVal(before[fk])}</span>
-              <span className="text-lma-slate-400">→</span>
+              <span className="text-lma-ink-3">→</span>
               <span className="text-lma-accent font-semibold truncate max-w-[90px]">{dispVal(after[fk])}</span>
             </div>
           ))}
         </div>
       )}
-      {ev.remark&&<div className="text-[11px] text-lma-slate-500 mt-1.5 pt-1.5 border-t border-lma-slate-100">Note: {ev.remark}</div>}
+      {ev.remark&&<div className="text-[11px] text-lma-ink-3 mt-1.5 pt-1.5 border-t border-lma-line">Note: {ev.remark}</div>}
       {ev.whatsapp_text&&(
         <div className="mt-2 flex gap-2">
           <WhatsAppButton phones={phones} text={ev.whatsapp_text} label="Send update" className="text-[10px] font-bold px-2.5 py-1 rounded-lg bg-lma-accent/10 text-lma-accent disabled:opacity-40"/>
-          <button onClick={()=>{ navigator.clipboard.writeText(ev.whatsapp_text||""); }} className="text-[10px] font-bold px-2.5 py-1 rounded-lg bg-lma-slate-100 text-lma-slate-500">Copy</button>
+          <button onClick={()=>{ navigator.clipboard.writeText(ev.whatsapp_text||""); }} className="text-[10px] font-bold px-2.5 py-1 rounded-lg bg-lma-bg text-lma-ink-3">Copy</button>
         </div>
       )}
     </div>
@@ -589,37 +608,37 @@ export function MoneyTrail({receiptNo, autoOpen=false}:{receiptNo:string; autoOp
   const inr=(n:number)=>"₹"+Math.round(n).toLocaleString("en-IN");
   return (
     <div className="mt-3">
-      <button type="button" onClick={toggle} className="w-full flex items-center justify-between px-3 py-2 rounded-xl bg-lma-slate-50 text-[12px] font-bold text-lma-slate-600 active:scale-[0.99]">
-        <span>💰 Money trail</span><span className="text-lma-slate-400">{open?"▾":"▸ tap to load"}</span>
+      <button type="button" onClick={toggle} aria-expanded={open} className="lma-noscale flex h-12 w-full items-center justify-between rounded-[14px] bg-lma-surface px-3.5 text-[14px] font-semibold text-lma-ink ring-1 ring-inset ring-lma-line active:bg-lma-bg">
+        <span>Money trail</span><span className="text-[12.5px] font-medium text-lma-ink-3">{open?"hide ▴":"show ▾"}</span>
       </button>
       {open&&(
-        <div className="mt-1.5 bg-lma-slate-50 rounded-xl p-3 text-[11px]">
-          {loading ? <div className="text-lma-slate-400">Loading money trail…</div>
+        <div className="mt-1.5 bg-lma-bg rounded-[14px] p-3 text-[11px]">
+          {loading ? <div className="text-lma-ink-3">Loading money trail…</div>
           : err ? <div className="text-lma-danger">⚠ {err}</div>
           : t ? (
             <>
               <div className="grid grid-cols-2 gap-y-1 gap-x-3">
-                <span className="text-lma-slate-500">Fee</span><span className="text-right font-bold text-lma-slate-800">{inr(t.fee)}</span>
-                <span className="text-lma-slate-500">Paid at receipt</span><span className="text-right font-bold text-lma-slate-800">{inr(t.totals.initial_paid)}</span>
+                <span className="text-lma-ink-3">Fee</span><span className="text-right font-bold text-lma-ink">{inr(t.fee)}</span>
+                <span className="text-lma-ink-3">Paid at receipt</span><span className="text-right font-bold text-lma-ink">{inr(t.totals.initial_paid)}</span>
                 {t.totals.dues_received>0&&<><span className="text-lma-accent">Dues received</span><span className="text-right font-bold text-lma-accent">{inr(t.totals.dues_received)}</span></>}
                 {t.totals.refunds_total>0&&<><span className="text-lma-danger">Refunds made</span><span className="text-right font-bold text-lma-danger">−{inr(t.totals.refunds_total)}</span></>}
-                <span className="text-lma-slate-500">Outstanding balance</span><span className={`text-right font-extrabold ${t.fees_due_balance>0?"text-lma-warn":"text-lma-slate-800"}`}>{inr(t.fees_due_balance)}</span>
+                <span className="text-lma-ink-3">Outstanding balance</span><span className={`text-right font-bold ${t.fees_due_balance>0?"text-lma-warn":"text-lma-ink"}`}>{inr(t.fees_due_balance)}</span>
               </div>
               {(t.initial_payments&&t.initial_payments.filter((p:any)=>p.mode||p.amount).length>0)&&(
-                <div className="mt-2 pt-2 border-t border-lma-slate-200 space-y-0.5">
-                  <div className="text-[10px] font-bold text-lma-slate-400">Paid at receipt</div>
+                <div className="mt-2 pt-2 border-t border-lma-line space-y-0.5">
+                  <div className="text-[10px] font-bold text-lma-ink-3">Paid at receipt</div>
                   {t.initial_payments.filter((p:any)=>p.mode||p.amount).map((p:any,i:number)=>(
-                    <div key={"ip"+i} className="flex justify-between text-[10px]"><span className="text-lma-slate-500">{p.mode||"—"} · {p.date?fmtDMY(p.date):"—"}</span><span className="font-bold text-lma-slate-700">{inr(p.amount)}</span></div>
+                    <div key={"ip"+i} className="flex justify-between text-[10px]"><span className="text-lma-ink-3">{p.mode||"—"} · {p.date?fmtDMY(p.date):"—"}</span><span className="font-bold text-lma-ink-2">{inr(p.amount)}</span></div>
                   ))}
                 </div>
               )}
               {(t.dues_payments.length>0||t.refunds.length>0)&&(
-                <div className="mt-2 pt-2 border-t border-lma-slate-200 space-y-0.5">
+                <div className="mt-2 pt-2 border-t border-lma-line space-y-0.5">
                   {t.dues_payments.map((d:any)=>(
-                    <div key={d.payment_id} className="flex justify-between text-[10px]"><span className="text-lma-slate-500">Dues · {d.mode} · {fmtDMYT(d.received_on)}</span><span className="font-bold text-lma-accent">{inr(d.amount)}</span></div>
+                    <div key={d.payment_id} className="flex justify-between text-[10px]"><span className="text-lma-ink-3">Dues · {d.mode} · {fmtDMYT(d.received_on)}</span><span className="font-bold text-lma-accent">{inr(d.amount)}</span></div>
                   ))}
                   {t.refunds.map((r:any)=>(
-                    <div key={r.refund_id} className="flex justify-between text-[10px]"><span className="text-lma-slate-500">Refund · {r.mode} · {fmtDMYT(r.refund_date)}</span><span className="font-bold text-lma-danger">−{inr(r.amount)}</span></div>
+                    <div key={r.refund_id} className="flex justify-between text-[10px]"><span className="text-lma-ink-3">Refund · {r.mode} · {fmtDMYT(r.refund_date)}</span><span className="font-bold text-lma-danger">−{inr(r.amount)}</span></div>
                   ))}
                 </div>
               )}
@@ -655,18 +674,18 @@ function EditSeatPicker({ library, branch, shift, currentSeat, ignoreReceiptNo, 
   return (
     <div className="fixed inset-0 z-[10001] flex items-end justify-center" onClick={onClose}>
       <div className="absolute inset-0 bg-black/50"/>
-      <div className="relative w-full max-w-md bg-white rounded-t-3xl p-5 max-h-[88vh] overflow-y-auto lma-slide-up" onClick={e=>e.stopPropagation()}>
-        <div className="w-9 h-1 bg-lma-slate-200 rounded-full mx-auto mb-4"/>
-        <h3 className="text-base font-extrabold text-lma-slate-900 mb-1">Pick seat — {shift}</h3>
-        <p className="text-[12px] text-lma-slate-500 mb-3">Green = available for this shift. Your current seat is highlighted.</p>
-        {loading?(<div className="text-center text-sm text-lma-slate-500 py-8">Loading seats…</div>)
+      <div className="relative w-full max-w-md bg-white rounded-t-[24px] p-5 max-h-[88vh] overflow-y-auto lma-slide-up" onClick={e=>e.stopPropagation()}>
+        <div className="w-9 h-1 bg-lma-line rounded-full mx-auto mb-4"/>
+        <h3 className="text-base font-bold text-lma-ink mb-1">Pick seat — {shift}</h3>
+        <p className="text-[12px] text-lma-ink-3 mb-3">Green = available for this shift. Your current seat is highlighted.</p>
+        {loading?(<div className="text-center text-sm text-lma-ink-3 py-8">Loading seats…</div>)
         :err?(<div className="text-center text-sm text-lma-danger py-8">{err}</div>)
-        :!data||!data.sections?(<div className="text-center text-sm text-lma-slate-500 py-8">No layout.</div>)
+        :!data||!data.sections?(<div className="text-center text-sm text-lma-ink-3 py-8">No layout.</div>)
         :(
           <div className="space-y-4">
             {data.sections.slice().sort((a,b)=>a.section_order-b.section_order).map(sec=>(
               <div key={sec.section_name}>
-                {data.sections.length>1&&<div className="text-[11px] font-bold text-lma-slate-500 mb-1.5">{sec.section_name}</div>}
+                {data.sections.length>1&&<div className="text-[11px] font-bold text-lma-ink-3 mb-1.5">{sec.section_name}</div>}
                 <div className="grid gap-1" style={{gridTemplateColumns:`repeat(${sec.cols}, minmax(28px, 1fr))`}}>
                   {Array.from({length:sec.rows*sec.cols}).map((_,idx)=>{
                     const r=Math.floor(idx/sec.cols)+1,c=(idx%sec.cols)+1;
@@ -683,7 +702,7 @@ function EditSeatPicker({ library, branch, shift, currentSeat, ignoreReceiptNo, 
                     return (
                       <button key={idx} type="button" disabled={!isVacant} onClick={()=>setPicked(cell.display_label)}
                         title={cell.occupant?cell.occupant.name:(cell.share_note||"")}
-                        className="aspect-square rounded text-[9px] font-extrabold flex items-center justify-center disabled:cursor-not-allowed"
+                        className="aspect-square rounded text-[9px] font-bold flex items-center justify-center disabled:cursor-not-allowed"
                         style={{background:tone.bg,color:tone.fg,border:`${isCurrent?"1.5px dashed":"1px solid"} ${tone.bd}`}}>
                         {cell.display_label}
                       </button>
@@ -695,8 +714,8 @@ function EditSeatPicker({ library, branch, shift, currentSeat, ignoreReceiptNo, 
           </div>
         )}
         <div className="flex gap-2 mt-5 sticky bottom-0 bg-white pt-2">
-          <button type="button" onClick={()=>onPick("")} className="flex-1 py-3 rounded-xl bg-lma-slate-100 text-lma-slate-600 font-bold text-sm">Unassign (blank)</button>
-          <button type="button" disabled={!picked} onClick={()=>onPick(picked)} className="flex-1 py-3 rounded-xl bg-gradient-to-br from-lma-primary to-lma-primary-2 text-white font-bold shadow-md disabled:opacity-50">{picked?`Use ${picked}`:"Pick a seat"}</button>
+          <button type="button" onClick={()=>onPick("")} className="flex-1 py-3 rounded-[14px] bg-lma-surface text-lma-ink-2 ring-1 ring-inset ring-lma-line font-semibold text-sm">Unassign (blank)</button>
+          <button type="button" disabled={!picked} onClick={()=>onPick(picked)} className="flex-1 py-3 rounded-[14px] lma-glass-btn text-white font-bold disabled:opacity-50">{picked?`Use ${picked}`:"Pick a seat"}</button>
         </div>
       </div>
     </div>

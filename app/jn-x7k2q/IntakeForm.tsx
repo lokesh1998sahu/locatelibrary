@@ -25,13 +25,13 @@ const C = {
 
 const S: Record<string, React.CSSProperties> = {
   page:  { minHeight:"100vh", background:"linear-gradient(180deg,#e8edf6 0%,#f4f6fa 38%,#f4f6fa 100%)", display:"flex", justifyContent:"center", alignItems:"flex-start", padding:"22px 14px 56px", fontFamily:"system-ui,-apple-system,'Segoe UI',Roboto,sans-serif", color:C.ink, WebkitTextSizeAdjust:"100%", boxSizing:"border-box" },
-  card:  { width:"100%", maxWidth:420, background:"#ffffff", borderRadius:20, overflow:"hidden", boxShadow:"0 10px 34px rgba(15,23,42,.13), 0 2px 6px rgba(15,23,42,.06)" },
+  card:  { width:"100%", maxWidth:440, background:"#ffffff", borderRadius:22, overflow:"hidden", boxShadow:"0 10px 34px rgba(15,23,42,.13), 0 2px 6px rgba(15,23,42,.06)" },
   head:  { position:"relative", background:`radial-gradient(120% 120% at 88% -10%, #2f6fd6 0%, ${C.brand} 42%, ${C.brandDeep} 100%)`, color:"#ffffff", padding:"22px 20px 24px" },
-  body:  { padding:"20px 18px 22px" },
+  body:  { padding:"20px 20px 24px" },
   label: { display:"block", fontSize:11.5, fontWeight:800, color:C.body, letterSpacing:".05em", textTransform:"uppercase", margin:"18px 0 6px" },
-  input: { width:"100%", padding:"13px 14px", fontSize:16, fontWeight:500, color:C.ink, background:C.field, border:`1.5px solid ${C.line}`, borderRadius:12, outline:"none", boxSizing:"border-box", fontFamily:"inherit", WebkitAppearance:"none" as const },
+  input: { width:"100%", padding:"15px 15px", fontSize:16, fontWeight:500, color:C.ink, background:C.field, border:`1.5px solid ${C.line}`, borderRadius:12, outline:"none", boxSizing:"border-box", fontFamily:"inherit", WebkitAppearance:"none" as const },
   code:  { width:"100%", padding:"16px 14px", fontSize:23, fontWeight:800, color:C.ink, background:C.field, border:`1.5px solid ${C.line}`, borderRadius:12, outline:"none", boxSizing:"border-box", textAlign:"center", letterSpacing:".14em", fontFamily:"ui-monospace,SFMono-Regular,Menlo,monospace", WebkitAppearance:"none" as const },
-  btn:   { width:"100%", marginTop:22, padding:"15px", fontSize:16, fontWeight:700, color:"#ffffff", background:C.brand, border:"none", borderRadius:12, cursor:"pointer", fontFamily:"inherit" },
+  btn:   { width:"100%", marginTop:22, padding:"16px", fontSize:16, fontWeight:700, color:"#ffffff", background:`linear-gradient(180deg,#2f6fd6 0%, ${C.brand} 60%, ${C.brandDeep} 100%)`, border:"none", borderRadius:14, cursor:"pointer", fontFamily:"inherit", boxShadow:"0 10px 22px -12px rgba(20,84,184,.8), inset 0 1px 0 rgba(255,255,255,.25)" },
   btnOff:{ opacity:.4, cursor:"not-allowed" },
   err:   { fontSize:13.5, fontWeight:600, color:C.err, background:C.errBg, border:"1px solid #fecaca", borderRadius:10, padding:"10px 12px", lineHeight:1.45 },
   note:  { fontSize:12.5, color:C.muted, textAlign:"center", margin:"14px 0 0", lineHeight:1.55 },
@@ -160,6 +160,7 @@ export default function IntakeForm(){
 
         {/* ── BODY ── */}
         <div style={S.body}>
+          <Steps step={step}/>
 
           {step==="CODE" && (<>
             {err && <div style={{...S.err, marginBottom:16}}>{err}</div>}
@@ -224,17 +225,43 @@ export default function IntakeForm(){
           {step==="DONE" && (
             <div>
               <div style={{ textAlign:"center" }}>
-                <div style={{ fontSize:44, lineHeight:1, marginBottom:8 }}>✅</div>
-                <div style={{ fontSize:18, fontWeight:800, color:C.teal, marginBottom:6 }}>Details received</div>
-                <p style={{ fontSize:13.5, color:C.body, margin:"0 0 16px", lineHeight:1.55 }}>Show this code at the library desk to finish your admission and get your seat.</p>
+                <div aria-hidden="true" style={{ width:60, height:60, borderRadius:999, background:"#e3f4ec", color:C.teal, display:"flex", alignItems:"center", justifyContent:"center", margin:"4px auto 12px" }}>
+                  <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.4} strokeLinecap="round" strokeLinejoin="round"><path d="M5 12.5 9.5 17 19 7.5"/></svg>
+                </div>
+                <div style={{ fontSize:21, fontWeight:800, color:C.ink, marginBottom:6, letterSpacing:"-.01em" }}>Details received</div>
+                <p style={{ fontSize:14, color:C.body, margin:"0 0 16px", lineHeight:1.55 }}>Your library has your details. Two quick steps to finish:</p>
                 <div style={{ fontSize:25, fontWeight:800, color:C.ink, letterSpacing:".14em", fontFamily:"ui-monospace,SFMono-Regular,Menlo,monospace", background:C.field, border:`1.5px solid ${C.line}`, borderRadius:12, padding:"15px 10px" }}>{doneCode}</div>
               </div>
+              <ol style={{ listStyle:"none", padding:0, margin:"16px 0 0", display:"grid", gap:8 }}>
+                {["Send your photo and ID to the library (button below).","Show this code at the desk to get your seat."].map((t,k)=>(
+                  <li key={k} style={{ display:"flex", gap:10, alignItems:"flex-start", fontSize:14, color:C.body, lineHeight:1.5, background:C.field, border:`1px solid ${C.line}`, borderRadius:14, padding:"11px 12px" }}>
+                    <span style={{ flexShrink:0, width:24, height:24, borderRadius:999, background:C.brand, color:"#fff", fontSize:12.5, fontWeight:800, display:"flex", alignItems:"center", justifyContent:"center" }}>{k+1}</span>
+                    <span>{t}</span>
+                  </li>
+                ))}
+              </ol>
               <Docs info={info} code={doneCode}/>
               <p style={S.note}>You can close this page once your documents are sent.</p>
             </div>
           )}
 
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Where you are: Code → Details → Done ──
+function Steps({ step }:{ step:"CODE"|"FORM"|"DONE" }){
+  const idx = step==="CODE"?0:step==="FORM"?1:2;
+  const names = ["Code","Details","Done"];
+  return (
+    <div aria-label={`Step ${idx+1} of 3: ${names[idx]}`} style={{ marginBottom:18 }}>
+      <div style={{ display:"flex", gap:6 }}>
+        {names.map((_,k)=><span key={k} style={{ flex:1, height:5, borderRadius:999, background:k<=idx?C.brand:"#e2e8f0", transition:"background .2s ease" }}/>)}
+      </div>
+      <div style={{ display:"flex", justifyContent:"space-between", marginTop:6, fontSize:11.5, fontWeight:700, letterSpacing:".04em", textTransform:"uppercase" }}>
+        {names.map((n,k)=><span key={n} style={{ color:k<=idx?C.brand:C.muted }}>{k+1} · {n}</span>)}
       </div>
     </div>
   );

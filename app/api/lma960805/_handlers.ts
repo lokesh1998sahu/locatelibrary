@@ -84,6 +84,8 @@ import { occupancyStats } from "../../lma960805/_lib/vacancy";
     "updateMiscIncome",
     "deleteMiscIncome",
     "restoreMiscIncome",
+    "getMiscCategories",
+    "saveMiscCategory",
     // 09_Admin (writes)
     "addLibrary",
     "updateLibrary",
@@ -3646,6 +3648,76 @@ async function getOccupancySummary() {
     return { deleted: true, soft: true };
   }
 
+  // ── MISC CATEGORIES ─────────────────────────────────────────────
+  // A short managed list for the misc income form (table misc_categories, see
+  // misc-categories-setup.sql). Each entry still stores its category as text,
+  // so old entries, reports and the ledger keep working unchanged.
+  // If the table has not been created yet, the list comes back empty with
+  // ready:false and the form falls back to typing.
+  async function getMiscCategories(): Promise<any> {
+    try {
+      const rows = (await sql`
+        select c.id, c.name, c.active, c.sort,
+               (select count(*) from misc_income m where upper(btrim(coalesce(m.category,''))) = upper(c.name)) as uses
+          from misc_categories c
+         order by c.sort, c.name`) as any[];
+      return {
+        ok: true, ready: true,
+        categories: rows.map((r) => ({ id: num(r.id), name: String(r.name ?? ""), active: !!r.active, sort: num(r.sort), uses: num(r.uses) })),
+      };
+    } catch (e: any) {
+      if (/misc_categories/i.test(String(e?.message ?? e))) return { ok: true, ready: false, categories: [] };
+      throw e;
+    }
+  }
+
+  // Add ({name}), rename ({id,name[,apply_to_past]}), switch on/off ({id,active}),
+  // or move ({id,move:"up"|"down"}). Renaming past entries only happens when
+  // apply_to_past is sent, and only changes their CATEGORY text.
+  async function saveMiscCategory(p: any): Promise<any> {
+    if (!p) throw new Error("Payload required.");
+    const name = up(p.name ?? "");
+    return await sql.begin(async (tx: any) => {
+      if (p.id === undefined || p.id === null || p.id === "") {
+        if (!name) return { ok: false, error: "Category name is required." };
+        const dup = (await tx`select id from misc_categories where upper(name)=${name} limit 1`) as any[];
+        if (dup.length) return { ok: false, error: `${name} is already in the list.` };
+        const mx = (await tx`select coalesce(max(sort),0)+10 as s from misc_categories`) as any[];
+        const ins = (await tx`insert into misc_categories (name, active, sort) values (${name}, true, ${num(mx[0].s)}) returning id`) as any[];
+        return { ok: true, id: num(ins[0].id), added: true };
+      }
+      const id = num(p.id);
+      const rows = (await tx`select * from misc_categories where id=${id} limit 1 for update`) as any[];
+      if (!rows.length) return { ok: false, error: "Category not found." };
+      const cur = rows[0];
+      let renamedEntries = 0;
+      if (name && name !== up(cur.name)) {
+        const dup = (await tx`select id from misc_categories where upper(name)=${name} and id<>${id} limit 1`) as any[];
+        if (dup.length) return { ok: false, error: `${name} is already in the list.` };
+        await tx`update misc_categories set name=${name} where id=${id}`;
+        if (p.apply_to_past) {
+          const r = (await tx`update misc_income set category=${name}
+                               where upper(btrim(coalesce(category,'')))=${up(cur.name)} returning s_no`) as any[];
+          renamedEntries = r.length;
+        }
+      }
+      if (p.active !== undefined) await tx`update misc_categories set active=${!!p.active} where id=${id}`;
+      if (p.move === "up" || p.move === "down") {
+        const nb = (p.move === "up"
+          ? await tx`select id, sort from misc_categories where (sort, name) < (${num(cur.sort)}, ${String(cur.name)}) order by sort desc, name desc limit 1`
+          : await tx`select id, sort from misc_categories where (sort, name) > (${num(cur.sort)}, ${String(cur.name)}) order by sort, name limit 1`) as any[];
+        if (nb.length) {
+          const a = num(cur.sort), b = num(nb[0].sort);
+          // swap; equal sorts get pulled apart so the order is always well defined
+          const [na, nbv] = a === b ? (p.move === "up" ? [b - 1, a] : [b + 1, a]) : [b, a];
+          await tx`update misc_categories set sort=${na} where id=${id}`;
+          await tx`update misc_categories set sort=${nbv} where id=${num(nb[0].id)}`;
+        }
+      }
+      return { ok: true, id, renamed_entries: renamedEntries };
+    });
+  }
+
   async function restoreMiscIncome(p: any): Promise<any> {
     if (!p || p.s_no === undefined || p.s_no === null) throw new Error("s_no is required.");
     const targetSno = num(p.s_no);
@@ -4413,6 +4485,10 @@ async function getOccupancySummary() {
         return await deleteMiscIncome(params);
       case "restoreMiscIncome":
         return await restoreMiscIncome(params);
+      case "getMiscCategories":
+        return await getMiscCategories();
+      case "saveMiscCategory":
+        return await saveMiscCategory(params);
       case "updateRefund":
         return await updateRefund(params);
       case "deleteRefund":

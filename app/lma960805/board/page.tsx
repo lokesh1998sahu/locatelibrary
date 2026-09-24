@@ -222,7 +222,7 @@ export default function BoardPage(){
       // wait a tick for the export layout to render
       await new Promise(r=>setTimeout(r,150));
       const node=document.getElementById(nodeId);
-      if(!node){ alert("Export layout not found."); return; }
+      if(!node){ showToast("Export layout not found","error"); return; }
       const h2c=(window as any).html2canvas;
       const canvas=await h2c(node,{ backgroundColor:"#ffffff", scale:scale, logging:false, useCORS:true, width:node.scrollWidth, height:node.scrollHeight, windowWidth:node.scrollWidth, windowHeight:node.scrollHeight });
       const link=document.createElement("a");
@@ -231,7 +231,7 @@ export default function BoardPage(){
       document.body.appendChild(link); link.click(); document.body.removeChild(link);
     }catch(e){
       console.error("PNG export error:",e);
-      alert("Export failed: "+(e instanceof Error?e.message:String(e)));
+      showToast("Export failed: "+(e instanceof Error?e.message:String(e)),"error");
     }finally{ setExporting(false); setShowExport(false); }
   };
 
@@ -888,7 +888,7 @@ function DetailSheet({ cell, panel, onClose, scope, lib, branch, post, showToast
   const [laneUI,setLaneUI]=useState<{rno:string;sec:string}>({rno:"",sec:""});
   const tglLane=(rno:string,sec:string)=>setLaneUI(p=>(p.rno===rno&&p.sec===sec)?{rno:"",sec:""}:{rno,sec});
   const L = branch||lib;
-  const { init }=useLMA();
+  const { init, confirm: ask }=useLMA();
   const libName=((init?.libraries||[]).find(l=>l.library_code===lib)?.display_name)||lib;
 
   const goBook=(shift?:string)=>{ onAddBooking(cell.display_label, shift||""); };
@@ -903,7 +903,7 @@ function DetailSheet({ cell, panel, onClose, scope, lib, branch, post, showToast
   // A5/C4: cancel handled by shared CancelRefundSheet (full refund-capable flow)
   const removeBlock=async(blk:BlockInfo)=>{
     if(busy) return;
-    if(!confirm("Remove this block?")) return;
+    if(!(await ask({ title:"Remove this block?", body:"The seat becomes available to book again.", confirmLabel:"Remove block", danger:true }))) return;
     setBusy(true);
     const r=await post("removeSeatBlock",{ block_id:blk.block_id });
     setBusy(false);
@@ -916,7 +916,7 @@ function DetailSheet({ cell, panel, onClose, scope, lib, branch, post, showToast
   const duesReminder=(o:Occupant):string=>buildDuesReminder(o.name, libName, o.fees_due_balance);
   const doNotRenew=async(o:Occupant)=>{
     if(busy) return;
-    if(!confirm(`Flag receipt ${o.receipt_no} as Do-Not-Renew? It will stop appearing in renewal lists.`)) return;
+    if(!(await ask({ title:`Do not renew ${o.receipt_no}?`, body:`${o.name} will stop appearing in renewal lists.`, confirmLabel:"Do not renew", danger:true }))) return;
     setBusy(true);
     const r=await post("markReceiptDoNotRenew",{receipt_no:o.receipt_no});
     setBusy(false);
@@ -1687,10 +1687,11 @@ function BlockForm({ seat, suggestedShift, blockId, initReason, initFrom, initTo
 }
 
 function BlockDetailSheet({ info, seatLabel, lib, branch, post, onClose, onRemoved, showToast }:{ info:BlockInfo; seatLabel:string; lib:string; branch:string; post:(a:string,p:any)=>Promise<any>; onClose:()=>void; onRemoved:()=>void; showToast:(m:string,t?:"success"|"error")=>void }){
+  const { confirm: ask }=useLMA();
   const [busy,setBusy]=useState(false);
   const remove=async()=>{
     if(busy) return;
-    if(!confirm("Remove this block?")) return;
+    if(!(await ask({ title:"Remove this block?", body:"The seat becomes available to book again.", confirmLabel:"Remove block", danger:true }))) return;
     setBusy(true);
     const r=await post("removeSeatBlock",{ block_id:info.block_id });
     setBusy(false);

@@ -87,34 +87,58 @@ export default function BookingFlow({ renewReceiptNo, addMode, libCode, presetSe
   },[renewFrom,libCode,presetSeat,presetShift]);
 
   const formCtx = renewReceiptNo ? renewCtx : bookingCtx;
+  const STEPS = renewReceiptNo ? ["Confirm","Booking","Done"] : ["Type","Student","Booking","Done"];
+  const stepIdx = (renewReceiptNo ? ({confirm:0,form:1,done:2} as Record<string,number>) : ({type:0,student:1,form:2,done:3} as Record<string,number>))[step] ?? 0;
+  const flowTitle = renewReceiptNo ? "Renew booking" : "New booking";
+  const fromChart = [presetSeat?`Seat ${presetSeat}`:"", presetShift?presetShift.charAt(0).toUpperCase()+presetShift.slice(1).toLowerCase():""].filter(Boolean).join(" · ");
 
   return (
     <div className="fixed inset-0 z-[9998] flex items-end justify-center" onClick={onClose}>
-      <div className="absolute inset-0 bg-black/50 backdrop-blur-sm"/>
-      <div className="relative w-full max-w-md bg-white rounded-t-3xl p-5 max-h-[92vh] overflow-y-auto lma-slide-up" onClick={e=>e.stopPropagation()}>
-        <div className="w-9 h-1 bg-lma-slate-200 rounded-full mx-auto mb-4"/>
-
-        {!renewReceiptNo && (presetSeat||presetShift) && step!=="done" && (
-          <div className="text-[11px] font-semibold text-lma-primary bg-lma-primary/5 rounded-lg px-2.5 py-1.5 mb-3">📍 From seat chart: {presetShift||""}{presetSeat?` · Seat ${presetSeat}`:""}</div>
+      <div className="lma-fade-in absolute inset-0 bg-[rgb(15_23_42/0.5)]"/>
+      <div role="dialog" aria-modal="true" aria-label={flowTitle} className="lma-sheet-up relative w-full max-w-[560px] max-h-[94dvh] overflow-y-auto overscroll-contain rounded-t-[24px] bg-lma-bg px-4 pt-2 pb-[calc(env(safe-area-inset-bottom)+16px)] shadow-lma-float" onClick={e=>e.stopPropagation()}>
+        <div className="mx-auto mb-3 h-1.5 w-10 rounded-full bg-[#dfe1ee]"/>
+        {step!=="done"&&(
+          <div className="mb-4">
+            <div className="flex items-center gap-3">
+              <div className="min-w-0 flex-1">
+                <div className="text-[18px] font-bold tracking-[-0.01em] text-lma-ink">{flowTitle}</div>
+                <div className="mt-0.5 truncate text-[12.5px] text-lma-ink-3">Step {stepIdx+1} of {STEPS.length} · {STEPS[stepIdx]}{fromChart?` · ${fromChart}`:""}</div>
+              </div>
+              <button type="button" aria-label="Close" onClick={onClose} className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-lma-surface text-lma-ink-2 ring-1 ring-inset ring-lma-line active:bg-lma-bg"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+            </div>
+            <div className="mt-3 flex gap-1.5" aria-hidden="true">{STEPS.map((_,k)=><span key={k} className={`h-1.5 flex-1 rounded-full ${k<=stepIdx?"bg-lma-brand":"bg-lma-line"}`}/>)}</div>
+          </div>
         )}
 
         {loading ? (
-          <div className="py-10 text-center text-sm text-lma-slate-500">Loading…</div>
+          <div className="py-10 text-center text-sm text-lma-ink-3">Loading…</div>
         ) : renewReceiptNo && !renewFrom ? (
-          <div className="py-10 text-center"><p className="text-sm text-lma-slate-500 mb-4">Receipt not found.</p><button onClick={onClose} className="px-5 py-2.5 rounded-xl bg-lma-slate-100 text-lma-slate-600 font-bold text-sm">Close</button></div>
+          <div className="py-10 text-center"><p className="text-sm text-lma-ink-3 mb-4">Receipt not found.</p><button onClick={onClose} className="px-5 py-2.5 rounded-[14px] bg-lma-surface text-lma-ink-2 ring-1 ring-inset ring-lma-line font-semibold text-sm">Close</button></div>
         ) : step==="confirm" && renewFrom ? (
           <>
-            <h3 className="text-lg font-extrabold text-lma-slate-900 mb-1">Renew receipt</h3>
-            <p className="text-[12px] text-lma-slate-500 mb-3">A new receipt will be created and the old one marked renewed.</p>
-            <div className="bg-lma-slate-50 rounded-xl p-3 space-y-1">
-              <div className="flex items-center gap-2"><span className="text-sm font-extrabold text-lma-slate-900">{renewFrom.receipt_no}</span><span className="text-[10px] font-bold text-lma-slate-400">{renewFrom.student_id}</span>{renewCtx?.isCross&&<span className="text-[9px] font-bold text-lma-warn bg-lma-warn/10 px-1.5 py-0.5 rounded ml-auto">CROSS · {renewCtx.crossOrigin}</span>}</div>
-              <div className="text-sm font-bold text-lma-slate-800">{renewFrom.name}</div>
-              <div className="text-[11px] text-lma-slate-500">{renewFrom.shift_name||renewFrom.shift}{renewFrom.seat_no?` · Seat ${renewFrom.seat_no}`:""} · until {fmtDMY(renewFrom.booking_to)}</div>
-              {(presetSeat||presetShift)&&<div className="text-[11px] font-semibold text-lma-primary mt-1">New: {presetShift||renewFrom.shift}{presetSeat?` · Seat ${presetSeat}`:""}</div>}
+            <div className="rounded-[18px] border border-lma-line bg-lma-surface p-4 shadow-lma-card">
+              <div className="text-[17px] font-bold leading-snug text-lma-ink">{renewFrom.name}</div>
+              <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[12px] text-lma-ink-3">
+                <span className={`rounded-md px-1.5 py-0.5 font-lma-mono font-semibold ring-1 ring-inset ${renewCtx?.isCross?"bg-[#f5f0ff] text-[#7c3aed] ring-[#e4d9fb]":"bg-lma-bg text-lma-ink-2 ring-lma-line"}`}>{renewFrom.student_id}{renewCtx?.isCross?`-${renewCtx.crossOrigin}`:""}</span>
+                <span aria-hidden="true">·</span><span className="font-lma-mono">{renewFrom.receipt_no}</span>
+              </div>
+              <div className="mt-3 grid grid-cols-2 gap-2">
+                <div className="rounded-[12px] bg-lma-bg px-3 py-2.5">
+                  <div className="text-[10.5px] font-bold uppercase tracking-[0.06em] text-lma-ink-3">Now</div>
+                  <div className="mt-0.5 text-[13.5px] font-semibold text-lma-ink">{renewFrom.shift_name||renewFrom.shift}{renewFrom.seat_no?` · Seat ${renewFrom.seat_no}`:""}</div>
+                  <div className="text-[12px] text-lma-ink-3">till {fmtDMY(renewFrom.booking_to)}</div>
+                </div>
+                <div className="rounded-[12px] bg-lma-brand-soft px-3 py-2.5">
+                  <div className="text-[10.5px] font-bold uppercase tracking-[0.06em] text-lma-brand">Renewing</div>
+                  <div className="mt-0.5 text-[13.5px] font-semibold text-lma-ink">{presetShift||renewFrom.shift_name||renewFrom.shift}{(presetSeat||renewFrom.seat_no)?` · Seat ${presetSeat||renewFrom.seat_no}`:""}</div>
+                  <div className="text-[12px] text-lma-ink-3">dates &amp; fees next</div>
+                </div>
+              </div>
             </div>
-            <div className="grid grid-cols-2 gap-2 mt-4">
-              <button onClick={onClose} className="py-3 rounded-xl bg-lma-slate-100 text-lma-slate-600 font-bold">Cancel</button>
-              <button onClick={()=>setStep("form")} className="py-3 rounded-xl bg-gradient-to-br from-lma-primary to-lma-primary-2 text-white font-bold shadow-md">Continue →</button>
+            <p className="mt-3 px-1 text-[12.5px] leading-relaxed text-lma-ink-3">A new receipt is created and the old one is marked renewed.</p>
+            <div className="mt-4 grid grid-cols-2 gap-2">
+              <button onClick={onClose} className="h-12 rounded-[14px] bg-lma-surface text-[15px] font-semibold text-lma-ink-2 ring-1 ring-inset ring-lma-line">Cancel</button>
+              <button onClick={()=>setStep("form")} className="lma-glass-btn h-12 rounded-[14px] text-[15px] font-bold text-white">Continue</button>
             </div>
           </>
         ) : step==="type" ? (
@@ -144,48 +168,63 @@ function DoneView({ result, onClose }:{ result:ResultData; onClose:()=>void }){
   const wa=(text:string)=>`https://wa.me/?text=${encodeURIComponent(text)}`;
   return (
     <div>
-      <div className="text-center mb-3">
-        <div className="text-4xl mb-1">✅</div>
-        <h2 className="text-lg font-extrabold text-lma-slate-900">Receipt Created</h2>
-        <p className="text-sm text-lma-slate-600">{result.receipt_no} · {result.student_id}</p>
+      <div className="flex flex-col items-center pt-3 text-center">
+        <span className="grid h-14 w-14 place-items-center rounded-full bg-lma-in-soft text-lma-in">
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.4} strokeLinecap="round" strokeLinejoin="round"><path d="M5 12.5 9.5 17 19 7.5"/></svg>
+        </span>
+        <h2 className="mt-3 text-[20px] font-bold tracking-[-0.01em] text-lma-ink">Receipt created</h2>
+        <div className="mt-2 flex items-center gap-1.5">
+          <span className="rounded-md bg-lma-surface px-2 py-0.5 font-lma-mono text-[13px] font-semibold text-lma-ink ring-1 ring-inset ring-lma-line">{result.receipt_no}</span>
+          <span className="rounded-md bg-lma-surface px-2 py-0.5 font-lma-mono text-[13px] font-semibold text-lma-ink-2 ring-1 ring-inset ring-lma-line">{result.student_id}</span>
+        </div>
       </div>
-      <div className="text-[11px] font-bold text-lma-slate-500 uppercase tracking-wide mb-1.5">Receipt</div>
-      <pre className="text-[11px] text-lma-slate-700 whitespace-pre-wrap font-mono bg-lma-slate-50 rounded-lg p-3 max-h-44 overflow-y-auto">{result.receipt_text}</pre>
-      <div className="flex gap-2 mt-2">
-        <WhatsAppButton phones={result.phones} text={result.receipt_text} label="Share on WhatsApp" className="flex-1 py-2.5 rounded-xl bg-lma-accent text-white font-bold text-sm text-center disabled:opacity-40"/>
-        <button onClick={()=>copy(result.receipt_text,"r")} className="px-4 py-2.5 rounded-xl bg-lma-slate-100 text-lma-slate-600 font-bold text-sm">{copied==="r"?"Copied":"Copy"}</button>
+      <div className="mt-5 rounded-[18px] border border-lma-line bg-lma-surface p-3.5 shadow-lma-card">
+        <div className="mb-2 px-0.5 text-[12px] font-bold uppercase tracking-[0.08em] text-lma-ink-3">Receipt</div>
+        <pre className="max-h-44 overflow-y-auto whitespace-pre-wrap rounded-[12px] bg-lma-bg p-3 font-lma-mono text-[12px] leading-relaxed text-lma-ink-2">{result.receipt_text}</pre>
+        <div className="mt-3 grid grid-cols-[1fr_auto] gap-2">
+          <WhatsAppButton phones={result.phones} text={result.receipt_text} label="Send on WhatsApp" className="h-12 w-full rounded-[14px] bg-[#16a34a] text-[14.5px] font-bold text-white disabled:opacity-40"/>
+          <button onClick={()=>copy(result.receipt_text,"r")} className="h-12 rounded-[14px] bg-lma-bg px-4 text-[14px] font-semibold text-lma-ink-2 ring-1 ring-inset ring-lma-line">{copied==="r"?"Copied":"Copy"}</button>
+        </div>
       </div>
       {result.registration_text&&(
-        <>
-          <div className="text-[11px] font-bold text-lma-slate-500 uppercase tracking-wide mb-1.5 mt-3">Registration</div>
-          <pre className="text-[11px] text-lma-slate-700 whitespace-pre-wrap font-mono bg-lma-slate-50 rounded-lg p-3 max-h-40 overflow-y-auto">{result.registration_text}</pre>
-          <div className="flex gap-2 mt-2">
-            <a href={wa(result.registration_text)} target="_blank" rel="noopener noreferrer" className="flex-1 py-2.5 rounded-xl bg-lma-accent text-white font-bold text-sm text-center">Share Registration</a>
-            <button onClick={()=>copy(result.registration_text,"reg")} className="px-4 py-2.5 rounded-xl bg-lma-slate-100 text-lma-slate-600 font-bold text-sm">{copied==="reg"?"Copied":"Copy"}</button>
+        <div className="mt-3 rounded-[18px] border border-lma-line bg-lma-surface p-3.5 shadow-lma-card">
+          <div className="mb-2 px-0.5 text-[12px] font-bold uppercase tracking-[0.08em] text-lma-ink-3">Registration</div>
+          <pre className="max-h-40 overflow-y-auto whitespace-pre-wrap rounded-[12px] bg-lma-bg p-3 font-lma-mono text-[12px] leading-relaxed text-lma-ink-2">{result.registration_text}</pre>
+          <div className="mt-3 grid grid-cols-[1fr_auto] gap-2">
+            <a href={wa(result.registration_text)} target="_blank" rel="noopener noreferrer" className="grid h-12 place-items-center rounded-[14px] bg-[#16a34a] text-[14.5px] font-bold text-white">Send registration</a>
+            <button onClick={()=>copy(result.registration_text,"reg")} className="h-12 rounded-[14px] bg-lma-bg px-4 text-[14px] font-semibold text-lma-ink-2 ring-1 ring-inset ring-lma-line">{copied==="reg"?"Copied":"Copy"}</button>
           </div>
-        </>
+        </div>
       )}
-      <div className="mt-3"><ContactCopyButton name={result.name} library={result.library} studentId={result.student_id} phones={result.phones} label="📇 Copy Contact" className="w-full py-2.5 rounded-xl bg-lma-warn/10 text-lma-warn font-bold text-sm"/></div>
-      <button onClick={onClose} className="w-full mt-4 py-3 rounded-xl bg-gradient-to-br from-lma-primary to-lma-primary-2 text-white font-extrabold shadow-md">Done</button>
+      <div className="mt-3"><ContactCopyButton name={result.name} library={result.library} studentId={result.student_id} phones={result.phones} label="Copy contact" wrapperClassName="w-full" className="h-12 w-full rounded-[14px] bg-lma-surface text-[14px] font-semibold text-lma-ink-2 ring-1 ring-inset ring-lma-line"/></div>
+      <button onClick={onClose} className="lma-glass-btn mt-4 h-12 w-full rounded-[14px] text-[15px] font-bold text-white">Done</button>
     </div>
   );
 }
 
 // ── STEP: NEW vs RENEWAL (copied) ──
 function StepType({ onPick, onBack }:{ onPick:(t:"NEW"|"RENEWAL")=>void; onBack:()=>void }){
+  const card="lma-noscale flex w-full items-center gap-4 rounded-[18px] border border-lma-line bg-lma-surface p-4 text-left shadow-lma-card active:bg-lma-bg";
+  const chev=<svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" className="shrink-0 text-lma-ink-3"><path d="M9.5 5.5 16 12l-6.5 6.5"/></svg>;
   return (
-    <div className="lma-slide-up">
-      <button onClick={onBack} className="text-sm text-lma-slate-500 mb-3">← Cancel</button>
-      <div className="grid grid-cols-1 gap-3">
-        <button onClick={()=>onPick("NEW")} className="bg-white border border-lma-slate-200 rounded-2xl p-5 shadow-sm hover:shadow-md active:scale-[0.99] text-left flex items-center gap-4">
-          <div className="text-3xl">🆕</div>
-          <div><div className="text-base font-extrabold text-lma-slate-900">New Admission</div><div className="text-xs text-lma-slate-500">First-time student. Auto-generates student ID.</div></div>
+    <div>
+      <div className="space-y-3">
+        <button onClick={()=>onPick("NEW")} className={card}>
+          <span aria-hidden="true" className="lma-glass-btn grid h-12 w-12 shrink-0 place-items-center rounded-[14px] text-white">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round"><circle cx="10" cy="8.5" r="3.5"/><path d="M3.5 19.5a6.5 6.5 0 0 1 11.5-4"/><path d="M18.5 14v6M15.5 17h6"/></svg>
+          </span>
+          <span className="min-w-0 flex-1"><span className="block text-[16px] font-bold text-lma-ink">New admission</span><span className="mt-0.5 block text-[12.5px] text-lma-ink-3">First-time student · a student ID is created</span></span>
+          {chev}
         </button>
-        <button onClick={()=>onPick("RENEWAL")} className="bg-white border border-lma-slate-200 rounded-2xl p-5 shadow-sm hover:shadow-md active:scale-[0.99] text-left flex items-center gap-4">
-          <div className="text-3xl">🔁</div>
-          <div><div className="text-base font-extrabold text-lma-slate-900">Renewal</div><div className="text-xs text-lma-slate-500">Existing student. Search & continue booking.</div></div>
+        <button onClick={()=>onPick("RENEWAL")} className={card}>
+          <span aria-hidden="true" className="grid h-12 w-12 shrink-0 place-items-center rounded-[14px] bg-lma-brand-soft text-lma-brand">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><path d="M5 11V9.5A3.5 3.5 0 0 1 8.5 6H18l-3-3"/><path d="M19 13v1.5a3.5 3.5 0 0 1-3.5 3.5H6l3 3"/></svg>
+          </span>
+          <span className="min-w-0 flex-1"><span className="block text-[16px] font-bold text-lma-ink">Renewal</span><span className="mt-0.5 block text-[12.5px] text-lma-ink-3">Existing student · find them and continue</span></span>
+          {chev}
         </button>
       </div>
+      <button onClick={onBack} className="mt-3 h-11 w-full rounded-[14px] text-[14px] font-semibold text-lma-ink-3">Cancel</button>
     </div>
   );
 }
@@ -349,24 +388,24 @@ function StepStudent({ init, resolvedLib, resolvedBranch, admitType, post, showT
 
   return (
     <div className="lma-slide-up">
-      <button onClick={onBack} className="text-sm text-lma-slate-500 mb-3">← Back</button>
+      <button onClick={onBack} className="text-sm text-lma-ink-3 mb-3">← Back</button>
 
       {admitType==="NEW"?(
-        <div className="bg-white rounded-2xl p-4 shadow-sm">
-          <h3 className="text-base font-extrabold text-lma-slate-900 mb-3">New Student Details</h3>
-          <div className="bg-lma-slate-50 rounded-xl p-2.5 mb-3">
+        <div className="bg-white rounded-[18px] p-4 shadow-sm">
+          <h3 className="text-base font-bold text-lma-ink mb-3">New Student Details</h3>
+          <div className="bg-lma-bg rounded-[14px] p-2.5 mb-3">
             <FieldLabel>Intake code (optional)</FieldLabel>
             <div className="flex gap-2">
-              <input value={intakeCode} onChange={e=>{setIntakeCode(e.target.value.toUpperCase());setIntakeOk("");setIntakeRemark("");setIntakeMobile("");setIntakeAlt("");}} placeholder="XXXXX-XXXXX" autoCapitalize="characters" className="flex-1 px-3 py-2.5 rounded-xl border-[1.5px] border-lma-slate-200 bg-white text-sm font-mono tracking-wider"/>
-              <button type="button" onClick={fetchIntake} disabled={intakeBusy||!intakeCode.trim()} className="px-3.5 py-2.5 rounded-xl bg-lma-primary text-white font-bold text-xs disabled:opacity-50">{intakeBusy?"…":"Fetch"}</button>
+              <input value={intakeCode} onChange={e=>{setIntakeCode(e.target.value.toUpperCase());setIntakeOk("");setIntakeRemark("");setIntakeMobile("");setIntakeAlt("");}} placeholder="XXXXX-XXXXX" autoCapitalize="characters" className="flex-1 h-12 px-3.5 rounded-[14px] border border-lma-line bg-lma-surface text-[15px] font-lma-mono tracking-wider text-lma-ink outline-none focus:border-lma-brand"/>
+              <button type="button" onClick={fetchIntake} disabled={intakeBusy||!intakeCode.trim()} className="px-3.5 py-2.5 rounded-[14px] bg-lma-primary text-white font-bold text-xs disabled:opacity-50">{intakeBusy?"…":"Fetch"}</button>
             </div>
-            {(intakeMobile||intakeRemark)&&<div className="mt-1.5 px-2 py-1.5 rounded-lg bg-lma-primary/10 text-[11px] font-extrabold text-lma-primary leading-snug">{intakeMobile&&<span className="font-mono">📱 {intakeMobile}</span>}{intakeMobile&&intakeRemark?" · ":""}{intakeRemark}</div>}
+            {(intakeMobile||intakeRemark)&&<div className="mt-1.5 px-2 py-1.5 rounded-lg bg-lma-brand-soft text-[11px] font-bold text-lma-brand leading-snug">{intakeMobile&&<span className="font-mono">📱 {intakeMobile}</span>}{intakeMobile&&intakeRemark?" · ":""}{intakeRemark}</div>}
             {intakeAlt&&(
               <div className="mt-1.5 px-2.5 py-2 rounded-lg bg-lma-warn/10 border border-lma-warn/30">
-                <div className="text-[11px] font-bold text-lma-slate-800 leading-snug">&#9888; Number mismatch &mdash; code issued to <span className="font-mono font-extrabold">{intakeAlt}</span>, student filled <span className="font-mono font-extrabold">{phones[0]?.number||"—"}</span>. Check you have the right person.</div>
+                <div className="text-[11px] font-bold text-lma-ink leading-snug">&#9888; Number mismatch &mdash; code issued to <span className="font-mono font-bold">{intakeAlt}</span>, student filled <span className="font-mono font-bold">{phones[0]?.number||"—"}</span>. Check you have the right person.</div>
                 <div className="flex gap-2 mt-2">
                   <button type="button" onClick={()=>{ setPhones(p=>p.some(x=>x.number===intakeAlt)?p:[...p,{number:intakeAlt,tag:"ALT"}]); setIntakeAlt(""); }} style={{borderRadius:10}} className="flex-1 h-8 bg-lma-primary text-white font-bold text-[11px]">Add as secondary</button>
-                  <button type="button" onClick={()=>setIntakeAlt("")} style={{borderRadius:10}} className="flex-1 h-8 bg-lma-slate-100 text-lma-slate-600 font-bold text-[11px]">Keep only theirs</button>
+                  <button type="button" onClick={()=>setIntakeAlt("")} style={{borderRadius:10}} className="flex-1 h-8 bg-lma-surface text-lma-ink-2 ring-1 ring-inset ring-lma-line font-semibold text-[11px]">Keep only theirs</button>
                 </div>
               </div>
             )}
@@ -376,8 +415,8 @@ function StepStudent({ init, resolvedLib, resolvedBranch, admitType, post, showT
           <Inp value={name} onChange={e=>setName(e.target.value.toUpperCase())} placeholder="FULL NAME"/>
           <FieldLabel>Gender *</FieldLabel>
           <div className="grid grid-cols-2 gap-2 mb-3">
-            <button type="button" onClick={()=>setGender("M")} className={`py-2.5 rounded-xl font-bold text-sm border-[1.5px] transition ${gender==="M"?"bg-[#dbe6fb] border-[#93b4f0] text-[#1e3a8a]":"bg-lma-slate-50 border-lma-slate-200 text-lma-slate-500"}`}>♂ Male</button>
-            <button type="button" onClick={()=>setGender("F")} className={`py-2.5 rounded-xl font-bold text-sm border-[1.5px] transition ${gender==="F"?"bg-[#fbdbe8] border-[#f0a6c4] text-[#9d174d]":"bg-lma-slate-50 border-lma-slate-200 text-lma-slate-500"}`}>♀ Female</button>
+            <button type="button" onClick={()=>setGender("M")} className={`py-2.5 rounded-[14px] font-bold text-sm border-[1.5px] transition ${gender==="M"?"bg-[#dbe6fb] border-[#93b4f0] text-[#1e3a8a]":"bg-lma-bg border-lma-line text-lma-ink-3"}`}>♂ Male</button>
+            <button type="button" onClick={()=>setGender("F")} className={`py-2.5 rounded-[14px] font-bold text-sm border-[1.5px] transition ${gender==="F"?"bg-[#fbdbe8] border-[#f0a6c4] text-[#9d174d]":"bg-lma-bg border-lma-line text-lma-ink-3"}`}>♀ Female</button>
           </div>
           <FieldLabel>Phones</FieldLabel>
           {phones.map((ph,i)=>(
@@ -386,12 +425,12 @@ function StepStudent({ init, resolvedLib, resolvedBranch, admitType, post, showT
                 onChange={e=>{const n=[...phones];n[i]={...n[i],number:parsePhone10(e.target.value)};setPhones(n);}}
                 onBlur={()=>{const n=[...phones];n[i]={...n[i],number:normalizePhone(n[i].number)};setPhones(n);}}
                 placeholder={i===0?"SELF (primary)":`Phone ${i+1}`}
-                className="flex-1 px-3 py-2.5 rounded-xl border-[1.5px] border-lma-slate-200 bg-lma-slate-50 text-sm font-medium"/>
-              <input value={ph.tag} onChange={e=>{const n=[...phones];n[i]={...n[i],tag:e.target.value.toUpperCase()};setPhones(n);}} placeholder="TAG" className="w-20 px-2 py-2.5 rounded-xl border-[1.5px] border-lma-slate-200 bg-lma-slate-50 text-sm font-medium uppercase"/>
-              {i>0&&<button type="button" onClick={()=>setPhones(phones.filter((_,j)=>j!==i))} className="px-3 rounded-xl bg-lma-slate-100 text-lma-slate-500 font-extrabold text-lg leading-none">×</button>}
+                className="flex-1 h-12 px-3.5 rounded-[14px] border border-lma-line bg-lma-surface text-[15px] font-medium text-lma-ink outline-none focus:border-lma-brand"/>
+              <input value={ph.tag} onChange={e=>{const n=[...phones];n[i]={...n[i],tag:e.target.value.toUpperCase()};setPhones(n);}} placeholder="TAG" className="w-20 h-12 px-3.5 rounded-[14px] border border-lma-line bg-lma-surface text-[15px] font-medium text-lma-ink outline-none focus:border-lma-brand uppercase"/>
+              {i>0&&<button type="button" onClick={()=>setPhones(phones.filter((_,j)=>j!==i))} className="px-3 rounded-[14px] bg-lma-bg text-lma-ink-3 font-bold text-lg leading-none">×</button>}
             </div>
           ))}
-          <button type="button" onClick={()=>setPhones([...phones,{number:"",tag:""}])} className="text-sm font-bold text-lma-primary mb-3">+ Add phone</button>
+          <button type="button" onClick={()=>setPhones([...phones,{number:"",tag:""}])} className="text-sm font-bold text-lma-brand mb-3">+ Add phone</button>
           <div className="grid grid-cols-1 gap-0 mt-1">
             <FieldLabel>Address</FieldLabel>
             <Inp value={address} onChange={e=>setAddress(e.target.value.toUpperCase())}/>
@@ -399,59 +438,59 @@ function StepStudent({ init, resolvedLib, resolvedBranch, admitType, post, showT
             <Inp value={preparingFor} onChange={e=>setPreparingFor(e.target.value.toUpperCase())} placeholder="NEET, UPSC…"/>
             <div className="grid grid-cols-2 gap-3">
               <div><FieldLabel>Aadhaar (last 4)</FieldLabel><Inp value={aadhaar} onChange={e=>setAadhaar(e.target.value.replace(/\D/g,"").slice(0,4))} maxLength={4}/></div>
-              <div><FieldLabel>DOB</FieldLabel><input type="date" value={toIsoInput(dob)} onChange={e=>setDob(e.target.value)} className="w-full px-3 py-2.5 rounded-xl border-[1.5px] border-lma-slate-200 bg-lma-slate-50 text-sm font-medium"/>{dob && <span className="block text-[10px] font-bold text-lma-slate-500 mt-1">{fmtDMY(dob)}</span>}</div>
+              <div><FieldLabel>DOB</FieldLabel><input type="date" value={toIsoInput(dob)} onChange={e=>setDob(e.target.value)} className="h-12 w-full rounded-[14px] border border-lma-line bg-lma-surface px-3.5 text-[15px] font-medium text-lma-ink outline-none focus:border-lma-brand"/>{dob && <span className="block text-[10px] font-bold text-lma-ink-3 mt-1">{fmtDMY(dob)}</span>}</div>
             </div>
           </div>
-          <button onClick={handleNewNext} className="w-full mt-3 py-3 rounded-xl bg-gradient-to-br from-lma-primary to-lma-primary-2 text-white font-bold shadow-md">Next: Booking →</button>
+          <button onClick={handleNewNext} className="w-full mt-3 py-3 rounded-[14px] lma-glass-btn text-white font-bold">Next: Booking →</button>
         </div>
       ):(
         <div>
-          <div className="bg-white rounded-2xl p-4 shadow-sm mb-3">
+          <div className="bg-white rounded-[18px] p-4 shadow-sm mb-3">
             <div className="flex items-center justify-between mb-2">
-              <h3 className="text-base font-extrabold text-lma-slate-900">Find Student / Receipt</h3>
+              <h3 className="text-base font-bold text-lma-ink">Find Student / Receipt</h3>
               <label className="flex items-center gap-1.5 cursor-pointer">
                 <input type="checkbox" checked={isCross} onChange={e=>{setIsCross(e.target.checked);setStudentResults([]);setReceiptResults([]);setHasSearched(false);}} className="w-4 h-4 accent-lma-primary"/>
-                <span className="text-[11px] font-bold text-lma-slate-600">Cross-library</span>
+                <span className="text-[11px] font-bold text-lma-ink-2">Cross-library</span>
               </label>
             </div>
             {isCross&&(
               <div className="mb-2">
                 <FieldLabel>Student&apos;s home library</FieldLabel>
-                <select value={crossOrigin} onChange={e=>{setCrossOrigin(e.target.value);setStudentResults([]);setReceiptResults([]);setHasSearched(false);}} className="w-full px-3 py-2.5 rounded-xl border-[1.5px] border-lma-slate-200 bg-lma-slate-50 text-sm font-medium">
+                <select value={crossOrigin} onChange={e=>{setCrossOrigin(e.target.value);setStudentResults([]);setReceiptResults([]);setHasSearched(false);}} className="h-12 w-full rounded-[14px] border border-lma-line bg-lma-surface px-3.5 text-[15px] font-medium text-lma-ink outline-none focus:border-lma-brand">
                   <option value="">Select origin…</option>
                   {allScopes.map(s=><option key={s.code} value={s.code}>{s.label}</option>)}
                 </select>
-                <p className="text-[10px] text-lma-slate-500 mt-1">They&apos;ll keep their original ID but sit &amp; pay here.</p>
+                <p className="text-[10px] text-lma-ink-3 mt-1">They&apos;ll keep their original ID but sit &amp; pay here.</p>
               </div>
             )}
             <div className="flex gap-2">
-              <input value={search} onChange={e=>setSearch(e.target.value)} onKeyDown={e=>{if(e.key==="Enter")doSearch();}} placeholder="Name, phone, F-ID, or R-no…" disabled={isCross&&!crossOrigin} className="flex-1 px-4 py-3 rounded-xl border-[1.5px] border-lma-slate-200 bg-lma-slate-50 focus:bg-white focus:border-lma-primary outline-none text-sm font-medium disabled:opacity-50"/>
-              <button onClick={doSearch} disabled={searching||(isCross&&!crossOrigin)} className="px-5 py-3 rounded-xl bg-lma-primary text-white font-bold text-sm disabled:opacity-50">{searching?"…":"Search"}</button>
+              <input value={search} onChange={e=>setSearch(e.target.value)} onKeyDown={e=>{if(e.key==="Enter")doSearch();}} placeholder="Name, phone, F-ID, or R-no…" disabled={isCross&&!crossOrigin} className="flex-1 h-12 px-3.5 rounded-[14px] border border-lma-line bg-lma-surface text-[15px] font-medium text-lma-ink outline-none focus:border-lma-brand disabled:opacity-50"/>
+              <button onClick={doSearch} disabled={searching||(isCross&&!crossOrigin)} className="px-5 py-3 rounded-[14px] bg-lma-primary text-white font-bold text-sm disabled:opacity-50">{searching?"…":"Search"}</button>
             </div>
-            <p className="text-[10px] text-lma-slate-500 mt-1.5">Auto-detects type. Tip: R12 = receipt, F45 = student ID, digits = phone.</p>
+            <p className="text-[10px] text-lma-ink-3 mt-1.5">Auto-detects type. Tip: R12 = receipt, F45 = student ID, digits = phone.</p>
           </div>
 
-          {searching&&<div className="text-center text-sm text-lma-slate-500 py-3">Searching…</div>}
+          {searching&&<div className="text-center text-sm text-lma-ink-3 py-3">Searching…</div>}
 
           {hasSearched&&!searching&&receiptsShown.length>0&&(
             <div className="mb-3">
               <div className="flex items-center justify-between mb-1.5">
-                <p className="text-[10px] font-bold text-lma-slate-500 uppercase tracking-wider">🧾 Receipts ({receiptsShown.length})</p>
-                {receiptsShown.length>5&&(<div className="flex items-center gap-2 text-[11px] font-bold text-lma-slate-600"><button type="button" onClick={()=>setRcptPage(p=>Math.max(0,p-1))} disabled={rcptPage===0} className="px-2 py-0.5 rounded bg-lma-slate-100 disabled:opacity-40">‹</button><span>{rcptPage+1}/{Math.ceil(receiptsShown.length/5)}</span><button type="button" onClick={()=>setRcptPage(p=>Math.min(Math.ceil(receiptsShown.length/5)-1,p+1))} disabled={rcptPage>=Math.ceil(receiptsShown.length/5)-1} className="px-2 py-0.5 rounded bg-lma-slate-100 disabled:opacity-40">›</button></div>)}
+                <p className="text-[10px] font-bold text-lma-ink-3 uppercase tracking-wider">🧾 Receipts ({receiptsShown.length})</p>
+                {receiptsShown.length>5&&(<div className="flex items-center gap-2 text-[11px] font-bold text-lma-ink-2"><button type="button" onClick={()=>setRcptPage(p=>Math.max(0,p-1))} disabled={rcptPage===0} className="px-2 py-0.5 rounded bg-lma-bg disabled:opacity-40">‹</button><span>{rcptPage+1}/{Math.ceil(receiptsShown.length/5)}</span><button type="button" onClick={()=>setRcptPage(p=>Math.min(Math.ceil(receiptsShown.length/5)-1,p+1))} disabled={rcptPage>=Math.ceil(receiptsShown.length/5)-1} className="px-2 py-0.5 rounded bg-lma-bg disabled:opacity-40">›</button></div>)}
               </div>
               <div className="space-y-2">
                 {receiptsShown.slice(rcptPage*5,rcptPage*5+5).map(r=>(
-                  <button key={r.receipt_no} onClick={()=>pickRenewalReceipt(r)} className="w-full text-left bg-white rounded-xl p-3 shadow-sm hover:shadow-md active:scale-[0.99] flex items-center gap-3 border-l-4 border-lma-primary">
+                  <button key={r.receipt_no} onClick={()=>pickRenewalReceipt(r)} className="w-full text-left bg-white rounded-[14px] p-3 shadow-sm hover:shadow-md active:scale-[0.99] flex items-center gap-3 border-l-4 border-lma-primary">
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-1.5 flex-wrap">
-                        <span className="text-sm font-extrabold text-lma-slate-900">{r.receipt_no}</span>
-                        <span className="text-[10px] font-bold text-lma-primary bg-lma-primary/10 px-1.5 py-0.5 rounded">{r.student_id}</span>
-                        <span className="text-[10px] text-lma-slate-400 ml-auto"><CodePill code={r.branch||r.library}/></span>
+                        <span className="text-sm font-bold text-lma-ink">{r.receipt_no}</span>
+                        <span className="text-[10px] font-bold text-lma-brand bg-lma-brand-soft px-1.5 py-0.5 rounded">{r.student_id}</span>
+                        <span className="text-[10px] text-lma-ink-3 ml-auto"><CodePill code={r.branch||r.library}/></span>
                       </div>
-                      <div className="text-sm font-semibold text-lma-slate-800 truncate">{r.name}</div>
-                      <div className="text-[11px] text-lma-slate-500">{fmtDMY(r.booking_from)} → {fmtDMY(r.booking_to)} · {r.shift_name||r.shift}{r.seat_no?` · Seat ${r.seat_no}`:""}</div>
+                      <div className="text-sm font-semibold text-lma-ink truncate">{r.name}</div>
+                      <div className="text-[11px] text-lma-ink-3">{fmtDMY(r.booking_from)} → {fmtDMY(r.booking_to)} · {r.shift_name||r.shift}{r.seat_no?` · Seat ${r.seat_no}`:""}</div>
                     </div>
-                    <span className="text-lma-slate-400">›</span>
+                    <span className="text-lma-ink-3">›</span>
                   </button>
                 ))}
               </div>
@@ -461,18 +500,18 @@ function StepStudent({ init, resolvedLib, resolvedBranch, admitType, post, showT
           {hasSearched&&!searching&&studentResults.length>0&&(
             <div className="mb-3">
               <div className="flex items-center justify-between mb-1.5">
-                <p className="text-[10px] font-bold text-lma-slate-500 uppercase tracking-wider">👤 Students ({studentResults.length})</p>
-                {studentResults.length>5&&(<div className="flex items-center gap-2 text-[11px] font-bold text-lma-slate-600"><button type="button" onClick={()=>setStuPage(p=>Math.max(0,p-1))} disabled={stuPage===0} className="px-2 py-0.5 rounded bg-lma-slate-100 disabled:opacity-40">‹</button><span>{stuPage+1}/{Math.ceil(studentResults.length/5)}</span><button type="button" onClick={()=>setStuPage(p=>Math.min(Math.ceil(studentResults.length/5)-1,p+1))} disabled={stuPage>=Math.ceil(studentResults.length/5)-1} className="px-2 py-0.5 rounded bg-lma-slate-100 disabled:opacity-40">›</button></div>)}
+                <p className="text-[10px] font-bold text-lma-ink-3 uppercase tracking-wider">👤 Students ({studentResults.length})</p>
+                {studentResults.length>5&&(<div className="flex items-center gap-2 text-[11px] font-bold text-lma-ink-2"><button type="button" onClick={()=>setStuPage(p=>Math.max(0,p-1))} disabled={stuPage===0} className="px-2 py-0.5 rounded bg-lma-bg disabled:opacity-40">‹</button><span>{stuPage+1}/{Math.ceil(studentResults.length/5)}</span><button type="button" onClick={()=>setStuPage(p=>Math.min(Math.ceil(studentResults.length/5)-1,p+1))} disabled={stuPage>=Math.ceil(studentResults.length/5)-1} className="px-2 py-0.5 rounded bg-lma-bg disabled:opacity-40">›</button></div>)}
               </div>
               <div className="space-y-2">
                 {studentResults.slice(stuPage*5,stuPage*5+5).map(st=>(
-                  <button key={`${st.library}-${st.student_id}`} onClick={()=>pickRenewalStudent(st)} className="w-full text-left bg-white rounded-xl p-3 shadow-sm hover:shadow-md active:scale-[0.99] flex items-center gap-3">
+                  <button key={`${st.library}-${st.student_id}`} onClick={()=>pickRenewalStudent(st)} className="w-full text-left bg-white rounded-[14px] p-3 shadow-sm hover:shadow-md active:scale-[0.99] flex items-center gap-3">
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-1.5"><span className="text-sm font-extrabold text-lma-slate-900">{st.student_id}</span>{st.is_past&&<span className="text-[9px] font-bold text-lma-warn bg-lma-warn/10 px-1.5 py-0.5 rounded">PAST</span>}<span className="text-[10px] text-lma-slate-400 ml-auto"><CodePill code={st.branch||st.library}/></span></div>
-                      <div className="text-sm font-semibold text-lma-slate-800 truncate">{st.name}</div>
-                      {st.phones[0]&&<div className="text-[11px] text-lma-slate-500 font-mono">📱 {st.phones[0].number}</div>}
+                      <div className="flex items-center gap-1.5"><span className="text-sm font-bold text-lma-ink">{st.student_id}</span>{st.is_past&&<span className="text-[9px] font-bold text-lma-warn bg-lma-warn/10 px-1.5 py-0.5 rounded">PAST</span>}<span className="text-[10px] text-lma-ink-3 ml-auto"><CodePill code={st.branch||st.library}/></span></div>
+                      <div className="text-sm font-semibold text-lma-ink truncate">{st.name}</div>
+                      {st.phones[0]&&<div className="text-[11px] text-lma-ink-3 font-mono">📱 {st.phones[0].number}</div>}
                     </div>
-                    <span className="text-lma-slate-400">›</span>
+                    <span className="text-lma-ink-3">›</span>
                   </button>
                 ))}
               </div>
@@ -480,7 +519,7 @@ function StepStudent({ init, resolvedLib, resolvedBranch, admitType, post, showT
           )}
 
           {hasSearched&&!searching&&studentResults.length===0&&receiptsShown.length===0&&(
-            <div className="text-center text-sm text-lma-slate-500 py-3">No matches.</div>
+            <div className="text-center text-sm text-lma-ink-3 py-3">No matches.</div>
           )}
         </div>
       )}
@@ -646,12 +685,12 @@ function StepBooking({ init, resolvedLib, resolvedBranch, ctx, post, showToast, 
 
   return (
     <div>
-      <button onClick={()=>{ if(draft) draft.current={ sig:ctxSig, shift, seat, bookingFrom, bookingTo, toEdited, receiptDate, fee, pays, feesDue, shiftTime, remark }; onBack(); }} className="text-sm text-lma-slate-500 mb-3">← Back</button>
-      <div className="bg-white rounded-2xl space-y-3">
-        <div className="bg-lma-slate-50 rounded-xl p-2.5 flex items-center gap-2">
-          <span className="text-[10px] font-bold bg-lma-primary/10 text-lma-primary px-2 py-0.5 rounded">{ctx.admitType}</span>
-          <span className="text-sm font-bold text-lma-slate-900">{ctx.student?.student_id||"New"}</span>
-          <span className="text-sm text-lma-slate-600 truncate">{ctx.student?.name}</span>
+      <button onClick={()=>{ if(draft) draft.current={ sig:ctxSig, shift, seat, bookingFrom, bookingTo, toEdited, receiptDate, fee, pays, feesDue, shiftTime, remark }; onBack(); }} className="text-sm text-lma-ink-3 mb-3">← Back</button>
+      <div className="bg-white rounded-[18px] space-y-3">
+        <div className="bg-lma-bg rounded-[14px] p-2.5 flex items-center gap-2">
+          <span className="text-[10px] font-bold bg-lma-brand-soft text-lma-brand px-2 py-0.5 rounded">{ctx.admitType}</span>
+          <span className="text-sm font-bold text-lma-ink">{ctx.student?.student_id||"New"}</span>
+          <span className="text-sm text-lma-ink-2 truncate">{ctx.student?.name}</span>
           {ctx.isCross&&<span className="text-[9px] font-bold text-lma-warn bg-lma-warn/10 px-1.5 py-0.5 rounded ml-auto">CROSS · {ctx.crossOrigin}</span>}
         </div>
 
@@ -659,7 +698,7 @@ function StepBooking({ init, resolvedLib, resolvedBranch, ctx, post, showToast, 
           <FieldLabel>Shift *</FieldLabel>
           <div className="grid grid-cols-2 gap-2">
             {activeShifts.map((s:any)=>(
-              <button key={s.shift_key} onClick={()=>{setShift(s.shift_key);setSeat("");}} className={`py-2.5 rounded-xl text-sm font-bold border-[1.5px] transition ${normShiftKey(shift)===normShiftKey(s.shift_key)?"bg-lma-primary/10 border-lma-primary text-lma-primary":"bg-lma-slate-50 border-lma-slate-200 text-lma-slate-600"}`}>
+              <button key={s.shift_key} onClick={()=>{setShift(s.shift_key);setSeat("");}} className={`py-2.5 rounded-[14px] text-sm font-bold border-[1.5px] transition ${normShiftKey(shift)===normShiftKey(s.shift_key)?"bg-lma-brand-soft border-lma-primary text-lma-brand":"bg-lma-bg border-lma-line text-lma-ink-2"}`}>
                 {s.shift_name}<div className="text-[9px] font-medium opacity-70">{s.shift_time}</div>
               </button>
             ))}
@@ -674,20 +713,20 @@ function StepBooking({ init, resolvedLib, resolvedBranch, ctx, post, showToast, 
         {needsSeat&&(
           <div>
             <FieldLabel>Seat</FieldLabel>
-            <button onClick={()=>setShowSeatPicker(true)} className="w-full px-3.5 py-2.5 rounded-xl border-[1.5px] border-lma-slate-200 bg-lma-slate-50 text-sm font-medium text-left flex items-center justify-between">
-              <span className={seat?"text-lma-slate-900 font-bold":"text-lma-slate-400"}>{seat?`Seat ${seat}`:"Tap to pick a seat"}</span>
-              <span className="text-lma-primary text-xs font-bold">{seat?"Change":"Pick →"}</span>
+            <button onClick={()=>setShowSeatPicker(true)} className="w-full h-12 px-3.5 rounded-[14px] border border-lma-line bg-lma-surface text-[15px] font-medium text-lma-ink outline-none focus:border-lma-brand text-left flex items-center justify-between">
+              <span className={seat?"text-lma-ink font-bold":"text-lma-ink-3"}>{seat?`Seat ${seat}`:"Tap to pick a seat"}</span>
+              <span className="text-lma-brand text-xs font-bold">{seat?"Change":"Pick →"}</span>
             </button>
-            {!seat&&<p className="text-[10px] text-lma-slate-500 mt-1">Leave unset to assign later.</p>}
+            {!seat&&<p className="text-[10px] text-lma-ink-3 mt-1">Leave unset to assign later.</p>}
           </div>
         )}
 
         <div className="grid grid-cols-2 gap-3">
-          <div><FieldLabel>From</FieldLabel><input type="date" value={dmyToIso(bookingFrom)} onChange={e=>{setBookingFrom(isoToDmy(e.target.value));}} className="w-full px-3 py-2.5 rounded-xl border-[1.5px] border-lma-slate-200 bg-lma-slate-50 text-sm font-medium"/>{bookingFrom && <span className="block text-[10px] font-bold text-lma-slate-500 mt-1">{fmtDMY(bookingFrom)}</span>}</div>
-          <div><FieldLabel>To</FieldLabel><input type="date" value={dmyToIso(bookingTo)} onChange={e=>{setBookingTo(isoToDmy(e.target.value));setToEdited(true);}} className="w-full px-3 py-2.5 rounded-xl border-[1.5px] border-lma-slate-200 bg-lma-slate-50 text-sm font-medium"/>{bookingTo && <span className="block text-[10px] font-bold text-lma-slate-500 mt-1">{fmtDMY(bookingTo)}</span>}</div>
+          <div><FieldLabel>From</FieldLabel><input type="date" value={dmyToIso(bookingFrom)} onChange={e=>{setBookingFrom(isoToDmy(e.target.value));}} className="h-12 w-full rounded-[14px] border border-lma-line bg-lma-surface px-3.5 text-[15px] font-medium text-lma-ink outline-none focus:border-lma-brand"/>{bookingFrom && <span className="block text-[10px] font-bold text-lma-ink-3 mt-1">{fmtDMY(bookingFrom)}</span>}</div>
+          <div><FieldLabel>To</FieldLabel><input type="date" value={dmyToIso(bookingTo)} onChange={e=>{setBookingTo(isoToDmy(e.target.value));setToEdited(true);}} className="h-12 w-full rounded-[14px] border border-lma-line bg-lma-surface px-3.5 text-[15px] font-medium text-lma-ink outline-none focus:border-lma-brand"/>{bookingTo && <span className="block text-[10px] font-bold text-lma-ink-3 mt-1">{fmtDMY(bookingTo)}</span>}</div>
         </div>
 
-        <div><FieldLabel>Receipt Date</FieldLabel><input type="date" value={dmyToIso(receiptDate)} onChange={e=>setReceiptDate(isoToDmy(e.target.value))} className="w-full px-3 py-2.5 rounded-xl border-[1.5px] border-lma-slate-200 bg-lma-slate-50 text-sm font-medium"/>{receiptDate && <span className="block text-[10px] font-bold text-lma-slate-500 mt-1">{fmtDMY(receiptDate)}</span>}</div>
+        <div><FieldLabel>Receipt Date</FieldLabel><input type="date" value={dmyToIso(receiptDate)} onChange={e=>setReceiptDate(isoToDmy(e.target.value))} className="h-12 w-full rounded-[14px] border border-lma-line bg-lma-surface px-3.5 text-[15px] font-medium text-lma-ink outline-none focus:border-lma-brand"/>{receiptDate && <span className="block text-[10px] font-bold text-lma-ink-3 mt-1">{fmtDMY(receiptDate)}</span>}</div>
 
         <div><FieldLabel>Fee (₹)</FieldLabel><Inp type="number" inputMode="numeric" value={fee} onChange={e=>setFee(e.target.value)}/></div>
 
@@ -696,22 +735,22 @@ function StepBooking({ init, resolvedLib, resolvedBranch, ctx, post, showToast, 
           {pays.map((p,i)=>(
             <div key={i} className="mb-2">
               <div className="flex gap-2">
-                <select value={p.mode} onChange={e=>setPay(i,"mode",e.target.value)} className="flex-1 px-2.5 py-2.5 rounded-xl border-[1.5px] border-lma-slate-200 bg-lma-slate-50 text-sm font-medium">
+                <select value={p.mode} onChange={e=>setPay(i,"mode",e.target.value)} className="flex-1 h-12 px-3.5 rounded-[14px] border border-lma-line bg-lma-surface text-[15px] font-medium text-lma-ink outline-none focus:border-lma-brand">
                   <option value="">Mode…</option>
                   {init.paymentTags.filter((t:any)=>t.active).map((t:any)=><option key={t.tag_name} value={t.tag_name}>{t.tag_name}</option>)}
                 </select>
-                <input type="number" inputMode="numeric" value={p.amount} onChange={e=>setPay(i,"amount",e.target.value)} placeholder="₹" className="w-24 px-3 py-2.5 rounded-xl border-[1.5px] border-lma-slate-200 bg-lma-slate-50 text-sm font-medium"/>
+                <input type="number" inputMode="numeric" value={p.amount} onChange={e=>setPay(i,"amount",e.target.value)} placeholder="₹" className="w-24 h-12 px-3.5 rounded-[14px] border border-lma-line bg-lma-surface text-[15px] font-medium text-lma-ink outline-none focus:border-lma-brand"/>
                 {pays.length>1&&<button onClick={()=>removeSplit(i)} className="px-2 text-lma-danger font-bold">✕</button>}
               </div>
               {p.mode&&<TagBankNote tag={p.mode}/>}
               {p.mode&&<div className="flex items-center gap-2 mt-1.5">
-                <span className="text-[10px] font-bold text-lma-slate-400 shrink-0">Paid on</span>
-                <input type="date" value={dmyToIso(p.date||receiptDate)} onChange={e=>setPay(i,"date",isoToDmy(e.target.value))} className="flex-1 px-2.5 py-2 rounded-lg border-[1.5px] border-lma-slate-200 bg-lma-slate-50 text-xs font-medium"/>
+                <span className="text-[10px] font-bold text-lma-ink-3 shrink-0">Paid on</span>
+                <input type="date" value={dmyToIso(p.date||receiptDate)} onChange={e=>setPay(i,"date",isoToDmy(e.target.value))} className="flex-1 h-11 px-3 rounded-[12px] border border-lma-line bg-lma-surface text-[14px] font-medium text-lma-ink outline-none focus:border-lma-brand"/>
               </div>}
               {p.mode&&settleDays(p.mode)>0&&<div className="text-[10px] font-bold text-lma-accent mt-1 pl-1">💳 settles on {settleOn(p.mode,p.date||receiptDate)} · T+{settleDays(p.mode)}</div>}
             </div>
           ))}
-          {pays.length<3&&<button onClick={addSplit} className="text-xs font-bold text-lma-primary">+ Split payment</button>}
+          {pays.length<3&&<button onClick={addSplit} className="text-xs font-bold text-lma-brand">+ Split payment</button>}
         </div>
 
         <div><FieldLabel>Fees Due (auto)</FieldLabel><Inp type="number" inputMode="numeric" value={feesDue} onChange={e=>setFeesDue(e.target.value)}/>
@@ -722,13 +761,13 @@ function StepBooking({ init, resolvedLib, resolvedBranch, ctx, post, showToast, 
 
         {review&&(
           <div className="fixed inset-0 z-[10001] flex items-center justify-center px-6" onClick={()=>setReview(false)}>
-            <div className="absolute inset-0 bg-black/40"/>
-            <div className="relative w-full max-w-xs bg-white rounded-2xl p-5 lma-slide-up" onClick={e=>e.stopPropagation()}>
-              <h4 className="text-sm font-extrabold text-lma-slate-900 mb-1">{ctx.admitType==="RENEWAL"?"Confirm renewal":"Confirm booking"}</h4>
-              <p className="text-[12px] text-lma-slate-500 mb-3">Check the details before creating the receipt.</p>
-              <div className="bg-lma-slate-50 rounded-xl p-3 space-y-1 text-[12px] text-lma-slate-700">
-                <div className="font-extrabold text-sm text-lma-slate-900">{ctx.student?.name||ctx.renewFrom?.name||""}</div>
-                <div className="text-[11px] text-lma-slate-500">{ctx.student?.student_id||""}{ctx.student?.gender?` · ${ctx.student.gender}`:""}{ctx.student?.phones?.[0]?.number?` · ${ctx.student.phones[0].number}`:""}</div>
+            <div className="absolute inset-0 bg-[rgb(15_23_42/0.45)]"/>
+            <div className="relative w-full max-w-xs bg-white rounded-[18px] p-5 lma-slide-up" onClick={e=>e.stopPropagation()}>
+              <h4 className="text-sm font-bold text-lma-ink mb-1">{ctx.admitType==="RENEWAL"?"Confirm renewal":"Confirm booking"}</h4>
+              <p className="text-[12px] text-lma-ink-3 mb-3">Check the details before creating the receipt.</p>
+              <div className="bg-lma-bg rounded-[14px] p-3 space-y-1 text-[12px] text-lma-ink-2">
+                <div className="font-bold text-sm text-lma-ink">{ctx.student?.name||ctx.renewFrom?.name||""}</div>
+                <div className="text-[11px] text-lma-ink-3">{ctx.student?.student_id||""}{ctx.student?.gender?` · ${ctx.student.gender}`:""}{ctx.student?.phones?.[0]?.number?` · ${ctx.student.phones[0].number}`:""}</div>
                 <div><span className="font-bold">Plan:</span> {shiftObj?.shift_name||shift}{shiftTime?` (${shiftTime})`:""}</div>
                 {needsSeat&&<div><span className="font-bold">Seat:</span> {seat||"—"}</div>}
                 <div><span className="font-bold">Period:</span> {fmtDMY(bookingFrom)} → {fmtDMY(bookingTo)}</div>
@@ -736,15 +775,24 @@ function StepBooking({ init, resolvedLib, resolvedBranch, ctx, post, showToast, 
                 <div><span className="font-bold">Fee:</span> ₹{fee}{Number(feesDue)>0?` · Due ₹${feesDue}`:""}</div>
               </div>
               <div className="flex gap-2 mt-3">
-                <button onClick={()=>setReview(false)} className="flex-1 py-2.5 rounded-xl bg-lma-slate-100 text-lma-slate-600 font-bold text-sm">← Edit</button>
-                <button disabled={submitting} onClick={doSubmit} className="flex-1 py-2.5 rounded-xl bg-gradient-to-br from-lma-primary to-lma-primary-2 text-white font-bold text-sm disabled:opacity-50">Confirm ✓</button>
+                <button onClick={()=>setReview(false)} className="flex-1 py-2.5 rounded-[14px] bg-lma-surface text-lma-ink-2 ring-1 ring-inset ring-lma-line font-semibold text-sm">← Edit</button>
+                <button disabled={submitting} onClick={doSubmit} className="flex-1 py-2.5 rounded-[14px] lma-glass-btn text-white font-bold text-sm disabled:opacity-50">Confirm ✓</button>
               </div>
             </div>
           </div>
         )}
-        <button onClick={handleSubmit} disabled={submitting} className="w-full mt-2 py-3.5 rounded-xl bg-gradient-to-br from-lma-primary to-lma-primary-2 text-white font-extrabold shadow-md disabled:opacity-50">
-          {submitting?"Creating…":(ctx.admitType==="RENEWAL"?"Renew →":"Create Receipt")}
-        </button>
+        <div className="sticky bottom-0 z-10 -mx-4 mt-4 border-t border-lma-line bg-[rgb(245_246_250/0.94)] px-4 pt-3 backdrop-blur" style={{ paddingBottom:"calc(env(safe-area-inset-bottom) + 12px)", marginBottom:"calc(-1 * (env(safe-area-inset-bottom) + 16px))" }}>
+          <div className="flex items-center gap-3">
+            <div className="min-w-0 flex-1">
+              <div className="text-[11.5px] font-semibold text-lma-ink-3">Fee</div>
+              <div className="font-lma-mono text-[18px] font-semibold leading-tight text-lma-ink">₹{Number(fee)||0}</div>
+              {Number(feesDue)>0&&<div className="text-[11.5px] font-semibold text-lma-warn-2">₹{feesDue} due after this</div>}
+            </div>
+            <button onClick={handleSubmit} disabled={submitting} className="lma-glass-btn h-12 shrink-0 rounded-[14px] px-6 text-[15px] font-bold text-white disabled:opacity-60">
+              {submitting?"Creating…":(ctx.admitType==="RENEWAL"?"Renew":"Create receipt")}
+            </button>
+          </div>
+        </div>
       </div>
 
       {showSeatPicker&&(
@@ -774,28 +822,28 @@ function SeatPickerSheet({ library, branch, shift, current, ignoreReceiptNo, onC
   return (
     <div className="fixed inset-0 z-[10001] flex items-end justify-center" onClick={onClose}>
       <div className="absolute inset-0 bg-black/50 backdrop-blur-sm"/>
-      <div className="relative w-full max-w-md bg-white rounded-t-3xl p-4 max-h-[88vh] overflow-y-auto lma-slide-up" onClick={e=>e.stopPropagation()}>
+      <div className="relative w-full max-w-md bg-white rounded-t-[24px] p-4 max-h-[88vh] overflow-y-auto lma-slide-up" onClick={e=>e.stopPropagation()}>
         <div className="w-9 h-1 bg-lma-slate-200 rounded-full mx-auto mb-3"/>
         <div className="flex items-center justify-between mb-3">
-          <h3 className="text-base font-extrabold text-lma-slate-900">Pick a seat · {shift}</h3>
-          <button onClick={()=>onPick("")} className="text-xs font-bold text-lma-primary">Assign later</button>
+          <h3 className="text-base font-bold text-lma-ink">Pick a seat · {shift}</h3>
+          <button onClick={()=>onPick("")} className="text-xs font-bold text-lma-brand">Assign later</button>
         </div>
         {loading?(
-          <div className="text-center text-sm text-lma-slate-500 py-8">Loading layout…</div>
+          <div className="text-center text-sm text-lma-ink-3 py-8">Loading layout…</div>
         ):!data||data.sections.length===0?(
-          <div className="text-center text-sm text-lma-slate-500 py-8">No layout found for this library.</div>
+          <div className="text-center text-sm text-lma-ink-3 py-8">No layout found for this library.</div>
         ):(
           <div className="space-y-4">
             {data.sections.sort((a,b)=>a.section_order-b.section_order).map(sec=>(
               <div key={sec.section_name}>
-                <div className="text-[11px] font-bold text-lma-slate-500 mb-1.5">{sec.section_name}</div>
+                <div className="text-[11px] font-bold text-lma-ink-3 mb-1.5">{sec.section_name}</div>
                 <div className="overflow-x-auto">
                   <div className="grid gap-1" style={{gridTemplateColumns:`repeat(${sec.cols}, minmax(30px, 1fr))`}}>
                     {Array.from({length:sec.rows*sec.cols}).map((_,idx)=>{
                       const r=Math.floor(idx/sec.cols)+1, c=(idx%sec.cols)+1;
                       const cell=sec.seats.find(s=>s.row_in_section===r&&s.col_in_section===c);
                       if(!cell) return <div key={idx} className="aspect-square"/>;
-                      if(cell.cell_type==="DEAD"||cell.state==="DEAD") return <div key={idx} className="aspect-square rounded bg-lma-slate-500"/>;
+                      if(cell.cell_type==="DEAD"||cell.state==="DEAD") return <div key={idx} className="aspect-square rounded bg-lma-ink-3"/>;
                       const isCurrent=current===cell.display_label;
                       if(cell.state==="VACANT"){
                         return <button key={idx} onClick={()=>onPick(cell.display_label)} title={cell.share_note||""} className={`aspect-square rounded text-[11px] font-bold border ${isCurrent?"bg-lma-primary text-white border-lma-primary":"bg-lma-accent/15 text-lma-accent border-lma-accent/40 hover:bg-lma-accent/30"} flex items-center justify-center`}>{cell.display_label}</button>;
@@ -803,7 +851,7 @@ function SeatPickerSheet({ library, branch, shift, current, ignoreReceiptNo, onC
                       if(cell.state==="BLOCKED"){
                         return <div key={idx} className="aspect-square rounded bg-lma-danger/20 border border-lma-danger/40 flex items-center justify-center text-[10px] text-lma-danger" title="Blocked">{cell.display_label}</div>;
                       }
-                      return <div key={idx} className="aspect-square rounded bg-lma-slate-200 border border-lma-slate-300 flex flex-col items-center justify-center text-[10px] text-lma-slate-500" title={cell.occupant?`${cell.occupant.name} (${cell.occupant.shift})`:"taken"}>{cell.display_label}<span className="text-[7px] leading-none truncate w-full text-center px-0.5">{cell.occupant?.student_id||""}</span></div>;
+                      return <div key={idx} className="aspect-square rounded bg-lma-slate-200 border border-lma-line flex flex-col items-center justify-center text-[10px] text-lma-ink-3" title={cell.occupant?`${cell.occupant.name} (${cell.occupant.shift})`:"taken"}>{cell.display_label}<span className="text-[7px] leading-none truncate w-full text-center px-0.5">{cell.occupant?.student_id||""}</span></div>;
                     })}
                   </div>
                 </div>
@@ -816,5 +864,5 @@ function SeatPickerSheet({ library, branch, shift, current, ignoreReceiptNo, onC
   );
 }
 
-function FieldLabel({ children }:{ children:React.ReactNode }){ return <label className="block text-[11px] font-bold text-lma-slate-500 uppercase tracking-wide mb-1 mt-2">{children}</label>; }
-function Inp(props:React.InputHTMLAttributes<HTMLInputElement>){ return <input {...props} className="w-full px-3.5 py-2.5 rounded-xl border-[1.5px] border-lma-slate-200 bg-lma-slate-50 focus:bg-white focus:border-lma-primary outline-none text-[14px] font-medium"/>; }
+function FieldLabel({ children }:{ children:React.ReactNode }){ return <label className="mb-1.5 mt-3 block px-1 text-[12px] font-bold uppercase tracking-[0.08em] text-lma-ink-3">{children}</label>; }
+function Inp(props:React.InputHTMLAttributes<HTMLInputElement>){ return <input {...props} className="h-12 w-full rounded-[14px] border border-lma-line bg-lma-surface px-3.5 text-[15px] font-medium text-lma-ink outline-none placeholder:text-lma-ink-3 focus:border-lma-brand"/>; }

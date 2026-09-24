@@ -72,20 +72,20 @@ export default function CancelRefundSheet({
 
   const inner = (
     <>
-      <h3 className="text-base font-extrabold text-lma-slate-900 mb-1">{heading}</h3>
-      <p className="text-[11px] text-lma-slate-500 mb-3">{sub}</p>
-      {(target.fees_due_balance||0)>0 && <div className="text-[11px] font-bold text-lma-danger bg-lma-danger/10 rounded-lg p-2 mb-3">⚠ ₹{target.fees_due_balance} dues outstanding on this receipt.</div>}
+      <h3 className="mb-1 text-[18px] font-bold tracking-[-0.01em] text-lma-ink">{heading}</h3>
+      <p className="mb-3 text-[13px] leading-relaxed text-lma-ink-3">{sub}</p>
+      {(target.fees_due_balance||0)>0 && <div role="alert" className="mb-3 rounded-[12px] bg-lma-out-soft p-3 text-[12.5px] font-semibold text-lma-out">⚠ ₹{target.fees_due_balance} dues outstanding on this receipt.</div>}
 
-      <label className="flex items-center gap-2 mb-3 cursor-pointer">
-        <input type="checkbox" checked={withRefund} onChange={e=>setWithRefund(e.target.checked)} className="w-4 h-4 accent-lma-primary"/>
-        <span className="text-sm font-semibold text-lma-slate-700">Issue a refund with this cancellation</span>
+      <label className="mb-3 flex min-h-[52px] cursor-pointer items-center gap-3 rounded-[14px] bg-lma-surface px-3.5 ring-1 ring-inset ring-lma-line">
+        <input type="checkbox" checked={withRefund} onChange={e=>setWithRefund(e.target.checked)} className="h-5 w-5 shrink-0 accent-[#4f46e5]"/>
+        <span className="text-[14px] font-semibold text-lma-ink">Also refund money with this cancellation</span>
       </label>
 
       {withRefund&&(
-        <div className="bg-lma-slate-50 rounded-xl p-3 mb-3 space-y-2">
+        <div className="mb-3 space-y-1 rounded-[16px] bg-lma-surface p-3.5 ring-1 ring-inset ring-lma-line">
           <div>
             <CLabel>Refund Mode</CLabel>
-            <select value={refundMode} onChange={e=>setRefundMode(e.target.value)} className="w-full px-3 py-2.5 rounded-xl border-[1.5px] border-lma-slate-200 bg-white text-sm font-medium">
+            <select value={refundMode} onChange={e=>setRefundMode(e.target.value)} className="h-12 w-full rounded-[14px] border border-lma-line bg-lma-surface px-3.5 text-[15px] font-medium text-lma-ink outline-none placeholder:text-lma-ink-3 focus:border-lma-brand">
               <option value="">Select…</option>
               {modes.map((t:any)=><option key={t.tag_name} value={t.tag_name}>{t.tag_name}</option>)}
             </select>
@@ -100,8 +100,8 @@ export default function CancelRefundSheet({
       <CInput value={remark} onChange={e=>setRemark(e.target.value)} placeholder="why cancelling"/>
 
       <div className="flex gap-2.5 mt-4">
-        <button onClick={onClose} className="flex-1 py-3 rounded-xl bg-lma-slate-100 text-lma-slate-600 font-bold">{presentation==="modal"?"Keep":"Back"}</button>
-        <button onClick={submit} disabled={!canSubmit} className="flex-1 py-3 rounded-xl bg-lma-danger text-white font-bold shadow-md disabled:opacity-50">{busy?"…":withRefund?"Cancel + Refund":"Cancel Booking"}</button>
+        <button onClick={onClose} className="h-12 flex-1 rounded-[14px] bg-lma-surface text-[15px] font-semibold text-lma-ink-2 ring-1 ring-inset ring-lma-line">{presentation==="modal"?"Keep":"Back"}</button>
+        <button onClick={submit} disabled={!canSubmit} className="h-12 flex-1 rounded-[14px] bg-lma-out text-[15px] font-bold text-white disabled:opacity-50">{busy?"…":withRefund?"Cancel + Refund":"Cancel Booking"}</button>
       </div>
     </>
   );
@@ -110,20 +110,20 @@ export default function CancelRefundSheet({
   if(presentation==="modal"){
     return (
       <div className="fixed inset-0 z-[9999] flex items-center justify-center px-6" onClick={onClose}>
-        <div className="absolute inset-0 bg-black/40"/>
-        <div className="relative w-full max-w-xs bg-white rounded-2xl p-5 lma-slide-up max-h-[85vh] overflow-y-auto" onClick={e=>e.stopPropagation()}>{inner}</div>
+        <div className="absolute inset-0 bg-[rgb(15_23_42/0.45)]"/>
+        <div role="dialog" aria-modal="true" className="lma-sheet-up relative w-full max-w-sm max-h-[85dvh] overflow-y-auto rounded-[20px] bg-lma-bg p-5 shadow-lma-float" onClick={e=>e.stopPropagation()}>{inner}</div>
       </div>
     );
   }
   return (
     <div className="fixed inset-0 z-[9998] flex items-end justify-center" onClick={onClose}>
-      <div className="absolute inset-0 bg-black/50 backdrop-blur-sm"/>
-      <div className="relative w-full max-w-md bg-white rounded-t-3xl p-5 max-h-[88vh] overflow-y-auto lma-slide-up" onClick={e=>e.stopPropagation()}>
-        <div className="w-9 h-1 bg-lma-slate-200 rounded-full mx-auto mb-4"/>{inner}
+      <div className="absolute inset-0 bg-[rgb(15_23_42/0.5)]"/>
+      <div role="dialog" aria-modal="true" className="lma-sheet-up relative w-full max-w-[560px] max-h-[90dvh] overflow-y-auto overscroll-contain rounded-t-[24px] bg-lma-bg px-4 pt-2 pb-[calc(env(safe-area-inset-bottom)+18px)] shadow-lma-float" onClick={e=>e.stopPropagation()}>
+        <div className="mx-auto mb-4 h-1.5 w-10 rounded-full bg-[#dfe1ee]"/>{inner}
       </div>
     </div>
   );
 }
 
-function CLabel({ children }:{ children:React.ReactNode }){ return <label className="block text-[11px] font-bold text-lma-slate-500 uppercase tracking-wide mb-1 mt-2">{children}</label>; }
-function CInput({className="",...props}:React.InputHTMLAttributes<HTMLInputElement>){ return <input {...props} className={`w-full px-3.5 py-2.5 rounded-xl border-[1.5px] border-lma-slate-200 bg-lma-slate-50 focus:bg-white focus:border-lma-primary outline-none text-[14px] font-medium ${className}`}/>; }
+function CLabel({ children }:{ children:React.ReactNode }){ return <label className="mb-1.5 mt-3 block px-1 text-[12px] font-bold uppercase tracking-[0.08em] text-lma-ink-3">{children}</label>; }
+function CInput({className="",...props}:React.InputHTMLAttributes<HTMLInputElement>){ return <input {...props} className={`h-12 w-full rounded-[14px] border border-lma-line bg-lma-surface px-3.5 text-[15px] font-medium text-lma-ink outline-none placeholder:text-lma-ink-3 focus:border-lma-brand ${className}`}/>; }
