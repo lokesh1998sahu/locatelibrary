@@ -14,7 +14,7 @@ import StudentModal from "../_components/StudentModal";
 import BookingFlow from "../_components/BookingFlow";
 import { toIsoInput, fmtDMY, fmtDMYT, daysFromToday } from "../_lib/dates";
 import { normGender } from "../_lib/genderTheme";
-import { TagBankNote } from "../_components/TagBank";
+import { TagBankNote, TagChips } from "../_components/TagBank";
 import { ScopeChips, Sheet, Segmented, Chip, Button, IconButton, Skeleton, Empty, inputCls, cx } from "../_ui/kit";
 import { IconSearch, IconClose, IconDots, IconSeat, IconChevron } from "../_ui/icons";
 
@@ -440,7 +440,7 @@ export default function BoardPage(){
                     if(!cell) return <div key={idx} className="aspect-square"/>;
                     const label=String(cell.display_label||"");
                     return (
-                      <div key={idx} data-seat={label.replace(/"/g,"")} className={flash&&flash===label?"relative rounded ring-4 ring-lma-brand ring-offset-1 animate-pulse":"relative"}>
+                      <div key={idx} data-seat={label.replace(/"/g,"")} className={flash&&flash===label?"relative grid rounded ring-4 ring-lma-brand ring-offset-1 animate-pulse":"relative grid"}>
                         <SeatTile cell={cell} shiftView={shiftView} genderM={genderM} genderF={genderF} colorFilter={colorFilter} onOpen={()=>setDetail({cell})}/>
                       </div>
                     );
@@ -739,12 +739,12 @@ function CollectDueInline({ receiptNo, balance, post, showToast, onChanged, onEv
         <input type="number" inputMode="decimal" value={amt} onChange={e=>setAmt(e.target.value)} placeholder="Amount ₹" aria-label="Amount" className={cx(inputCls,"font-lma-mono")}/>
         <input type="date" value={date} onChange={e=>setDate(e.target.value)} aria-label="Date" className={inputCls}/>
       </div>
-      <select value={mode} onChange={e=>setMode(e.target.value)} aria-label="Paid by" className={inputCls}><option value="">Paid by…</option>{modes.map(m=><option key={m} value={m}>{m}</option>)}</select>
+      <div><div className="mb-1.5 px-1 text-[12px] font-bold uppercase tracking-[0.08em] text-lma-ink-3">Paid by</div><TagChips value={mode} onChange={setMode} label="Paid by" size="sm"/></div>
       {mode&&<TagBankNote tag={mode} right/>}
       {err&&<div role="alert" className="text-[12.5px] font-semibold text-lma-out">{err}</div>}
       <div className="grid grid-cols-2 gap-2">
         <Button variant="secondary" disabled={busy} onClick={()=>{ setErr(""); if(onCancel) onCancel(); else setOpen(false); }}>Cancel</Button>
-        <Button loading={busy} loadingText="Saving…" onClick={submit}>Collect ₹{Number(amt)||0}</Button>
+        <Button className="whitespace-nowrap px-3" loading={busy} loadingText="Saving…" onClick={submit}>Collect ₹{Number(amt)||0}</Button>
       </div>
     </div>
   );
@@ -777,13 +777,13 @@ function RefundInline({ receiptNo, post, showToast, onChanged, onEvent }:{ recei
         <input type="number" inputMode="decimal" value={amt} onChange={e=>setAmt(e.target.value)} placeholder="Amount ₹" aria-label="Refund amount" className={cx(inputCls,"font-lma-mono")}/>
         <input type="date" value={date} onChange={e=>setDate(e.target.value)} aria-label="Refund date" className={inputCls}/>
       </div>
-      <select value={mode} onChange={e=>setMode(e.target.value)} aria-label="Refund mode" className={inputCls}><option value="">Refund paid by…</option>{modes.map(m=><option key={m} value={m}>{m}</option>)}</select>
+      <div><div className="mb-1.5 px-1 text-[12px] font-bold uppercase tracking-[0.08em] text-lma-ink-3">Refund paid by</div><TagChips value={mode} onChange={setMode} label="Refund paid by" size="sm"/></div>
       {mode&&<TagBankNote tag={mode} right/>}
       <input value={reason} onChange={e=>setReason(e.target.value)} placeholder="Reason (optional)" className={inputCls}/>
       {err&&<div role="alert" className="text-[12.5px] font-semibold text-lma-out">{err}</div>}
       <div className="grid grid-cols-2 gap-2">
         <Button variant="secondary" disabled={busy} onClick={()=>{setOpen(false);setErr("");}}>Cancel</Button>
-        <Button variant="danger" loading={busy} loadingText="Refunding…" onClick={submit}>Refund</Button>
+        <Button variant="danger" className="whitespace-nowrap px-3" loading={busy} loadingText="Refunding…" onClick={submit}>Refund</Button>
       </div>
     </div>
   );

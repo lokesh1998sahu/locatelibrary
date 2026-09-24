@@ -7,7 +7,7 @@
 // zero visual change on any surface. A new cancel surface is one <CancelRefundSheet/>.
 import { useState } from "react";
 import { useLMA } from "./LMAProvider";
-import { TagBankNote } from "./TagBank";
+import { TagBankNote, TagChips } from "./TagBank";
 
 export interface CancelTarget {
   receipt_no: string;
@@ -84,11 +84,8 @@ export default function CancelRefundSheet({
       {withRefund&&(
         <div className="mb-3 space-y-1 rounded-[16px] bg-lma-surface p-3.5 ring-1 ring-inset ring-lma-line">
           <div>
-            <CLabel>Refund Mode</CLabel>
-            <select value={refundMode} onChange={e=>setRefundMode(e.target.value)} className="h-12 w-full rounded-[14px] border border-lma-line bg-lma-surface px-3.5 text-[15px] font-medium text-lma-ink outline-none placeholder:text-lma-ink-3 focus:border-lma-brand">
-              <option value="">Select…</option>
-              {modes.map((t:any)=><option key={t.tag_name} value={t.tag_name}>{t.tag_name}</option>)}
-            </select>
+            <CLabel>Refund paid by</CLabel>
+            <TagChips value={refundMode} onChange={setRefundMode} label="Refund paid by"/>
             <TagBankNote tag={refundMode}/>
           </div>
           <div><CLabel>Refund Amount (₹)</CLabel><CInput type="number" value={refundAmount} onChange={e=>setRefundAmount(e.target.value)} placeholder="rupees handed back"/></div>

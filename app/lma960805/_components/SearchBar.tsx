@@ -33,11 +33,11 @@ export default function SearchBar({ value, onChange, onSearch, searching, placeh
       <div className="flex gap-2">
         <input value={value} onChange={e=>onChange(e.target.value)} onKeyDown={e=>{if(e.key==="Enter")onSearch();}}
           placeholder={placeholder||"Name, phone, F-ID, or R-no…"}
-          className="flex-1 px-4 py-3 rounded-xl border-[1.5px] border-lma-slate-200 bg-lma-slate-50 focus:bg-white focus:border-lma-primary outline-none text-sm font-medium"/>
+          className="h-12 flex-1 rounded-[14px] border border-lma-line bg-lma-surface px-4 text-[15px] font-medium text-lma-ink outline-none placeholder:text-lma-ink-3 focus:border-lma-brand"/>
         <button onClick={onSearch} disabled={searching}
-          className="px-5 py-3 rounded-xl bg-lma-primary text-white font-bold text-sm disabled:opacity-50">{searching?"…":"Search"}</button>
+          className="lma-glass-btn h-12 shrink-0 rounded-[14px] px-5 text-[15px] font-bold text-white disabled:opacity-60">{searching?"…":"Search"}</button>
       </div>
-      {hint!=="" && <p className="text-[10px] text-lma-slate-500 mt-1.5">{hint||DEFAULT_HINT}</p>}
+      {hint!=="" && <p className="mt-1.5 px-1 text-[11.5px] text-lma-ink-3">{hint||DEFAULT_HINT}</p>}
     </div>
   );
 }

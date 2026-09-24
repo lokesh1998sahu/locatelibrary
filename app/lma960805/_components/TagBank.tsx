@@ -11,6 +11,7 @@
 //                    Nothing moves unless you tap it.
 import { useCallback } from "react";
 import { useLMA } from "./LMAProvider";
+import { Chip, cx } from "../_ui/kit";
 
 const norm=(v?:string|null)=>String(v??"").trim().toUpperCase();
 
@@ -56,6 +57,43 @@ export function BankCheck({ tag, savedTag, savedBank, move, onMove }:{ tag:strin
     <div className="mt-1.5 rounded-lg bg-lma-warn/10 px-2.5 py-2 flex items-center gap-2">
       <span className="flex-1 text-[11px] font-bold text-lma-warn">⚠ Saved in {saved||"no bank"} · {t} now goes to {now}</span>
       <button type="button" onClick={()=>onMove(!move)} className={`shrink-0 px-2 py-1 rounded-md text-[10px] font-extrabold ${move?"bg-lma-warn text-white":"bg-white text-lma-warn border border-lma-warn/40"}`}>{move?`✓ Will move to ${now}`:`Move to ${now}`}</button>
+    </div>
+  );
+}
+
+// ── Pick a payment tag with one tap (replaces the old dropdowns) ───────
+// Shows every switched-on tag as a chip. `keep` is the tag already saved on an
+// entry: if it has since been switched off it still shows (marked "off"), so
+// editing an old payment can never lose or silently change it.
+// The value handed back is the tag name, exactly what the dropdowns sent.
+export function TagChips({ value, onChange, keep, label="Paid by", className, size="md" }:{
+  value:string; onChange:(tag:string)=>void; keep?:string; label?:string; className?:string;
+  size?:"md"|"sm";   // "sm" for narrow inline forms (seat sheet, receipt window)
+}){
+  const { init } = useLMA();
+  const active=(init?.paymentTags||[]).filter((t:any)=>t.active).map((t:any)=>String(t.tag_name));
+  const kept=(keep||"").trim().toUpperCase();
+  const extra=kept && !active.some(t=>t.toUpperCase()===kept) ? [keep as string] : [];
+  const list=[...active, ...extra];
+  if(list.length===0) return <p className={cx("px-1 text-[12.5px] text-lma-ink-3", className)}>No payment tags switched on. Add one in Settings.</p>;
+  return (
+    <div role="radiogroup" aria-label={label} className={cx("flex flex-wrap", size==="sm"?"gap-1.5":"gap-2", className)}>
+      {list.map(t=>{
+        const on=value.trim().toUpperCase()===t.toUpperCase();
+        const off=extra.includes(t);
+        if(size==="sm") return (
+          <button key={t} type="button" role="radio" aria-checked={on} onClick={()=>onChange(t)}
+            className={cx("lma-btn inline-flex h-9 items-center rounded-full px-3 text-[13px] font-semibold",
+              on?"lma-glass-btn text-white":"bg-lma-surface text-lma-ink-2 ring-1 ring-inset ring-lma-line active:bg-lma-bg")}>
+            {t}{off&&<span className={cx("ml-1 text-[11px] font-bold", on?"text-white/80":"text-lma-ink-3")}>· off</span>}
+          </button>
+        );
+        return (
+          <Chip key={t} on={on} onClick={()=>onChange(t)}>
+            {t}{off&&<span className={cx("ml-1 text-[11px] font-bold", on?"text-white/80":"text-lma-ink-3")}>· off</span>}
+          </Chip>
+        );
+      })}
     </div>
   );
 }

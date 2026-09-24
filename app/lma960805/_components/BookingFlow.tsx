@@ -23,7 +23,7 @@ import { useLMA } from "./LMAProvider";
 import { toDmy, fmtDMY, toIsoInput } from "../_lib/dates";
 import { parsePhone10 } from "../_lib/phone";
 import CodePill from "./CodePill";
-import { TagBankNote } from "./TagBank";
+import { TagBankNote, TagChips } from "./TagBank";
 
 const API = "/api/lma960805";
 
@@ -733,14 +733,17 @@ function StepBooking({ init, resolvedLib, resolvedBranch, ctx, post, showToast, 
         <div>
           <FieldLabel>Payment</FieldLabel>
           {pays.map((p,i)=>(
-            <div key={i} className="mb-2">
-              <div className="flex gap-2">
-                <select value={p.mode} onChange={e=>setPay(i,"mode",e.target.value)} className="flex-1 h-12 px-3.5 rounded-[14px] border border-lma-line bg-lma-surface text-[15px] font-medium text-lma-ink outline-none focus:border-lma-brand">
-                  <option value="">Mode…</option>
-                  {init.paymentTags.filter((t:any)=>t.active).map((t:any)=><option key={t.tag_name} value={t.tag_name}>{t.tag_name}</option>)}
-                </select>
-                <input type="number" inputMode="numeric" value={p.amount} onChange={e=>setPay(i,"amount",e.target.value)} placeholder="₹" className="w-24 h-12 px-3.5 rounded-[14px] border border-lma-line bg-lma-surface text-[15px] font-medium text-lma-ink outline-none focus:border-lma-brand"/>
-                {pays.length>1&&<button onClick={()=>removeSplit(i)} className="px-2 text-lma-danger font-bold">✕</button>}
+            <div key={i} className="mb-2 rounded-[16px] border border-lma-line bg-lma-surface p-3">
+              {pays.length>1&&(
+                <div className="mb-2 flex items-center justify-between">
+                  <span className="px-0.5 text-[12px] font-bold uppercase tracking-[0.08em] text-lma-ink-3">Payment {i+1}</span>
+                  <button onClick={()=>removeSplit(i)} className="h-8 rounded-full px-2.5 text-[12.5px] font-semibold text-lma-out active:bg-lma-out-soft">Remove</button>
+                </div>
+              )}
+              <TagChips value={p.mode} onChange={v=>setPay(i,"mode",v)}/>
+              <div className="mt-2.5 flex items-center gap-2">
+                <span className="w-16 shrink-0 px-0.5 text-[12.5px] font-semibold text-lma-ink-3">Amount</span>
+                <input type="number" inputMode="numeric" value={p.amount} onChange={e=>setPay(i,"amount",e.target.value)} placeholder="₹" className="h-12 w-full rounded-[14px] border border-lma-line bg-lma-surface px-3.5 font-lma-mono text-[15px] font-medium text-lma-ink outline-none focus:border-lma-brand"/>
               </div>
               {p.mode&&<TagBankNote tag={p.mode}/>}
               {p.mode&&<div className="flex items-center gap-2 mt-1.5">

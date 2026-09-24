@@ -1,10 +1,12 @@
 "use client";
+// LMA — Dues. What is still owed, what has been collected, what was written off.
+// Same data and actions as before (getPendingDues · getDuePaymentLog ·
+// getIrrecoverableDues · logFeePayment · markDuesIrrecoverable ·
+// unmarkDuesIrrecoverable). New look; collecting uses the keypad and tag chips.
 
-import { useState, useEffect, useCallback, useRef } from "react";
-import Link from "next/link";
-import { useLMA, useScopeChips, type LMAInitData as InitData } from "../_components/LMAProvider";
-import { fmtDMY, fmtDMYT, toIsoInput, inDateRange } from "../_lib/dates";
-import CodePill from "../_components/CodePill";
+import { useState, useEffect, useCallback } from "react";
+import { useLMA, useScopeChips } from "../_components/LMAProvider";
+import { fmtDMY, fmtDMYT, inDateRange } from "../_lib/dates";
 import ReceiptModal from "../_components/ReceiptModal";
 import StudentModal from "../_components/StudentModal";
 import SearchBar, { matchesSearch } from "../_components/SearchBar";
@@ -12,16 +14,16 @@ import DateRangeFilter from "../_components/DateRangeFilter";
 import Pager, { PAGE_SIZE } from "../_components/Pager";
 import WhatsAppButton from "../_components/WhatsAppButton";
 import { buildDuesReminder } from "../_lib/reminderText";
-import { TagBankNote } from "../_components/TagBank";
+import { TagBankNote, TagChips } from "../_components/TagBank";
+import { Screen, Card, ScopeChips, Sheet, Button, Skeleton, Empty, IconButton, AmountPad, DateChips, TextInput, cx } from "../_ui/kit";
+import { IconRefresh, IconWallet } from "../_ui/icons";
+import { inr, todayIso, shiftIso, dayLabel } from "../_ui/format";
 
 const API = "/api/lma960805";
 
 // FEES_DUE_LOG headers (exact): s_no, payment_id, receipt_no, student_id, library,
 //   branch, name, phone, payment_mode, payment_fees_mode, amount_received,
 //   balance_before, balance_after, received_on, notes, whatsapp_text
-
-// PendingDue / Irrecoverable come from RECEIPT_LOG via getPendingDues / getIrrecoverableDues.
-// Fields below are the standard RECEIPT_LOG mapping used across LMA (mapReceiptRow).
 interface PendingDue {
   receipt_no:string; student_id:string; library:string; branch:string; name:string;
   seat_no:string; shift:string; shift_name:string; booking_to:string;
@@ -37,18 +39,17 @@ interface Irrecoverable {
   receipt_no:string; student_id:string; library:string; branch:string; name:string;
   fees_due_balance:number; irrecoverable_remark:string; irrecoverable_whatsapp_text:string;
 }
-
 type Tab = "PENDING"|"PAYMENTS"|"IRRECOVERABLE";
 
 function homeLib(it:any){ return (it.is_cross_library && it.is_cross_library!=="NO") ? it.is_cross_library : (it.branch||it.library); }
+const daysAgo = (iso:string) => Math.round((new Date(todayIso()+"T00:00:00").getTime()-new Date(iso+"T00:00:00").getTime())/86400000);
+const keyRules = (s:string,k:string) => { if(k==="<") return s.slice(0,-1); if(k==="."&&s.includes(".")) return s; if(s.replace(".","").length>=8) return s; return (s+k).replace(/^0(?=\d)/,""); };
 
 export default function DuesPage(){
-  const { init, showToast, post } = useLMA();
-  const duesReminder=(d:PendingDue):string=>{ const libName=(init?.libraries?.find(l=>l.library_code===d.library)?.display_name)||d.library; return buildDuesReminder(d.name, libName, d.fees_due_balance); };
-  const [openRno, setOpenRno] = useState<string|null>(null);
-  const [openStu, setOpenStu] = useState<{ id:string; library:string }|null>(null);
-  const [confirmAction,setConfirmAction]=useState<{title:string;message:string;confirmLabel:string;danger?:boolean;onYes:()=>void}|null>(null);
-
+  const { init, showToast, post, confirm: ask } = useLMA();
+  const duesReminder=(d:PendingDue)=>{ const libName=(init?.libraries?.find(l=>l.library_code===d.library)?.display_name)||d.library; return buildDuesReminder(d.name, libName, d.fees_due_balance); };
+  const [openRno,setOpenRno]=useState<string|null>(null);
+  const [openStu,setOpenStu]=useState<{ id:string; library:string }|null>(null);
   const [tab,setTab]=useState<Tab>("PENDING");
   const [dFrom,setDFrom]=useState(""); const [dTo,setDTo]=useState("");
   const [scope,setScope]=useState("");
@@ -60,280 +61,265 @@ export default function DuesPage(){
   const [search,setSearch]=useState("");
   const [page,setPage]=useState(1);
   const [loading,setLoading]=useState(false);
-
+  const [loaded,setLoaded]=useState(false);
   const [payFor,setPayFor]=useState<PendingDue|null>(null);
   const [irrecFor,setIrrecFor]=useState<PendingDue|null>(null);
   const [resultText,setResultText]=useState<{title:string;text:string;phones?:{number:string;tag:string}[]}|null>(null);
 
-
-
-
   const load=useCallback(async()=>{
     setLoading(true);
-    const p=new URLSearchParams(); // B4: load all scopes; filter client-side
-    const [pd,pl,ir]=await Promise.all([
-      fetch(`${API}?action=getPendingDues&${p}`).then(r=>r.json()),
-      fetch(`${API}?action=getDuePaymentLog&${p}&all=1&page=1&limit=30`).then(r=>r.json()),
-      fetch(`${API}?action=getIrrecoverableDues&${p}`).then(r=>r.json()),
-    ]);
-    setLoading(false);
-
-    // PENDING — getPendingDues returns array under `pending` (mapReceiptRow rows), no sum
-    const pdList:PendingDue[]=(pd.pending||[]).map((x:any)=>({
-      receipt_no:String(x.receipt_no||""), student_id:String(x.student_id||""),
-      library:String(x.library||""), branch:String(x.branch||""), name:String(x.name||""),
-      seat_no:String(x.seat_no||""), shift:String(x.shift||""), shift_name:String(x.shift_name||""),
-      booking_to:String(x.booking_to||""), fees_due:Number(x.fees_due||0),
-      fees_due_balance:Number(x.fees_due_balance||0), dues_status:String(x.dues_status||""),
-      phones:Array.isArray(x.phones)?x.phones:[], remark:String(x.remark||""),
-    }));
-    setPending(pdList);
-    setPendingSum(typeof pd.sum==="number"?pd.sum:pdList.reduce((s,d)=>s+d.fees_due_balance,0));
-
-    // PAYMENTS — getDuePaymentLog returns array under `payments` (exact FEES_DUE_LOG headers)
-    const plList:DuePayment[]=(pl.payments||[]).map((x:any)=>({
-      payment_id:String(x.payment_id||""), receipt_no:String(x.receipt_no||""),
-      student_id:String(x.student_id||""), library:String(x.library||""), branch:String(x.branch||""),
-      name:String(x.name||""), phone:String(x.phone||""),
-      payment_mode:String(x.payment_mode||""), payment_fees_mode:String(x.payment_fees_mode||""),
-      amount_received:Number(x.amount_received||0), balance_before:Number(x.balance_before||0),
-      balance_after:Number(x.balance_after||0), received_on:String(x.received_on||""),
-      notes:String(x.notes||""), whatsapp_text:String(x.whatsapp_text||""),
-    }));
-    setPayments(plList);
-
-    // IRRECOVERABLE — getIrrecoverableDues returns array under `items`
-    const irList:Irrecoverable[]=(ir.items||[]).map((x:any)=>({
-      receipt_no:String(x.receipt_no||""), student_id:String(x.student_id||""),
-      library:String(x.library||""), branch:String(x.branch||""), name:String(x.name||""),
-      fees_due_balance:Number(x.fees_due_balance||0),
-      irrecoverable_remark:String(x.irrecoverable_remark||""),
-      irrecoverable_whatsapp_text:String(x.irrecoverable_whatsapp_text||""),
-    }));
-    setIrrec(irList);
-  },[]);
-
+    try{
+      const p=new URLSearchParams();   // all scopes; filtered here
+      const [pd,pl,ir]=await Promise.all([
+        fetch(`${API}?action=getPendingDues&${p}`).then(r=>r.json()),
+        fetch(`${API}?action=getDuePaymentLog&${p}&all=1&page=1&limit=30`).then(r=>r.json()),
+        fetch(`${API}?action=getIrrecoverableDues&${p}`).then(r=>r.json()),
+      ]);
+      const pdList:PendingDue[]=(pd.pending||[]).map((x:any)=>({
+        receipt_no:String(x.receipt_no||""), student_id:String(x.student_id||""),
+        library:String(x.library||""), branch:String(x.branch||""), name:String(x.name||""),
+        seat_no:String(x.seat_no||""), shift:String(x.shift||""), shift_name:String(x.shift_name||""),
+        booking_to:String(x.booking_to||""), fees_due:Number(x.fees_due||0),
+        fees_due_balance:Number(x.fees_due_balance||0), dues_status:String(x.dues_status||""),
+        phones:Array.isArray(x.phones)?x.phones:[], remark:String(x.remark||""),
+      }));
+      setPending(pdList);
+      setPendingSum(typeof pd.sum==="number"?pd.sum:pdList.reduce((s,d)=>s+d.fees_due_balance,0));
+      setPayments((pl.payments||[]).map((x:any)=>({
+        payment_id:String(x.payment_id||""), receipt_no:String(x.receipt_no||""),
+        student_id:String(x.student_id||""), library:String(x.library||""), branch:String(x.branch||""),
+        name:String(x.name||""), phone:String(x.phone||""),
+        payment_mode:String(x.payment_mode||""), payment_fees_mode:String(x.payment_fees_mode||""),
+        amount_received:Number(x.amount_received||0), balance_before:Number(x.balance_before||0),
+        balance_after:Number(x.balance_after||0), received_on:String(x.received_on||""),
+        notes:String(x.notes||""), whatsapp_text:String(x.whatsapp_text||""),
+      })));
+      setIrrec((ir.items||[]).map((x:any)=>({
+        receipt_no:String(x.receipt_no||""), student_id:String(x.student_id||""),
+        library:String(x.library||""), branch:String(x.branch||""), name:String(x.name||""),
+        fees_due_balance:Number(x.fees_due_balance||0),
+        irrecoverable_remark:String(x.irrecoverable_remark||""),
+        irrecoverable_whatsapp_text:String(x.irrecoverable_whatsapp_text||""),
+      })));
+    }catch{ showToast("Couldn’t load dues","error"); }
+    setLoading(false); setLoaded(true);
+  },[showToast]);
   useEffect(()=>{ load(); },[load]);
-
 
   const chips = useScopeChips();
   const pendingBase=pending.filter(d=>matchesSearch(d,search) && inDateRange(d.booking_to,dFrom,dTo));
   const paymentsBase=payments.filter(p=>matchesSearch(p,search) && inDateRange(p.received_on,dFrom,dTo));
   const irrecBase=irrec.filter(d=>matchesSearch(d,search));
-  const activeBase=tab==="PENDING"?pendingBase:tab==="PAYMENTS"?paymentsBase:irrecBase;
-  const dueCounts:Record<string,number>={}; (activeBase as any[]).forEach((it)=>{ const k=homeLib(it); if(k) dueCounts[k]=(dueCounts[k]||0)+1; });
+  const activeBase:any[]=tab==="PENDING"?pendingBase:tab==="PAYMENTS"?paymentsBase:irrecBase;
+  const counts:Record<string,number>={"":activeBase.length}; activeBase.forEach(it=>{ const k=homeLib(it); if(k) counts[k]=(counts[k]||0)+1; });
   const pendingF=scope?pendingBase.filter(d=>homeLib(d)===scope):pendingBase;
   const paymentsF=scope?paymentsBase.filter(p=>homeLib(p)===scope):paymentsBase;
   const irrecF=scope?irrecBase.filter(d=>homeLib(d)===scope):irrecBase;
   useEffect(()=>{ setPage(1); },[tab,search,scope,dFrom,dTo]);
 
-  return (
-   <div className="lma-page-body max-w-md mx-auto px-4 pt-4">
-      {openRno && <ReceiptModal receiptNo={openRno} context="dues" onClose={()=>setOpenRno(null)} onSaved={load}/>}
-      {openStu && <StudentModal studentId={openStu.id} library={openStu.library} onClose={()=>setOpenStu(null)} onSaved={load}/>}
-      <header className="flex items-center gap-3 mb-3">
-        <Link href="/lma960805" className="text-xl text-lma-slate-600 hover:text-lma-slate-900">←</Link>
-        <div className="flex-1"><h1 className="text-xl font-extrabold tracking-tight text-lma-slate-900">Dues</h1><p className="text-[11px] text-lma-slate-500 font-medium">{pending.length} pending · ₹{pendingSum} outstanding</p></div>
-        <button onClick={load} disabled={loading} className="text-xs font-bold px-3 py-2 rounded-lg bg-lma-slate-100 text-lma-slate-600 disabled:opacity-50">{loading?"...":"↻"}</button>
-      </header>
+  const shownSum = tab==="PENDING" ? pendingF.reduce((s,d)=>s+d.fees_due_balance,0)
+    : tab==="PAYMENTS" ? paymentsF.reduce((s,p)=>s+p.amount_received,0) : irrecF.reduce((s,d)=>s+d.fees_due_balance,0);
+  const shownCount = tab==="PENDING" ? pendingF.length : tab==="PAYMENTS" ? paymentsF.length : irrecF.length;
+  const list:any[] = tab==="PENDING" ? pendingF : tab==="PAYMENTS" ? paymentsF : irrecF;
+  const shown = list.slice((page-1)*PAGE_SIZE, page*PAGE_SIZE);
 
-      <div className="bg-white rounded-2xl p-1 flex gap-1 mb-3 shadow-sm">
-        <button onClick={()=>setTab("PENDING")} className={`flex-1 py-2 rounded-xl text-[11px] font-bold transition ${tab==="PENDING"?"bg-lma-slate-900 text-white":"text-lma-slate-500"}`}>Pending ({pending.length})</button>
-        <button onClick={()=>setTab("PAYMENTS")} className={`flex-1 py-2 rounded-xl text-[11px] font-bold transition ${tab==="PAYMENTS"?"bg-lma-slate-900 text-white":"text-lma-slate-500"}`}>Payments</button>
-        <button onClick={()=>setTab("IRRECOVERABLE")} className={`flex-1 py-2 rounded-xl text-[11px] font-bold transition ${tab==="IRRECOVERABLE"?"bg-lma-slate-900 text-white":"text-lma-slate-500"}`}>Written-off ({irrec.length})</button>
-      </div>
-
-      <div className="flex gap-1.5 mb-3 overflow-x-auto -mx-4 px-4 pb-1">
-        {chips.map(c=>(
-          <button key={c.code||"all"} onClick={()=>setScope(c.code)} style={scope===c.code&&c.color?{background:c.color,color:"#fff"}:undefined} className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-bold whitespace-nowrap ${scope===c.code&&!c.color?"bg-lma-slate-900 text-white":scope===c.code?"":"bg-white text-lma-slate-600"} shadow-sm`}>{c.emoji} {c.label} <span className={`ml-1 px-1.5 py-0.5 rounded-full text-[10px] font-bold ${scope===c.code?"bg-white/25 text-white":"bg-lma-slate-100 text-lma-slate-500"}`}>{c.code?(dueCounts[c.code]||0):activeBase.length}</span></button>
-        ))}
-      </div>
-
-      <SearchBar value={draft} onChange={setDraft} onSearch={()=>setSearch(draft)} searching={loading}/>
-      {tab!=="IRRECOVERABLE" && <DateRangeFilter from={dFrom} to={dTo} onChange={(f,t)=>{setDFrom(f);setDTo(t);setPage(1);}} className="mt-2"/>}
-      {loading&&pending.length===0&&payments.length===0&&irrec.length===0?(
-        <div className="text-center text-sm text-lma-slate-500 py-8">Loading…</div>
-      ):tab==="PENDING"?(
-        pendingF.length===0?(
-          <div className="text-center text-sm text-lma-slate-500 py-8">No pending dues. 🎉</div>
-        ):(
-          <div className="space-y-2">
-            {pendingF.slice((page-1)*PAGE_SIZE, page*PAGE_SIZE).map(d=>(
-              <div key={d.receipt_no} className="bg-white rounded-xl p-3 shadow-sm">
-                <div className="flex items-center gap-2 mb-1">
-                  <span className="text-sm font-extrabold text-lma-slate-900">{d.receipt_no}</span>
-                  <button onClick={()=>setOpenStu({id:d.student_id,library:homeLib(d)})} className="text-[10px] font-bold text-lma-slate-400 underline decoration-dotted">{d.student_id}</button>  
-                  <span className="text-sm font-extrabold text-lma-danger ml-auto">₹{d.fees_due_balance}</span>
-                </div>
-                <button onClick={()=>setOpenStu({id:d.student_id,library:homeLib(d)})} className="block w-full text-left text-sm font-semibold text-lma-slate-800 truncate hover:underline">{d.name}</button>
-                <div className="text-[11px] text-lma-slate-500 mt-0.5"><CodePill code={d.branch||d.library}/> · Seat {d.seat_no||"—"} · {d.shift_name||d.shift} · till {fmtDMY(d.booking_to)}</div>
-                {d.remark&&<div className="text-[11px] text-lma-slate-400 mt-0.5 italic truncate">📝 {d.remark}</div>}
-                <div className="grid grid-cols-3 gap-2 mt-2.5">
-                  <button onClick={()=>setPayFor(d)} className="py-2 rounded-lg bg-lma-accent/10 text-lma-accent font-bold text-xs">Log Payment</button>
-                  <button onClick={()=>setIrrecFor(d)} className="py-2 rounded-lg bg-lma-slate-100 text-lma-slate-600 font-bold text-xs">Write Off</button>
-                  <WhatsAppButton phones={d.phones} text={duesReminder(d)} label="💬 Remind" className="py-2 rounded-lg bg-lma-primary/10 text-lma-primary font-bold text-xs disabled:opacity-40"/>
-                </div>
-              </div>
-            ))}
-            <Pager page={page} totalPages={Math.max(1,Math.ceil(pendingF.length/PAGE_SIZE))} onPage={setPage}/>
-          </div>
-        )
-      ):tab==="PAYMENTS"?(
-        paymentsF.length===0?(
-          <div className="text-center text-sm text-lma-slate-500 py-8">No payments logged yet.</div>
-        ):(
-          <div className="space-y-2">
-            {paymentsF.slice((page-1)*PAGE_SIZE, page*PAGE_SIZE).map(p=>(
-              <div key={p.payment_id} className="bg-white rounded-xl p-3 shadow-sm">
-                <div className="flex items-center gap-2 mb-1">
-                  <button onClick={()=>setOpenRno(p.receipt_no)} className="text-sm font-extrabold text-lma-primary underline decoration-dotted">{p.receipt_no}</button>
-                  {p.name&&<span className="text-[11px] text-lma-slate-500 truncate">{p.name}</span>}
-                  <span className="text-sm font-extrabold text-lma-accent ml-auto">+₹{p.amount_received}</span>
-                </div>
-                <div className="text-[11px] text-lma-slate-500">{p.payment_mode} · {fmtDMYT(p.received_on)} · ₹{p.balance_before}→₹{p.balance_after}</div>
-                {p.notes&&<div className="text-[11px] text-lma-slate-400 mt-0.5">{p.notes}</div>}
-                {p.whatsapp_text&&<button onClick={()=>{navigator.clipboard.writeText(p.whatsapp_text);showToast("Copied receipt message");}} className="mt-2 py-1.5 px-3 rounded-lg bg-lma-accent/10 text-lma-accent font-bold text-xs">Copy WhatsApp</button>}
-              </div>
-            ))}
-            <Pager page={page} totalPages={Math.max(1,Math.ceil(paymentsF.length/PAGE_SIZE))} onPage={setPage}/>
-          </div>
-        )
-      ):(
-        irrecF.length===0?(
-          <div className="text-center text-sm text-lma-slate-500 py-8">No written-off dues.</div>
-        ):(
-          <div className="space-y-2">
-            {irrecF.slice((page-1)*PAGE_SIZE, page*PAGE_SIZE).map(d=>(
-              <div key={d.receipt_no} className="bg-white rounded-xl p-3 shadow-sm">
-                <div className="flex items-center gap-2 mb-1">
-                  <span className="text-sm font-extrabold text-lma-slate-900">{d.receipt_no}</span>
-                  <span className="text-[10px] font-bold text-lma-slate-400">{d.student_id}</span>
-                  <span className="text-sm font-extrabold text-lma-slate-500 ml-auto line-through">₹{d.fees_due_balance}</span>
-                </div>
-                <div className="text-sm font-semibold text-lma-slate-800 truncate">{d.name}</div>
-                <div className="text-[11px] text-lma-slate-500 mt-0.5"><CodePill code={d.branch||d.library}/></div>
-                {d.irrecoverable_remark&&<div className="text-[11px] text-lma-slate-400 mt-0.5">Note: {d.irrecoverable_remark}</div>}
-                <button onClick={()=>setConfirmAction({ title:"Restore to Pending?", message:`${d.name} · ${d.receipt_no} — ₹${d.fees_due_balance} will be moved back to PENDING dues.`, confirmLabel:"Restore", onYes:async()=>{ const r=await post("unmarkDuesIrrecoverable",{receipt_no:d.receipt_no}); if(r){showToast("Restored to pending");load();} } })} className="mt-2 py-1.5 px-3 rounded-lg bg-lma-slate-100 text-lma-slate-600 font-bold text-xs">Restore to Pending</button>
-              </div>
-            ))}
-            <Pager page={page} totalPages={Math.max(1,Math.ceil(irrecF.length/PAGE_SIZE))} onPage={setPage}/>
-          </div>
-        )
-      )}
-
-      {payFor&&init&&(
-        <PaymentSheet due={payFor} init={init} onClose={()=>setPayFor(null)} post={post}
-          onDone={(text)=>{ const ph=payFor.phones; setPayFor(null); if(text)setResultText({title:"Payment Receipt",text,phones:ph}); showToast("Payment logged"); load(); }}/>
-      )}
-
-      {irrecFor&&(
-        <Sheet onClose={()=>setIrrecFor(null)}>
-          <h3 className="text-base font-extrabold text-lma-slate-900 mb-1">Write off {irrecFor.receipt_no}</h3>
-          <p className="text-[11px] text-lma-slate-500 mb-3">{irrecFor.name} · ₹{irrecFor.fees_due_balance} outstanding</p>
-          <div className="text-[11px] text-lma-warn bg-lma-warn/10 rounded-lg p-2 mb-3">Marks these dues as irrecoverable (won't be collected). Reversible later.</div>
-          <WriteOffForm onCancel={()=>setIrrecFor(null)} onSubmit={async(remark)=>{ const r=await post("markDuesIrrecoverable",{receipt_no:irrecFor.receipt_no,remark}); if(r){ setIrrecFor(null); if(r.irrecoverable_whatsapp_text)setResultText({title:"Write-off notice",text:r.irrecoverable_whatsapp_text}); showToast("Marked irrecoverable"); load(); } }}/>
-        </Sheet>
-      )}
-
-      {resultText&&(
-        <Sheet onClose={()=>setResultText(null)}>
-          <h3 className="text-base font-extrabold text-lma-slate-900 mb-3">{resultText.title}</h3>
-          <pre className="text-[11px] text-lma-slate-700 whitespace-pre-wrap font-mono bg-lma-slate-50 rounded-lg p-3 max-h-60 overflow-y-auto">{resultText.text}</pre>
-          <button onClick={()=>{navigator.clipboard.writeText(resultText.text);showToast("Copied");}} className="w-full mt-3 py-3 rounded-xl bg-gradient-to-br from-lma-primary to-lma-primary-2 text-white font-bold shadow-md">Copy message</button>
-          {resultText.phones&&<WhatsAppButton phones={resultText.phones} text={resultText.text} label="Send on WhatsApp" className="w-full mt-2 py-3 rounded-xl bg-lma-accent text-white font-bold shadow-md disabled:opacity-40"/>}
-          <button onClick={()=>setResultText(null)} className="w-full mt-2 py-2.5 rounded-xl bg-lma-slate-100 text-lma-slate-600 font-bold">Close</button>
-        </Sheet>
-      )}
-
-      {confirmAction&&<ConfirmDialog c={confirmAction} onClose={()=>setConfirmAction(null)}/>}
-
-    </div>
-  );
-}
-
-function PaymentSheet({ due, init, onClose, post, onDone }:{ due:PendingDue; init:InitData; onClose:()=>void; post:(a:string,p:any)=>Promise<any>; onDone:(text:string)=>void }){
-  const [mode,setMode]=useState("");
-  const [amount,setAmount]=useState(String(due.fees_due_balance));
-  const [date,setDate]=useState((()=>{const d=new Date();return `${d.getDate()}-${d.getMonth()+1}-${d.getFullYear()}`;})());
-  const [notes,setNotes]=useState("");
-  const [busy,setBusy]=useState(false);
-
-  const submit=async()=>{
-    if(!mode||!amount){ return; }
-    setBusy(true);
-    // payload keys match logFeePayment params (receipt_no, payment_mode, amount_received, notes)
-    const r=await post("logFeePayment",{receipt_no:due.receipt_no,payment_mode:mode,amount_received:Number(amount),notes,receipt_date:date});
-    setBusy(false);
-    // logFeePayment returns the new FEES_DUE_LOG row's whatsapp_text
-    if(r) onDone(String(r.whatsapp_text||""));
+  const restore=async(d:Irrecoverable)=>{
+    if(!(await ask({ title:"Move back to pending?", body:`${d.name} · ${d.receipt_no} — ${inr(d.fees_due_balance)} goes back to pending dues.`, confirmLabel:"Move back" }))) return;
+    const r=await post("unmarkDuesIrrecoverable",{receipt_no:d.receipt_no});
+    if(r){ showToast("Moved back to pending"); load(); }
   };
 
   return (
-    <Sheet onClose={onClose}>
-      <h3 className="text-base font-extrabold text-lma-slate-900 mb-1">Log Payment · {due.receipt_no}</h3>
-      <p className="text-[11px] text-lma-slate-500 mb-3">{due.name} · ₹{due.fees_due_balance} outstanding</p>
-      <L>Payment Mode</L>
-      <select value={mode} onChange={e=>setMode(e.target.value)} className="w-full px-3 py-2.5 rounded-xl border-[1.5px] border-lma-slate-200 bg-lma-slate-50 text-sm font-medium mb-2">
-        <option value="">Select…</option>
-        {init.paymentTags.filter(t=>t.active).map(t=><option key={t.tag_name} value={t.tag_name}>{t.tag_name}</option>)}
-      </select>
-      <TagBankNote tag={mode}/>
-      <L>Amount Received (₹)</L>
-      <I type="number" value={amount} onChange={e=>setAmount(e.target.value)} max={due.fees_due_balance}/>
-      <p className="text-[11px] text-lma-slate-500 mt-1">New balance will be ₹{Math.max(0,due.fees_due_balance-(Number(amount)||0))}.</p>
-      <L>Note (optional)</L>
-      <I value={notes} onChange={e=>setNotes(e.target.value)} placeholder="optional"/>
-      <L>Date</L>
-      <I type="date" value={toIsoInput(date)} onChange={e=>setDate(e.target.value)}/>{date && <span className="block text-[10px] font-bold text-lma-slate-500 mt-1">{fmtDMY(date)}</span>}
-      <div className="flex gap-2.5 mt-4">
-        <button onClick={onClose} className="flex-1 py-3 rounded-xl bg-lma-slate-100 text-lma-slate-600 font-bold">Cancel</button>
-        <button onClick={submit} disabled={busy||!mode||!amount} className="flex-1 py-3 rounded-xl bg-gradient-to-br from-lma-primary to-lma-primary-2 text-white font-bold shadow-md disabled:opacity-50">{busy?"…":"Log Payment"}</button>
+    <Screen>
+      <header className="flex items-start gap-2 pb-4 pt-[calc(env(safe-area-inset-top)+16px)]">
+        <div className="min-w-0 flex-1">
+          <h1 className="text-[24px] font-bold tracking-[-0.02em] text-lma-ink">Dues</h1>
+          <p className="mt-0.5 text-[12.5px] text-lma-ink-3">{pending.length} pending · {inr(pendingSum)} outstanding</p>
+        </div>
+        <IconButton label="Refresh" onClick={load} className="-mr-2"><IconRefresh size={19} className={loading?"animate-spin":""}/></IconButton>
+      </header>
+
+      <div role="tablist" className="mb-3 grid grid-cols-3 gap-1 rounded-[16px] bg-lma-surface p-1 ring-1 ring-inset ring-lma-line">
+        {([["PENDING","Pending",pending.length],["PAYMENTS","Collected",payments.length],["IRRECOVERABLE","Written off",irrec.length]] as [Tab,string,number][]).map(([k,l,n])=>{ const on=tab===k; return (
+          <button key={k} role="tab" aria-selected={on} type="button" onClick={()=>setTab(k)}
+            className={cx("lma-btn flex h-11 items-center justify-center gap-1.5 rounded-[12px] text-[13px] font-semibold", on?"lma-glass-btn text-white":"text-lma-ink-2 active:bg-lma-bg")}>
+            {l}<span className={cx("rounded-full px-1.5 font-lma-mono text-[11.5px] font-bold", on?"bg-white/25":"bg-lma-bg text-lma-ink-3")}>{n}</span>
+          </button>
+        ); })}
       </div>
-    </Sheet>
+
+      <ScopeChips chips={chips} value={scope} onChange={setScope} counts={counts}/>
+
+      <section className={cx("mb-3 rounded-[22px] p-5 text-white", tab==="PENDING"?"":"lma-glass-dark")}
+        style={tab==="PENDING"?{ background:"radial-gradient(120% 90% at 0% 0%, rgb(255 255 255 / .2), transparent 55%), linear-gradient(160deg,#f59e0b 0%,#d97706 55%,#92400e 100%)", boxShadow:"0 22px 44px -22px rgb(146 64 14 / .7)" }:undefined}>
+        <div className="text-[13px] font-semibold text-white/80">{tab==="PENDING"?"Outstanding":tab==="PAYMENTS"?"Collected (last 30 shown)":"Written off"}{scope?` · ${scope}`:""}</div>
+        <div className="mt-1 font-lma-mono text-[32px] font-medium leading-none tracking-[-0.02em]">{inr(shownSum)}</div>
+        <div className="mt-1.5 text-[12px] text-white/80">{shownCount} {tab==="PAYMENTS"?(shownCount===1?"payment":"payments"):(shownCount===1?"student":"students")}</div>
+      </section>
+
+      <SearchBar value={draft} onChange={setDraft} onSearch={()=>setSearch(draft)} searching={loading}/>
+      {tab!=="IRRECOVERABLE" && <DateRangeFilter from={dFrom} to={dTo} onChange={(f,t)=>{setDFrom(f);setDTo(t);setPage(1);}} className="mb-3"/>}
+
+      {!loaded||(loading&&pending.length===0&&payments.length===0&&irrec.length===0) ? (
+        <div className="space-y-2">{[0,1,2].map(i=><Card key={i}><Skeleton className="h-4 w-40"/><Skeleton className="mt-2 h-3 w-52"/><Skeleton className="mt-3 h-11"/></Card>)}</div>
+      ) : list.length===0 ? (
+        <Card><Empty icon={<IconWallet size={22}/>} title={tab==="PENDING"?"No pending dues":tab==="PAYMENTS"?"No payments collected yet":"Nothing written off"}/></Card>
+      ) : (
+        <div className="space-y-2 pb-4">
+          {tab==="PENDING" && (shown as PendingDue[]).map(d=>(
+            <div key={d.receipt_no} className="flex overflow-hidden rounded-[18px] border border-lma-line bg-lma-surface shadow-lma-card">
+              <span aria-hidden="true" className="w-1.5 shrink-0 bg-[#f59e0b]"/>
+              <div className="min-w-0 flex-1 p-3.5">
+                <div className="flex items-start gap-2">
+                  <div className="min-w-0 flex-1">
+                    <div className="text-[15.5px] font-bold leading-snug text-lma-ink">{d.name}</div>
+                    <div className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-[12px] text-lma-ink-3">
+                      <span className="font-semibold text-lma-ink-2">{d.branch||d.library}</span>
+                      <span aria-hidden="true">·</span><span>Seat {d.seat_no||"—"}</span>
+                      <span aria-hidden="true">·</span><span>{d.shift_name||d.shift}</span>
+                      <span aria-hidden="true">·</span><span>till {fmtDMY(d.booking_to)}</span>
+                    </div>
+                  </div>
+                  <span className="shrink-0 rounded-md bg-[#fef3c7] px-2 py-0.5 font-lma-mono text-[14px] font-bold text-[#92400e] ring-1 ring-inset ring-[#f5d88a]">{inr(d.fees_due_balance)}</span>
+                </div>
+                {d.remark&&<div className="mt-1.5 truncate text-[12px] italic text-lma-ink-3">{d.remark}</div>}
+                <Refs studentId={d.student_id} receiptNo={d.receipt_no} onStu={()=>setOpenStu({id:d.student_id,library:homeLib(d)})} onRno={()=>setOpenRno(d.receipt_no)}/>
+                <div className="mt-3 grid grid-cols-[1.25fr_1fr_1fr] gap-2">
+                  <button type="button" onClick={()=>setPayFor(d)} className="h-11 rounded-[12px] text-[14px] font-bold text-white shadow-[inset_0_1px_0_rgb(255_255_255/0.28)]"
+                    style={{ background:"linear-gradient(180deg,#f5a524 0%,#d97706 60%,#b45309 100%)" }}>Collect</button>
+                  <WhatsAppButton phones={d.phones} chat text={duesReminder(d)} variants={[{label:"Dues reminder",text:duesReminder(d)}]} label="WhatsApp"
+                    className="h-11 w-full whitespace-nowrap rounded-[12px] bg-[#e3f6ec] text-[13px] font-semibold text-[#0b7a52] ring-1 ring-inset ring-[#c6ecd8] disabled:opacity-40"/>
+                  <button type="button" onClick={()=>setIrrecFor(d)} className="h-11 whitespace-nowrap rounded-[12px] bg-lma-surface text-[13px] font-semibold text-lma-ink-2 ring-1 ring-inset ring-lma-line">Write off</button>
+                </div>
+              </div>
+            </div>
+          ))}
+
+          {tab==="PAYMENTS" && (shown as DuePayment[]).map(p=>(
+            <div key={p.payment_id} className="rounded-[18px] border border-lma-line bg-lma-surface p-3.5 shadow-lma-card">
+              <div className="flex items-start gap-2">
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-[15px] font-semibold text-lma-ink">{p.name||p.receipt_no}</div>
+                  <div className="mt-0.5 text-[12px] text-lma-ink-3">{p.payment_mode} · {fmtDMYT(p.received_on)}</div>
+                  <div className="mt-0.5 font-lma-mono text-[12px] text-lma-ink-3">owed {inr(p.balance_before)} → {inr(p.balance_after)}</div>
+                </div>
+                <span className="shrink-0 font-lma-mono text-[15px] font-semibold text-lma-in">+{inr(p.amount_received)}</span>
+              </div>
+              {p.notes&&<div className="mt-1.5 text-[12px] text-lma-ink-3">{p.notes}</div>}
+              <div className="mt-2.5 flex flex-wrap gap-2">
+                <button type="button" onClick={()=>setOpenRno(p.receipt_no)} className="inline-flex h-9 items-center rounded-[10px] bg-lma-bg px-2.5 font-lma-mono text-[12.5px] font-semibold text-lma-ink ring-1 ring-inset ring-lma-line">{p.receipt_no} ↗</button>
+                {p.whatsapp_text&&<button type="button" onClick={()=>{ navigator.clipboard.writeText(p.whatsapp_text); showToast("Copied receipt message"); }}
+                  className="h-9 rounded-[10px] bg-[#e3f6ec] px-3 text-[12.5px] font-semibold text-[#0b7a52] ring-1 ring-inset ring-[#c6ecd8]">Copy message</button>}
+              </div>
+            </div>
+          ))}
+
+          {tab==="IRRECOVERABLE" && (shown as Irrecoverable[]).map(d=>(
+            <div key={d.receipt_no} className="rounded-[18px] border border-lma-line bg-lma-surface p-3.5 shadow-lma-card">
+              <div className="flex items-start gap-2">
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-[15px] font-semibold text-lma-ink">{d.name}</div>
+                  <div className="mt-0.5 font-lma-mono text-[12px] text-lma-ink-3">{d.branch||d.library} · {d.receipt_no} · {d.student_id}</div>
+                </div>
+                <span className="shrink-0 font-lma-mono text-[14px] font-semibold text-lma-ink-3 line-through">{inr(d.fees_due_balance)}</span>
+              </div>
+              {d.irrecoverable_remark&&<div className="mt-1.5 text-[12px] text-lma-ink-3">Note: {d.irrecoverable_remark}</div>}
+              <Button variant="secondary" full className="mt-2.5 h-11" onClick={()=>restore(d)}>Move back to pending</Button>
+            </div>
+          ))}
+          <Pager page={page} totalPages={Math.max(1,Math.ceil(list.length/PAGE_SIZE))} onPage={setPage}/>
+        </div>
+      )}
+
+      <Sheet open={!!payFor&&!!init} onClose={()=>setPayFor(null)} title={payFor?`Collect · ${payFor.name}`:""}>
+        {payFor&&(
+          <PaymentForm key={payFor.receipt_no} due={payFor} post={post}
+            onDone={(text)=>{ const ph=payFor.phones; setPayFor(null); if(text) setResultText({title:"Payment receipt",text,phones:ph}); showToast("Payment logged"); load(); }}/>
+        )}
+      </Sheet>
+
+      <Sheet open={!!irrecFor} onClose={()=>setIrrecFor(null)} title={irrecFor?`Write off ${irrecFor.receipt_no}`:""}>
+        {irrecFor&&(
+          <WriteOffForm due={irrecFor} onCancel={()=>setIrrecFor(null)} onSubmit={async(remark)=>{
+            const r=await post("markDuesIrrecoverable",{receipt_no:irrecFor.receipt_no,remark});
+            if(r){ setIrrecFor(null); if(r.irrecoverable_whatsapp_text) setResultText({title:"Write-off notice",text:r.irrecoverable_whatsapp_text}); showToast("Marked irrecoverable"); load(); }
+          }}/>
+        )}
+      </Sheet>
+
+      <Sheet open={!!resultText} onClose={()=>setResultText(null)} title={resultText?.title||""}>
+        {resultText&&(
+          <div className="pb-2">
+            <pre className="max-h-60 overflow-y-auto whitespace-pre-wrap rounded-[14px] border border-lma-line bg-lma-surface p-3 font-lma-mono text-[12px] leading-relaxed text-lma-ink-2">{resultText.text}</pre>
+            <div className="mt-3 grid grid-cols-[1fr_auto] gap-2">
+              {resultText.phones
+                ? <WhatsAppButton phones={resultText.phones} text={resultText.text} label="Send on WhatsApp" className="h-12 w-full rounded-[14px] bg-[#16a34a] text-[14.5px] font-bold text-white disabled:opacity-40"/>
+                : <a href={`https://wa.me/?text=${encodeURIComponent(resultText.text)}`} target="_blank" rel="noopener noreferrer" className="grid h-12 place-items-center rounded-[14px] bg-[#16a34a] text-[14.5px] font-bold text-white">Share on WhatsApp</a>}
+              <Button variant="secondary" onClick={()=>{ navigator.clipboard.writeText(resultText.text); showToast("Copied"); }}>Copy</Button>
+            </div>
+          </div>
+        )}
+      </Sheet>
+
+      {openRno && <ReceiptModal receiptNo={openRno} context="dues" onClose={()=>setOpenRno(null)} onSaved={load}/>}
+      {openStu && <StudentModal studentId={openStu.id} library={openStu.library} onClose={()=>setOpenStu(null)} onSaved={load}/>}
+    </Screen>
   );
 }
 
-function WriteOffForm({ onCancel, onSubmit }:{ onCancel:()=>void; onSubmit:(remark:string)=>void }){
-  const [remark,setRemark]=useState("");
+function Refs({ studentId, receiptNo, onStu, onRno }:{ studentId:string; receiptNo:string; onStu:()=>void; onRno:()=>void }){
+  const open=<svg aria-hidden="true" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.8} strokeLinecap="round" strokeLinejoin="round"><path d="M8 16 16 8M9 8h7v7"/></svg>;
   return (
-    <>
-      <L>Reason (optional)</L>
-      <I value={remark} onChange={e=>setRemark(e.target.value)} placeholder="why writing off"/>
-      <div className="flex gap-2.5 mt-4">
-        <button onClick={onCancel} className="flex-1 py-3 rounded-xl bg-lma-slate-100 text-lma-slate-600 font-bold">Cancel</button>
-        <button onClick={()=>onSubmit(remark)} className="flex-1 py-3 rounded-xl bg-lma-danger text-white font-bold shadow-md">Write Off</button>
-      </div>
-    </>
-  );
-}
-
-function Sheet({ onClose, children }:{ onClose:()=>void; children:React.ReactNode }){
-  return (
-    <div className="fixed inset-0 z-[9998] flex items-end justify-center" onClick={onClose}>
-      <div className="absolute inset-0 bg-black/50 backdrop-blur-sm"/>
-      <div className="relative w-full max-w-md bg-white rounded-t-3xl p-5 max-h-[88vh] overflow-y-auto lma-slide-up" onClick={e=>e.stopPropagation()}>
-        <div className="w-9 h-1 bg-lma-slate-200 rounded-full mx-auto mb-4"/>
-        {children}
-      </div>
+    <div className="mt-2.5 flex flex-wrap gap-1.5">
+      <button type="button" onClick={onStu} aria-label={`Open student ${studentId}`} className="inline-flex h-8 items-center gap-1 rounded-[10px] bg-lma-bg px-2.5 font-lma-mono text-[12.5px] font-semibold text-lma-ink ring-1 ring-inset ring-lma-line">{studentId}{open}</button>
+      <button type="button" onClick={onRno} aria-label={`Open receipt ${receiptNo}`} className="inline-flex h-8 items-center gap-1 rounded-[10px] bg-lma-bg px-2.5 font-lma-mono text-[12.5px] font-semibold text-lma-ink ring-1 ring-inset ring-lma-line">{receiptNo}{open}</button>
     </div>
   );
 }
-function L({ children }:{ children:React.ReactNode }){ return <label className="block text-[11px] font-bold text-lma-slate-500 uppercase tracking-wide mb-1 mt-2">{children}</label>; }
-function I(props:React.InputHTMLAttributes<HTMLInputElement>){ return <input {...props} className="w-full px-3.5 py-2.5 rounded-xl border-[1.5px] border-lma-slate-200 bg-lma-slate-50 focus:bg-white focus:border-lma-primary outline-none text-[14px] font-medium"/>; }
 
-// ── Reusable confirm dialog (prevents accidental state changes) ──
-function ConfirmDialog({c,onClose}:{c:{title:string;message:string;confirmLabel:string;danger?:boolean;onYes:()=>void};onClose:()=>void}){
+// Collect: keypad amount (starts at what is owed), paid-by chips, date, note.
+function PaymentForm({ due, post, onDone }:{ due:PendingDue; post:(a:string,p:any)=>Promise<any>; onDone:(text:string)=>void }){
+  const [mode,setMode]=useState("");
+  const [amountStr,setAmountStr]=useState(String(due.fees_due_balance));
+  const [dateIso,setDateIso]=useState(todayIso());
+  const [notes,setNotes]=useState("");
   const [busy,setBusy]=useState(false);
+  const amount=Number(amountStr||0);
+  const blocker=amount<=0?"Enter the amount":!mode?"Pick how it was paid":"";
+  const submit=async()=>{
+    if(blocker) return;
+    setBusy(true);
+    const d=new Date(dateIso+"T00:00:00");
+    // payload keys match logFeePayment params (receipt_no, payment_mode, amount_received, notes, receipt_date)
+    const r=await post("logFeePayment",{receipt_no:due.receipt_no,payment_mode:mode,amount_received:amount,notes,receipt_date:`${d.getDate()}-${d.getMonth()+1}-${d.getFullYear()}`});
+    setBusy(false);
+    if(r) onDone(String(r.whatsapp_text||""));
+  };
   return (
-    <div className="fixed inset-0 z-[10000] flex items-center justify-center px-6" onClick={onClose}>
-      <div className="absolute inset-0 bg-black/40"/>
-      <div className="relative w-full max-w-xs bg-white rounded-2xl p-5 lma-slide-up" onClick={e=>e.stopPropagation()}>
-        <h4 className="text-sm font-extrabold text-lma-slate-900 mb-1">{c.title}</h4>
-        <p className="text-[12px] text-lma-slate-500 mb-4">{c.message}</p>
-        <div className="flex gap-2">
-          <button disabled={busy} onClick={onClose} className="flex-1 py-2.5 rounded-xl bg-lma-slate-100 text-lma-slate-600 font-bold text-sm disabled:opacity-50">No</button>
-          <button disabled={busy} onClick={async()=>{ setBusy(true); try{ await c.onYes(); } finally { setBusy(false); onClose(); } }} className={`flex-1 py-2.5 rounded-xl text-white font-bold text-sm disabled:opacity-50 ${c.danger?"bg-lma-danger":"bg-lma-primary"}`}>{busy?"…":c.confirmLabel}</button>
-        </div>
+    <div className="pb-2">
+      <p className="mb-3 px-1 text-[12.5px] text-lma-ink-3">{due.receipt_no} · {inr(due.fees_due_balance)} outstanding</p>
+      <AmountPad value={amountStr} onKey={k=>setAmountStr(s=>keyRules(s,k))} label="Amount received"/>
+      <p className="-mt-1 mb-3 px-1 text-[12.5px] font-semibold text-lma-ink-2">Still owed after this: {inr(Math.max(0,due.fees_due_balance-amount))}</p>
+      <div className="mb-1.5 px-1 text-[12px] font-bold uppercase tracking-[0.08em] text-lma-ink-3">Paid by</div>
+      <TagChips value={mode} onChange={setMode}/>
+      <div className="mb-3 mt-1"><TagBankNote tag={mode}/></div>
+      <DateChips title="On" value={dateIso} onChange={setDateIso} ago={daysAgo(dateIso)} label={dayLabel(dateIso)} today={todayIso()} yesterday={shiftIso(todayIso(),-1)}/>
+      <div className="mb-4"><TextInput value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Note (optional)" aria-label="Note"/></div>
+      <Button size="lg" full disabled={!!blocker||busy} loading={busy} loadingText="Saving…" onClick={submit}>{blocker||`Collect ${inr(amount)}`}</Button>
+    </div>
+  );
+}
+
+function WriteOffForm({ due, onCancel, onSubmit }:{ due:PendingDue; onCancel:()=>void; onSubmit:(remark:string)=>void }){
+  const [remark,setRemark]=useState("");
+  return (
+    <div className="pb-2">
+      <p className="mb-3 px-1 text-[12.5px] text-lma-ink-3">{due.name} · {inr(due.fees_due_balance)} outstanding</p>
+      <div className="mb-3 rounded-[12px] bg-lma-warn-soft p-3 text-[12.5px] font-semibold text-lma-warn-2">Marks these dues as won’t be collected. You can move them back to pending later.</div>
+      <TextInput value={remark} onChange={e=>setRemark(e.target.value)} placeholder="Reason (optional)" aria-label="Reason"/>
+      <div className="mt-4 grid grid-cols-2 gap-2">
+        <Button variant="secondary" onClick={onCancel}>Cancel</Button>
+        <Button variant="danger" onClick={()=>onSubmit(remark)}>Write off</Button>
       </div>
     </div>
   );

@@ -15,7 +15,7 @@
 import ContactCopyButton from "./ContactCopyButton";
 import WhatsAppButton from "./WhatsAppButton";
 import { useState, useEffect, useCallback } from "react";
-import { BankCheck, TagBankNote } from "./TagBank";
+import { BankCheck, TagBankNote, TagChips } from "./TagBank";
 import { useLMA } from "./LMAProvider";
 import CancelRefundSheet from "./CancelRefundSheet";
 import { fmtDMY, fmtDMYT, toIsoInput, toDmy } from "../_lib/dates";
@@ -354,19 +354,22 @@ function EditForm({ receipt, init, onCancel, onSave }:{ receipt:Receipt; init:an
       )}
       <L>Payments</L>
       {pays.map((p,i)=>(
-        <div key={i} className="mb-2">
-          <div className="flex gap-2">
-            <select value={p.mode} onChange={e=>setPay(i,"mode",e.target.value)} className="flex-1 h-12 px-3.5 rounded-[14px] border border-lma-line bg-lma-surface text-[15px] font-medium text-lma-ink outline-none focus:border-lma-brand">
-              <option value="">Mode…</option>
-              {init.paymentTags.filter((t:any)=>t.active).map((t:any)=><option key={t.tag_name} value={t.tag_name}>{t.tag_name}</option>)}
-            </select>
-            <input type="number" value={p.amount} onChange={e=>setPay(i,"amount",e.target.value)} placeholder="₹" className="w-24 h-12 px-3.5 rounded-[14px] border border-lma-line bg-lma-surface text-[15px] font-medium text-lma-ink outline-none focus:border-lma-brand"/>
-            {pays.length>1&&<button onClick={()=>setPays(pays.filter((_,j)=>j!==i))} className="px-2 text-lma-danger font-bold">✕</button>}
+        <div key={i} className="mb-2 rounded-[16px] border border-lma-line bg-lma-surface p-3">
+          {pays.length>1&&(
+            <div className="mb-2 flex items-center justify-between">
+              <span className="px-0.5 text-[12px] font-bold uppercase tracking-[0.08em] text-lma-ink-3">Payment {i+1}</span>
+              <button onClick={()=>setPays(pays.filter((_,j)=>j!==i))} className="h-8 rounded-full px-2.5 text-[12.5px] font-semibold text-lma-out active:bg-lma-out-soft">Remove</button>
+            </div>
+          )}
+          <TagChips value={p.mode} onChange={v=>setPay(i,"mode",v)} keep={p.savedMode}/>
+          <div className="mt-2.5 flex items-center gap-2">
+            <span className="w-16 shrink-0 px-0.5 text-[12.5px] font-semibold text-lma-ink-3">Amount</span>
+            <input type="number" value={p.amount} onChange={e=>setPay(i,"amount",e.target.value)} placeholder="₹" className="h-12 w-full rounded-[14px] border border-lma-line bg-lma-surface px-3.5 font-lma-mono text-[15px] font-medium text-lma-ink outline-none focus:border-lma-brand"/>
           </div>
           {p.mode&&<BankCheck tag={p.mode} savedTag={p.savedMode} savedBank={p.savedBank} move={p.move} onMove={v=>setMove(i,v)}/>}
           {p.mode&&<div className="flex items-center gap-2 mt-1.5">
             <span className="text-[10px] font-bold text-lma-ink-3 shrink-0">Paid on</span>
-            <input type="date" value={toIsoInput(p.date||"")} onChange={e=>setPay(i,"date",normDateR(e.target.value))} className="flex-1 px-2.5 py-2 rounded-lg border-[1.5px] border-lma-line bg-lma-bg text-xs font-medium"/>
+            <input type="date" value={toIsoInput(p.date||"")} onChange={e=>setPay(i,"date",normDateR(e.target.value))} className="h-11 flex-1 rounded-[12px] border border-lma-line bg-lma-surface px-3 text-[14px] font-medium text-lma-ink outline-none focus:border-lma-brand"/>
             {p.date&&<span className="text-[10px] font-bold text-lma-ink-3 shrink-0">{fmtDMY(p.date)}</span>}
           </div>}
         </div>
@@ -461,10 +464,8 @@ function CollectDueInline({ receiptNo, balance, post, showToast, onChanged, onEv
   return (
     <div className="mt-2 rounded-[14px] border border-lma-danger/30 bg-lma-danger/5 p-3 space-y-2">
       <input type="date" value={date} onChange={e=>setDate(e.target.value)} className="w-full px-3 py-2 rounded-lg border border-lma-line text-sm bg-white"/>
-      <div className="flex gap-2">
-        <input type="number" inputMode="decimal" value={amt} onChange={e=>setAmt(e.target.value)} placeholder="Amount" className="flex-1 min-w-0 px-3 py-2 rounded-lg border border-lma-line text-sm"/>
-        <select value={mode} onChange={e=>setMode(e.target.value)} className="px-2 py-2 rounded-lg border border-lma-line text-sm bg-white"><option value="">Mode…</option>{modes.map(m=><option key={m} value={m}>{m}</option>)}</select>
-      </div>
+      <input type="number" inputMode="decimal" value={amt} onChange={e=>setAmt(e.target.value)} placeholder="Amount ₹" aria-label="Amount" className="h-12 w-full rounded-[14px] border border-lma-line bg-lma-surface px-3.5 font-lma-mono text-[15px] font-medium text-lma-ink outline-none focus:border-lma-brand"/>
+      <div><div className="mb-1.5 px-1 text-[12px] font-bold uppercase tracking-[0.08em] text-lma-ink-3">Paid by</div><TagChips value={mode} onChange={setMode} label="Paid by" size="sm"/></div>
       {mode&&<TagBankNote tag={mode} right/>}
       {err&&<div className="text-[11px] font-bold text-lma-danger">{err}</div>}
       <div className="flex gap-2">
@@ -498,10 +499,8 @@ function RefundInline({ receiptNo, post, showToast, onChanged, onEvent }:{ recei
   return (
     <div className="mt-2 rounded-[14px] border border-lma-line bg-lma-bg p-3 space-y-2">
       <input type="date" value={date} onChange={e=>setDate(e.target.value)} className="w-full px-3 py-2 rounded-lg border border-lma-line text-sm bg-white"/>
-      <div className="flex gap-2">
-        <input type="number" inputMode="decimal" value={amt} onChange={e=>setAmt(e.target.value)} placeholder="Refund amount" className="flex-1 min-w-0 px-3 py-2 rounded-lg border border-lma-line text-sm"/>
-        <select value={mode} onChange={e=>setMode(e.target.value)} className="px-2 py-2 rounded-lg border border-lma-line text-sm bg-white"><option value="">Mode…</option>{modes.map(m=><option key={m} value={m}>{m}</option>)}</select>
-      </div>
+      <input type="number" inputMode="decimal" value={amt} onChange={e=>setAmt(e.target.value)} placeholder="Refund amount ₹" aria-label="Refund amount" className="h-12 w-full rounded-[14px] border border-lma-line bg-lma-surface px-3.5 font-lma-mono text-[15px] font-medium text-lma-ink outline-none focus:border-lma-brand"/>
+      <div><div className="mb-1.5 px-1 text-[12px] font-bold uppercase tracking-[0.08em] text-lma-ink-3">Refund paid by</div><TagChips value={mode} onChange={setMode} label="Refund paid by" size="sm"/></div>
       {mode&&<TagBankNote tag={mode} right/>}
       <input value={reason} onChange={e=>setReason(e.target.value)} placeholder="Reason (optional)" className="w-full px-3 py-2 rounded-lg border border-lma-line text-sm"/>
       {err&&<div className="text-[11px] font-bold text-lma-danger">{err}</div>}

@@ -1,11 +1,12 @@
 "use client";
- 
+// LMA — Renewals. Who is expiring, who has expired, who was cancelled.
+// Same data and actions as before (getRenewalsQueue · getCancellationsQueue ·
+// markReceiptDoNotRenew · resetReceiptStatus); renewing opens the booking flow
+// in place, cancelling opens the shared cancel & refund sheet.
 import { useState, useEffect, useCallback } from "react";
 import CancelRefundSheet from "../_components/CancelRefundSheet";
-import Link from "next/link";
-import { useLMA, useScopeChips, type LMAInitData as InitData } from "../_components/LMAProvider";
+import { useLMA, useScopeChips } from "../_components/LMAProvider";
 import { fmtDMY, inDateRange } from "../_lib/dates";
-import CodePill from "../_components/CodePill";
 import ReceiptModal from "../_components/ReceiptModal";
 import StudentModal from "../_components/StudentModal";
 import SearchBar, { matchesSearch } from "../_components/SearchBar";
@@ -14,9 +15,12 @@ import { buildRenewReminder, buildRenewFollowUpPay, buildRenewFollowUpAsk } from
 import WhatsAppButton from "../_components/WhatsAppButton";
 import Pager, { PAGE_SIZE } from "../_components/Pager";
 import BookingFlow from "../_components/BookingFlow";
- 
+import { Screen, Card, Chip, ScopeChips, Sheet, Button, Skeleton, Empty, IconButton, cx } from "../_ui/kit";
+import { IconRefresh, IconRepeat } from "../_ui/icons";
+import { inr } from "../_ui/format";
+
 const API = "/api/lma960805";
- 
+
 interface QueueItem {
   receipt_no:string; student_id:string; library:string; branch:string; name:string;
   seat_no:string; shift:string; shift_name:string; booking_from:string; booking_to:string;
@@ -24,21 +28,17 @@ interface QueueItem {
   status:string; renewed_from:string; lifecycle:string; days_until_expiry:number;
   receipt_text:string; cancel_whatsapp_text?:string; phone?:string; phones?:{number:string;tag:string}[]; remark?:string;
 }
- 
 type Tab = "EXPIRING"|"EXPIRED"|"CANCELLED";
- 
-// student's HOME library (cross students keep their original ID/sheet)
+
+// student's HOME library (cross students keep their original ID)
 function homeLib(it:QueueItem){ return (it.is_cross_library&&it.is_cross_library!=="NO") ? it.is_cross_library : (it.branch||it.library); }
- 
 function relTime(days:number, kind:"expiring"|"expired"){
   if(kind==="expiring"){ if(days<=0) return "Due today"; if(days===1) return "1 day left"; return `${days} days left`; }
   const d=Math.abs(days); if(d===0) return "Expired today"; if(d===1) return "1 day ago"; return `${d} days ago`;
 }
- 
+
 export default function RenewalsPage(){
-  const { init, showToast, post } = useLMA();
-  const [confirmAction,setConfirmAction]=useState<{title:string;message:string;confirmLabel:string;danger?:boolean;onYes:()=>void}|null>(null);
- 
+  const { init, showToast, post, confirm: ask } = useLMA();
   const [tab,setTab]=useState<Tab>("EXPIRED");
   const [dFrom,setDFrom]=useState(""); const [dTo,setDTo]=useState("");
   const [scope,setScope]=useState("");          // "" = all
@@ -46,281 +46,248 @@ export default function RenewalsPage(){
   const [expired,setExpired]=useState<QueueItem[]>([]);
   const [cancellations,setCancellations]=useState<QueueItem[]>([]);
   const [loading,setLoading]=useState(false);
- 
+  const [loaded,setLoaded]=useState(false);
   const [actionFor,setActionFor]=useState<QueueItem|null>(null);   // cancel/refund sheet
   const [resultText,setResultText]=useState<{title:string;text:string}|null>(null);
-  const [openRno,setOpenRno]=useState<string|null>(null);          // ReceiptModal
-  const [openStu,setOpenStu]=useState<{id:string;library:string}|null>(null); // StudentModal
+  const [openRno,setOpenRno]=useState<string|null>(null);
+  const [openStu,setOpenStu]=useState<{id:string;library:string}|null>(null);
   const [renew,setRenew]=useState<QueueItem|null>(null);           // in-place renewal
-  const [expSub,setExpSub]=useState<"ALL"|"SOON"|"LATER">("ALL");   // sub-filter inside Expiring
+  const [expSub,setExpSub]=useState<"ALL"|"SOON"|"LATER">("ALL");   // inside Expiring
   const [draft,setDraft]=useState("");
   const [search,setSearch]=useState("");
   const [page,setPage]=useState(1);
- 
+
   const load=useCallback(async()=>{
     setLoading(true);
-    const p=new URLSearchParams(); // B4: load all scopes; filter client-side
-    const [rq,cq]=await Promise.all([
-      fetch(`${API}?action=getRenewalsQueue&${p}`).then(r=>r.json()),
-      fetch(`${API}?action=getCancellationsQueue&${p}`).then(r=>r.json()),
-    ]);
-    setLoading(false);
-    setExpiring(rq.expiring||[]); setExpired(rq.expired||[]);
-    setCancellations(cq.items||[]);
-  },[]);
- 
+    try{
+      const p=new URLSearchParams();   // all scopes; filtered here
+      const [rq,cq]=await Promise.all([
+        fetch(`${API}?action=getRenewalsQueue&${p}`).then(r=>r.json()),
+        fetch(`${API}?action=getCancellationsQueue&${p}`).then(r=>r.json()),
+      ]);
+      setExpiring(rq.expiring||[]); setExpired(rq.expired||[]);
+      setCancellations(cq.items||[]);
+    }catch{ showToast("Couldn’t load renewals","error"); }
+    setLoading(false); setLoaded(true);
+  },[showToast]);
   useEffect(()=>{ load(); },[load]);
- 
-  const remind=(it:QueueItem, expired:boolean):string=>{ const libName=(init?.libraries?.find(l=>l.library_code===it.library)?.display_name)||it.library; return buildRenewReminder(it.name, libName, fmtDMY(it.booking_to), expired); };
-  const followUpPay=(it:QueueItem, expired:boolean):string=>{ const libName=(init?.libraries?.find(l=>l.library_code===it.library)?.display_name)||it.library; return buildRenewFollowUpPay(it.name, libName, fmtDMY(it.booking_to), expired); }; // B5
-  const followUpAsk=(it:QueueItem, expired:boolean):string=>{ const libName=(init?.libraries?.find(l=>l.library_code===it.library)?.display_name)||it.library; return buildRenewFollowUpAsk(it.name, libName, fmtDMY(it.booking_to), expired); };
+
+  const libName=(it:QueueItem)=>(init?.libraries?.find(l=>l.library_code===it.library)?.display_name)||it.library;
+  const remind=(it:QueueItem, exp:boolean)=>buildRenewReminder(it.name, libName(it), fmtDMY(it.booking_to), exp);
+  const followUpPay=(it:QueueItem, exp:boolean)=>buildRenewFollowUpPay(it.name, libName(it), fmtDMY(it.booking_to), exp);
+  const followUpAsk=(it:QueueItem, exp:boolean)=>buildRenewFollowUpAsk(it.name, libName(it), fmtDMY(it.booking_to), exp);
+
   const doDoNotRenew=async(it:QueueItem)=>{
+    if(!(await ask({ title:`Do not renew ${it.receipt_no}?`, body:`${it.name} will leave this list and stop appearing in renewal reminders.`, confirmLabel:"Do not renew", danger:true }))) return;
     const r=await post("markReceiptDoNotRenew",{receipt_no:it.receipt_no});
-    if(r){ showToast("Marked Do Not Renew"); load(); }
+    if(r){ showToast("Marked do not renew"); load(); }
   };
   const doReset=async(it:QueueItem)=>{
+    if(!(await ask({ title:"Set back to active?", body:`${it.name} · ${it.receipt_no} goes back to active (clears Cancelled / Do not renew).`, confirmLabel:"Set active" }))) return;
     const r=await post("resetReceiptStatus",{receipt_no:it.receipt_no});
-    if(r&&r.reset){ showToast("Status reset to active"); load(); }
+    if(r&&r.reset){ showToast("Set back to active"); load(); }
     else if(r&&r.error) showToast(r.error,"error");
   };
- 
+
   const chips = useScopeChips();
- 
   const tabs:{key:Tab;label:string;count:number;bg:string}[]=[
     { key:"EXPIRING",  label:"Expiring",  count:expiring.length,      bg:"#dc2626" },
     { key:"EXPIRED",   label:"Expired",   count:expired.length,       bg:"#6b0a0a" },
     { key:"CANCELLED", label:"Cancelled", count:cancellations.length, bg:"#0f172a" },
   ];
- 
-  // split EXPIRING into Soon (within primary window) vs Expiring (secondary) — mirrors seat-chart two-tier code
+
+  // Expiring splits into Soon (primary window) and Later — same two tiers as the seat chart
   const primaryDays=(it:QueueItem)=>{ const s=(init?.settings as any)?.[it.branch||it.library]||(init?.settings as any)?.[it.library]; const n=Number(s?.renewal_alert_days_primary); return n>0?n:3; };
   const tierOf=(it:QueueItem):"soon"|"expiring"=> it.days_until_expiry<=primaryDays(it) ? "soon" : "expiring";
-  const expiringBase=expiring.filter(it=>matchesSearch(it,search) && inDateRange(it.booking_to,dFrom,dTo));
-  const expiredBase=expired.filter(it=>matchesSearch(it,search) && inDateRange(it.booking_to,dFrom,dTo));
-  const cancellationsBase=cancellations.filter(it=>matchesSearch(it,search) && inDateRange(it.booking_to,dFrom,dTo));
-  const activeBase=tab==="EXPIRING"?expiringBase:tab==="EXPIRED"?expiredBase:cancellationsBase;
-  const renCounts:Record<string,number>={}; activeBase.forEach(it=>{ const k=(it.branch||it.library); if(k) renCounts[k]=(renCounts[k]||0)+1; });
-  const expiringF=scope?expiringBase.filter(it=>(it.branch||it.library)===scope):expiringBase;
-  const expiredF=scope?expiredBase.filter(it=>(it.branch||it.library)===scope):expiredBase;
-  const cancellationsF=scope?cancellationsBase.filter(it=>(it.branch||it.library)===scope):cancellationsBase;
+  const byQuery=(it:QueueItem)=>matchesSearch(it,search) && inDateRange(it.booking_to,dFrom,dTo);
+  const expiringBase=expiring.filter(byQuery), expiredBase=expired.filter(byQuery), cancelledBase=cancellations.filter(byQuery);
+  const activeBase=tab==="EXPIRING"?expiringBase:tab==="EXPIRED"?expiredBase:cancelledBase;
+  const counts:Record<string,number>={"":activeBase.length}; activeBase.forEach(it=>{ const k=(it.branch||it.library); if(k) counts[k]=(counts[k]||0)+1; });
+  const inScope=(it:QueueItem)=>!scope||(it.branch||it.library)===scope;
+  const expiringF=expiringBase.filter(inScope), expiredF=expiredBase.filter(inScope), cancelledF=cancelledBase.filter(inScope);
   const soonList=expiringF.filter(it=>tierOf(it)==="soon");
   const laterList=expiringF.filter(it=>tierOf(it)==="expiring");
   const expShown = expSub==="SOON"?soonList : expSub==="LATER"?laterList : expiringF;
   useEffect(()=>{ setPage(1); },[tab,search,expSub,scope,dFrom,dTo]);
- 
-  const secondaryFor=(it:QueueItem,kind:"expiring"|"expired")=>kind==="expiring"
-    ? ()=>setActionFor(it)
-    : ()=>setConfirmAction({ title:"Mark Do Not Renew?", message:`${it.name} · ${it.receipt_no} will be flagged DO NOT RENEW and leave the queue.`, confirmLabel:"Don't Renew", danger:true, onYes:()=>doDoNotRenew(it) });
- 
+
+  const list = tab==="EXPIRING" ? expShown : tab==="EXPIRED" ? expiredF : cancelledF;
+  const shown = list.slice((page-1)*PAGE_SIZE, page*PAGE_SIZE);
+  const totalPages = Math.max(1,Math.ceil(list.length/PAGE_SIZE));
+
   return (
-    <div className="lma-page-body max-w-md mx-auto px-4 pt-4">
-      <header className="flex items-center gap-3 mb-3">
-        <Link href="/lma960805" className="text-xl text-lma-slate-600 hover:text-lma-slate-900">←</Link>
-        <div className="flex-1"><h1 className="text-xl font-extrabold tracking-tight text-lma-slate-900">Renewals</h1><p className="text-[11px] text-lma-slate-500 font-medium">{expiring.length} expiring · {expired.length} expired · {cancellations.length} cancelled</p></div>
-        <button onClick={load} disabled={loading} className="text-xs font-bold px-3 py-2 rounded-lg bg-lma-slate-100 text-lma-slate-600 disabled:opacity-50">{loading?"…":"↻"}</button>
+    <Screen>
+      <header className="flex items-start gap-2 pb-4 pt-[calc(env(safe-area-inset-top)+16px)]">
+        <div className="min-w-0 flex-1">
+          <h1 className="text-[24px] font-bold tracking-[-0.02em] text-lma-ink">Renewals</h1>
+          <p className="mt-0.5 text-[12.5px] text-lma-ink-3">{expiring.length} expiring · {expired.length} expired · {cancellations.length} cancelled</p>
+        </div>
+        <IconButton label="Refresh" onClick={load} className="-mr-2"><IconRefresh size={19} className={loading?"animate-spin":""}/></IconButton>
       </header>
- 
-      {/* 3-tab segmented control */}
-      <div className="bg-white rounded-2xl p-1 flex gap-1 mb-3 shadow-sm">
-        {tabs.map(t=>(
-          <button key={t.key} onClick={()=>setTab(t.key)} style={tab===t.key?{background:t.bg,color:"#fff"}:undefined} className={`flex-1 py-2 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 ${tab===t.key?"":"text-lma-slate-500"}`}>
+
+      {/* tabs, each in the seat chart's colour when chosen */}
+      <div role="tablist" className="mb-3 grid grid-cols-3 gap-1 rounded-[16px] bg-lma-surface p-1 ring-1 ring-inset ring-lma-line">
+        {tabs.map(t=>{ const on=tab===t.key; return (
+          <button key={t.key} role="tab" aria-selected={on} type="button" onClick={()=>setTab(t.key)}
+            style={on?{ background:t.bg, color:"#fff" }:undefined}
+            className={cx("lma-btn flex h-11 items-center justify-center gap-1.5 rounded-[12px] text-[13.5px] font-semibold", on?"":"text-lma-ink-2 active:bg-lma-bg")}>
             {t.label}
-            <span className={`text-[10px] leading-none px-1.5 py-0.5 rounded-full ${tab===t.key?"bg-white/25":"bg-lma-slate-100 text-lma-slate-500"}`}>{t.count}</span>
+            <span className={cx("rounded-full px-1.5 font-lma-mono text-[11.5px] font-bold", on?"bg-white/25":"bg-lma-bg text-lma-ink-3")}>{t.count}</span>
           </button>
-        ))}
+        ); })}
       </div>
- 
-      {/* scope chips */}
-      <div className="flex gap-1.5 mb-3 overflow-x-auto -mx-4 px-4 pb-1">
-        {chips.map(c=>(
-          <button key={c.code||"all"} onClick={()=>setScope(c.code)} style={scope===c.code&&c.color?{background:c.color,color:"#fff"}:undefined} className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-bold whitespace-nowrap ${scope===c.code&&!c.color?"bg-lma-slate-900 text-white":scope===c.code?"":"bg-white text-lma-slate-600"} shadow-sm`}>{c.emoji} {c.label} <span className={`ml-1 px-1.5 py-0.5 rounded-full text-[10px] font-bold ${scope===c.code?"bg-white/25 text-white":"bg-lma-slate-100 text-lma-slate-500"}`}>{c.code?(renCounts[c.code]||0):activeBase.length}</span></button>
-        ))}
-      </div>
- 
+
+      <ScopeChips chips={chips} value={scope} onChange={setScope} counts={counts}/>
       <SearchBar value={draft} onChange={setDraft} onSearch={()=>setSearch(draft)} searching={loading}/>
-      <DateRangeFilter from={dFrom} to={dTo} onChange={(f,t)=>{setDFrom(f);setDTo(t);setPage(1);}} className="mt-2"/>
-      {loading&&expiring.length===0&&expired.length===0&&cancellations.length===0?(
-        <div className="text-center text-sm text-lma-slate-500 py-8">Loading…</div>
-      ):tab==="EXPIRING"?(
-        expiring.length===0?(
-          <div className="text-center text-sm text-lma-slate-500 py-10">Nothing expiring soon 🎉</div>
-        ):(
-          <>
-            <div className="flex gap-1.5 mb-2.5">
-              <SubPill active={expSub==="ALL"} onClick={()=>setExpSub("ALL")}>All {expiringF.length}</SubPill>
-              <SubPill active={expSub==="SOON"} onClick={()=>setExpSub("SOON")} dot="#dc2626">Soon {soonList.length}</SubPill>
-              <SubPill active={expSub==="LATER"} onClick={()=>setExpSub("LATER")} dot="#fca5a5">Expiring {laterList.length}</SubPill>
-            </div>
-            {expShown.length===0?(
-              <div className="text-center text-sm text-lma-slate-500 py-8">None in this group.</div>
-            ):(
-              <div className="space-y-2">
-                {expShown.slice((page-1)*PAGE_SIZE, page*PAGE_SIZE).map(it=>(
-                  <ReviewCard key={it.receipt_no} it={it} kind={tierOf(it)}
-                    onRenew={()=>setRenew(it)} onSecondary={secondaryFor(it,"expiring")} remindText={remind(it,false)} remindFollowUpPay={followUpPay(it,false)} remindFollowUpAsk={followUpAsk(it,false)}
-                    onRno={()=>setOpenRno(it.receipt_no)} onStu={()=>setOpenStu({id:it.student_id,library:homeLib(it)})}/>
-                ))}
-                <Pager page={page} totalPages={Math.max(1,Math.ceil(expShown.length/PAGE_SIZE))} onPage={setPage}/>
-              </div>
-            )}
-          </>
-        )
-      ):tab==="EXPIRED"?(
-        expiredF.length===0?(
-          <div className="text-center text-sm text-lma-slate-500 py-10">No expired receipts ✨</div>
-        ):(
-          <div className="space-y-2">
-            {expiredF.slice((page-1)*PAGE_SIZE, page*PAGE_SIZE).map(it=>(
-              <ReviewCard key={it.receipt_no} it={it} kind="expired"
-                onRenew={()=>setRenew(it)} onSecondary={secondaryFor(it,"expired")} remindText={remind(it,true)} remindFollowUpPay={followUpPay(it,true)} remindFollowUpAsk={followUpAsk(it,true)}
-                onRno={()=>setOpenRno(it.receipt_no)} onStu={()=>setOpenStu({id:it.student_id,library:homeLib(it)})}/>
-            ))}
-            <Pager page={page} totalPages={Math.max(1,Math.ceil(expiredF.length/PAGE_SIZE))} onPage={setPage}/>
-          </div>
-        )
-      ):(
-        cancellationsF.length===0?(
-          <div className="text-center text-sm text-lma-slate-500 py-10">No cancelled receipts.</div>
-        ):(
-          <div className="space-y-2">
-            {cancellationsF.slice((page-1)*PAGE_SIZE, page*PAGE_SIZE).map(it=>(
-              <CancelledCard key={it.receipt_no} it={it} showToast={showToast}
-                onRenew={()=>setRenew(it)}
-                onReset={()=>setConfirmAction({ title:"Reset status?", message:`${it.name} · ${it.receipt_no} will be set back to active (clears Cancelled/Do-Not-Renew).`, confirmLabel:"Reset", onYes:()=>doReset(it) })}
-                onRno={()=>setOpenRno(it.receipt_no)} onStu={()=>setOpenStu({id:it.student_id,library:homeLib(it)})}/>
-            ))}
-            <Pager page={page} totalPages={Math.max(1,Math.ceil(cancellationsF.length/PAGE_SIZE))} onPage={setPage}/>
-          </div>
-        )
+      <DateRangeFilter from={dFrom} to={dTo} onChange={(f,t)=>{setDFrom(f);setDTo(t);setPage(1);}} className="mb-3"/>
+
+      {tab==="EXPIRING"&&expiringF.length>0&&(
+        <div className="-mx-4 mb-3 flex gap-2 overflow-x-auto px-4 pb-1 [scrollbar-width:none]">
+          <Chip on={expSub==="ALL"} onClick={()=>setExpSub("ALL")}>All {expiringF.length}</Chip>
+          <Chip on={expSub==="SOON"} onClick={()=>setExpSub("SOON")}><span className="mr-1.5 inline-block h-2 w-2 rounded-full bg-[#dc2626]"/>Soon {soonList.length}</Chip>
+          <Chip on={expSub==="LATER"} onClick={()=>setExpSub("LATER")}><span className="mr-1.5 inline-block h-2 w-2 rounded-full bg-[#fca5a5]"/>Later {laterList.length}</Chip>
+        </div>
       )}
- 
-      {/* cancel / refund action sheet */}
+
+      {!loaded||(loading&&expiring.length===0&&expired.length===0&&cancellations.length===0) ? (
+        <div className="space-y-2">{[0,1,2].map(i=><Card key={i}><Skeleton className="h-4 w-44"/><Skeleton className="mt-2 h-3 w-56"/><Skeleton className="mt-3 h-11"/></Card>)}</div>
+      ) : list.length===0 ? (
+        <Card><Empty icon={<IconRepeat size={22}/>}
+          title={tab==="EXPIRING"?(expiringF.length?"None in this group":"Nothing expiring soon"):tab==="EXPIRED"?"No expired receipts":"No cancelled receipts"}/></Card>
+      ) : (
+        <div className="space-y-2 pb-4">
+          {shown.map(it=> tab==="CANCELLED" ? (
+            <CancelledCard key={it.receipt_no} it={it} showToast={showToast}
+              onRenew={()=>setRenew(it)} onReset={()=>doReset(it)}
+              onRno={()=>setOpenRno(it.receipt_no)} onStu={()=>setOpenStu({id:it.student_id,library:homeLib(it)})}/>
+          ) : (
+            <ReviewCard key={it.receipt_no} it={it} kind={tab==="EXPIRED"?"expired":tierOf(it)}
+              onRenew={()=>setRenew(it)}
+              onSecondary={tab==="EXPIRED" ? ()=>doDoNotRenew(it) : ()=>setActionFor(it)}
+              remindText={remind(it,tab==="EXPIRED")} remindFollowUpPay={followUpPay(it,tab==="EXPIRED")} remindFollowUpAsk={followUpAsk(it,tab==="EXPIRED")}
+              onRno={()=>setOpenRno(it.receipt_no)} onStu={()=>setOpenStu({id:it.student_id,library:homeLib(it)})}/>
+          ))}
+          <Pager page={page} totalPages={totalPages} onPage={setPage}/>
+        </div>
+      )}
+
       {actionFor&&init&&(
-        <CancelRefundSheet target={{receipt_no:actionFor.receipt_no,name:actionFor.name,seat_no:actionFor.seat_no,shift_name:actionFor.shift_name,shift:actionFor.shift,fees_due_balance:actionFor.fees_due_balance}} presentation="sheet" post={post} showToast={showToast} onClose={()=>setActionFor(null)}
-          onDone={(r)=>{ setActionFor(null); if(r.whatsapp_text)setResultText({title:r.refunded?"Cancellation + Refund":"Cancellation",text:r.whatsapp_text}); showToast("Done"); load(); }}/>
+        <CancelRefundSheet target={{receipt_no:actionFor.receipt_no,name:actionFor.name,seat_no:actionFor.seat_no,shift_name:actionFor.shift_name,shift:actionFor.shift,fees_due_balance:actionFor.fees_due_balance}}
+          presentation="sheet" post={post} showToast={showToast} onClose={()=>setActionFor(null)}
+          onDone={(r)=>{ setActionFor(null); if(r.whatsapp_text) setResultText({title:r.refunded?"Cancellation + refund":"Cancellation",text:r.whatsapp_text}); showToast("Done"); load(); }}/>
       )}
- 
-      {/* whatsapp result sheet */}
-      {resultText&&(
-        <Sheet onClose={()=>setResultText(null)}>
-          <h3 className="text-base font-extrabold text-lma-slate-900 mb-3">{resultText.title}</h3>
-          <pre className="text-[11px] text-lma-slate-700 whitespace-pre-wrap font-mono bg-lma-slate-50 rounded-lg p-3 max-h-60 overflow-y-auto">{resultText.text}</pre>
-          <a href={`https://wa.me/?text=${encodeURIComponent(resultText.text)}`} target="_blank" rel="noopener noreferrer" className="block text-center w-full mt-3 py-3 rounded-xl bg-lma-accent text-white font-bold shadow-md">Share on WhatsApp</a>
-          <button onClick={()=>{navigator.clipboard.writeText(resultText.text);showToast("Copied");}} className="w-full mt-2 py-2.5 rounded-xl bg-lma-slate-100 text-lma-slate-600 font-bold">Copy message</button>
-        </Sheet>
-      )}
- 
-      {confirmAction&&<ConfirmDialog c={confirmAction} onClose={()=>setConfirmAction(null)}/>}
- 
-      {/* universal modals */}
+
+      <Sheet open={!!resultText} onClose={()=>setResultText(null)} title={resultText?.title||""}>
+        {resultText&&(
+          <div className="pb-2">
+            <pre className="max-h-60 overflow-y-auto whitespace-pre-wrap rounded-[14px] border border-lma-line bg-lma-surface p-3 font-lma-mono text-[12px] leading-relaxed text-lma-ink-2">{resultText.text}</pre>
+            <div className="mt-3 grid grid-cols-[1fr_auto] gap-2">
+              <a href={`https://wa.me/?text=${encodeURIComponent(resultText.text)}`} target="_blank" rel="noopener noreferrer" className="grid h-12 place-items-center rounded-[14px] bg-[#16a34a] text-[14.5px] font-bold text-white">Share on WhatsApp</a>
+              <Button variant="secondary" onClick={()=>{ navigator.clipboard.writeText(resultText.text); showToast("Copied"); }}>Copy</Button>
+            </div>
+          </div>
+        )}
+      </Sheet>
+
       {openRno&&<ReceiptModal receiptNo={openRno} onClose={()=>setOpenRno(null)} onSaved={load}/>}
       {openStu&&<StudentModal studentId={openStu.id} library={openStu.library} onClose={()=>setOpenStu(null)} onSaved={load}/>}
       {renew&&<BookingFlow renewReceiptNo={renew.receipt_no} libCode={renew.branch||renew.library} onClose={()=>setRenew(null)} onComplete={load}/>}
- 
-    </div>
+    </Screen>
   );
 }
- 
-// seat-chart parity palette: soon = solid red, expiring = pink, expired = maroon
-const LOOK:Record<"soon"|"expiring"|"expired",{accent:string;pillBg:string;pillFg:string;tint:string}> = {
-  soon:     { accent:"#dc2626", pillBg:"#dc2626", pillFg:"#ffffff", tint:"#fff5f5" },
-  expiring: { accent:"#fca5a5", pillBg:"#fee2e2", pillFg:"#b91c1c", tint:"#ffffff" },
-  expired:  { accent:"#6b0a0a", pillBg:"#6b0a0a", pillFg:"#ffffff", tint:"#ffffff" },
+
+// seat-chart palette: soon = solid red, expiring = pink, expired = maroon
+const LOOK:Record<"soon"|"expiring"|"expired",{edge:string;pillBg:string;pillFg:string}> = {
+  soon:     { edge:"#dc2626", pillBg:"#dc2626", pillFg:"#ffffff" },
+  expiring: { edge:"#fca5a5", pillBg:"#fee2e2", pillFg:"#b91c1c" },
+  expired:  { edge:"#6b0a0a", pillBg:"#6b0a0a", pillFg:"#ffffff" },
 };
- 
-// ── Review card (Soon + Expiring + Expired) ──
-function ReviewCard({ it, kind, onRenew, onSecondary, onRno, onStu, remindText, remindFollowUpPay, remindFollowUpAsk }:{
-  it:QueueItem; kind:"soon"|"expiring"|"expired"; onRenew:()=>void; onSecondary:()=>void; onRno:()=>void; onStu:()=>void; remindText?:string; remindFollowUpPay?:string; remindFollowUpAsk?:string;
-}){
-  const lk = LOOK[kind];
-  const isExpired = kind==="expired";
+
+// Student + receipt: small tappable cards, same idea as the seat sheet
+function Refs({ it, onRno, onStu }:{ it:QueueItem; onRno:()=>void; onStu:()=>void }){
+  const cross=!!(it.is_cross_library&&it.is_cross_library!=="NO");
+  const open=<svg aria-hidden="true" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.8} strokeLinecap="round" strokeLinejoin="round"><path d="M8 16 16 8M9 8h7v7"/></svg>;
   return (
-    <div className="rounded-xl p-3 shadow-sm border-l-4" style={{ borderLeftColor:lk.accent, background:lk.tint }}>
-      <div className="flex items-center gap-2 mb-1">
-        <button onClick={onRno} className="text-sm font-extrabold text-lma-slate-900 hover:text-lma-primary">{it.receipt_no}</button>
-        <button onClick={onStu} className="text-[10px] font-bold text-lma-slate-400 hover:text-lma-primary">{it.student_id}</button>
-        {it.is_cross_library&&it.is_cross_library!=="NO"&&<span className="text-[9px] font-bold text-lma-warn bg-lma-warn/10 px-1 rounded">CROSS</span>}
-        <span className="text-[10px] font-extrabold ml-auto px-2 py-0.5 rounded-full" style={{ background:lk.pillBg, color:lk.pillFg }}>{relTime(it.days_until_expiry, isExpired?"expired":"expiring")}</span>
-      </div>
-      <button onClick={onStu} className="block text-left text-sm font-semibold text-lma-slate-800 truncate hover:text-lma-primary w-full">{it.name}</button>
-      <div className="text-[11px] text-lma-slate-500 flex items-center gap-1.5 flex-wrap mt-0.5">
-        <CodePill code={it.branch||it.library}/>
-        <span>· Seat {it.seat_no||"—"}</span>
-        <span>· {it.shift_name||it.shift}</span>
-        <span>· till {fmtDMY(it.booking_to)}</span>
-        {it.fees_due_balance>0&&<span className="font-bold text-lma-danger">· Due ₹{it.fees_due_balance}</span>}
-      </div>
-      {it.remark&&<div className="text-[11px] text-lma-slate-400 mt-0.5 italic truncate">📝 {it.remark}</div>}
-      <div className={`grid ${remindText?"grid-cols-3":"grid-cols-2"} gap-2 mt-2.5`}>
-        <button onClick={onRenew} className="py-2 rounded-lg bg-gradient-to-br from-lma-primary to-lma-primary-2 text-white font-bold text-xs shadow-sm">Renew</button>
-        {isExpired
-          ? <button onClick={onSecondary} className="py-2 rounded-lg bg-lma-slate-100 text-lma-slate-600 font-bold text-xs">Don&apos;t Renew</button>
-          : <button onClick={onSecondary} className="py-2 rounded-lg bg-lma-danger/10 text-lma-danger font-bold text-xs">Cancel</button>}
-        {remindText&&<div className="flex gap-1"><WhatsAppButton phones={it.phones} text={remindText} variants={(remindFollowUpPay||remindFollowUpAsk)?[{label:"Initial reminder",text:remindText||""},...(remindFollowUpPay?[{label:"Follow-up · deposit fees",text:remindFollowUpPay}]:[]),...(remindFollowUpAsk?[{label:"Follow-up · confirm continuing",text:remindFollowUpAsk}]:[])]:undefined} label="💬 Remind" className="flex-1 min-w-0 py-2 rounded-lg bg-lma-accent/10 text-lma-accent font-bold text-xs disabled:opacity-40"/><WhatsAppButton phones={it.phones} className="px-2.5 py-2 rounded-lg bg-lma-primary/10 text-lma-primary font-bold text-xs disabled:opacity-40"/></div>}
+    <div className="mt-2.5 flex flex-wrap gap-1.5">
+      <button type="button" onClick={onStu} aria-label={`Open student ${it.student_id}`}
+        className={cx("inline-flex h-8 items-center gap-1 rounded-[10px] px-2.5 font-lma-mono text-[12.5px] font-semibold ring-1 ring-inset active:brightness-95",
+          cross?"bg-[#f5f0ff] text-[#7c3aed] ring-[#e4d9fb]":"bg-lma-bg text-lma-ink ring-lma-line")}>
+        {it.student_id}{cross?`-${it.is_cross_library}`:""}{open}
+      </button>
+      <button type="button" onClick={onRno} aria-label={`Open receipt ${it.receipt_no}`}
+        className="inline-flex h-8 items-center gap-1 rounded-[10px] bg-lma-bg px-2.5 font-lma-mono text-[12.5px] font-semibold text-lma-ink ring-1 ring-inset ring-lma-line active:brightness-95">
+        {it.receipt_no}{open}
+      </button>
+    </div>
+  );
+}
+
+function ReviewCard({ it, kind, onRenew, onSecondary, onRno, onStu, remindText, remindFollowUpPay, remindFollowUpAsk }:{
+  it:QueueItem; kind:"soon"|"expiring"|"expired"; onRenew:()=>void; onSecondary:()=>void; onRno:()=>void; onStu:()=>void;
+  remindText?:string; remindFollowUpPay?:string; remindFollowUpAsk?:string;
+}){
+  const lk=LOOK[kind]; const isExpired=kind==="expired";
+  const variants=[
+    ...(remindText?[{label:"Renewal reminder",text:remindText}]:[]),
+    ...(remindFollowUpPay?[{label:"Follow-up · deposit fees",text:remindFollowUpPay}]:[]),
+    ...(remindFollowUpAsk?[{label:"Follow-up · confirm continuing",text:remindFollowUpAsk}]:[]),
+  ];
+  return (
+    <div className="flex overflow-hidden rounded-[18px] border border-lma-line bg-lma-surface shadow-lma-card">
+      <span aria-hidden="true" className="w-1.5 shrink-0" style={{ background:lk.edge }}/>
+      <div className="min-w-0 flex-1 p-3.5">
+        <div className="flex items-start gap-2">
+          <div className="min-w-0 flex-1">
+            <div className="text-[15.5px] font-bold leading-snug text-lma-ink">{it.name}</div>
+            <div className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-[12px] text-lma-ink-3">
+              <span className="font-semibold text-lma-ink-2">{it.branch||it.library}</span>
+              <span aria-hidden="true">·</span><span>Seat {it.seat_no||"—"}</span>
+              <span aria-hidden="true">·</span><span>{it.shift_name||it.shift}</span>
+              <span aria-hidden="true">·</span><span>till {fmtDMY(it.booking_to)}</span>
+            </div>
+          </div>
+          <span className="shrink-0 rounded-full px-2 py-0.5 text-[11px] font-bold" style={{ background:lk.pillBg, color:lk.pillFg }}>{relTime(it.days_until_expiry, isExpired?"expired":"expiring")}</span>
+        </div>
+        {it.fees_due_balance>0&&<div className="mt-2 inline-flex rounded-md bg-[#fef3c7] px-2 py-0.5 font-lma-mono text-[12px] font-bold text-[#92400e] ring-1 ring-inset ring-[#f5d88a]">{inr(it.fees_due_balance)} due</div>}
+        {it.remark&&<div className="mt-1.5 truncate text-[12px] italic text-lma-ink-3">{it.remark}</div>}
+        <Refs it={it} onRno={onRno} onStu={onStu}/>
+        <div className="mt-3 grid grid-cols-[1.25fr_1fr_1fr] gap-2">
+          <button type="button" onClick={onRenew} className="lma-glass-btn h-11 rounded-[12px] text-[14px] font-bold text-white">Renew</button>
+          <WhatsAppButton phones={it.phones} chat text={remindText} variants={variants.length?variants:undefined} label="WhatsApp"
+            className="h-11 w-full whitespace-nowrap rounded-[12px] bg-[#e3f6ec] text-[13px] font-semibold text-[#0b7a52] ring-1 ring-inset ring-[#c6ecd8] disabled:opacity-40"/>
+          {isExpired
+            ? <button type="button" onClick={onSecondary} className="h-11 whitespace-nowrap rounded-[12px] bg-lma-surface text-[13px] font-semibold text-lma-ink-2 ring-1 ring-inset ring-lma-line">Don’t renew</button>
+            : <button type="button" onClick={onSecondary} className="h-11 rounded-[12px] bg-lma-surface text-[13px] font-semibold text-lma-out ring-1 ring-inset ring-lma-line">Cancel</button>}
+        </div>
       </div>
     </div>
   );
 }
- 
-// ── sub-filter pill (Soon / Expiring toggle) ──
-function SubPill({ active, onClick, dot, children }:{ active:boolean; onClick:()=>void; dot?:string; children:React.ReactNode }){
-  return (
-    <button onClick={onClick} className={`shrink-0 px-3 py-1.5 rounded-full text-[11px] font-bold flex items-center gap-1.5 transition ${active?"bg-lma-slate-900 text-white":"bg-white text-lma-slate-600 shadow-sm"}`}>
-      {dot&&<span className="w-2 h-2 rounded-full" style={{background:dot}}/>}
-      {children}
-    </button>
-  );
-}
- 
-// ── Cancelled card ──
+
 function CancelledCard({ it, onRenew, onReset, onRno, onStu, showToast }:{
   it:QueueItem; onRenew:()=>void; onReset:()=>void; onRno:()=>void; onStu:()=>void; showToast:(m:string,t?:"success"|"error")=>void;
 }){
   return (
-    <div className="bg-white rounded-xl p-3 shadow-sm border-l-4 border-lma-slate-300">
-      <div className="flex items-center gap-2 mb-1">
-        <button onClick={onRno} className="text-sm font-extrabold text-lma-slate-900 hover:text-lma-primary">{it.receipt_no}</button>
-        <button onClick={onStu} className="text-[10px] font-bold text-lma-slate-400 hover:text-lma-primary">{it.student_id}</button>
-        <span className="text-[9px] font-extrabold px-2 py-0.5 rounded-full ml-auto bg-lma-danger/15 text-lma-danger tracking-wide">CANCELLED</span>
-      </div>
-      <button onClick={onStu} className="block text-left text-sm font-semibold text-lma-slate-800 truncate hover:text-lma-primary w-full">{it.name}</button>
-      <div className="text-[11px] text-lma-slate-500 mt-0.5"><CodePill code={it.branch||it.library}/> · Seat {it.seat_no||"—"} · {it.shift_name||it.shift} · was till {fmtDMY(it.booking_to)}</div>
-      <div className={`grid ${it.cancel_whatsapp_text?"grid-cols-3":"grid-cols-2"} gap-2 mt-2.5`}>
-        <button onClick={onRenew} className="py-2 rounded-lg bg-gradient-to-br from-lma-primary to-lma-primary-2 text-white font-bold text-xs shadow-sm">Renew</button>
-        {it.cancel_whatsapp_text&&<button onClick={()=>{navigator.clipboard.writeText(it.cancel_whatsapp_text!);showToast("Copied cancel message");}} className="py-2 rounded-lg bg-lma-accent/10 text-lma-accent font-bold text-xs">Copy WA</button>}
-        <button onClick={onReset} className="py-2 rounded-lg bg-lma-slate-100 text-lma-slate-600 font-bold text-xs">Undo</button>
-      </div>
-    </div>
-  );
-}
- 
- 
-function Sheet({ onClose, children }:{ onClose:()=>void; children:React.ReactNode }){
-  return (
-    <div className="fixed inset-0 z-[9998] flex items-end justify-center" onClick={onClose}>
-      <div className="absolute inset-0 bg-black/50 backdrop-blur-sm"/>
-      <div className="relative w-full max-w-md bg-white rounded-t-3xl p-5 max-h-[88vh] overflow-y-auto lma-slide-up" onClick={e=>e.stopPropagation()}>
-        <div className="w-9 h-1 bg-lma-slate-200 rounded-full mx-auto mb-4"/>
-        {children}
-      </div>
-    </div>
-  );
-}
-function L({ children }:{ children:React.ReactNode }){ return <label className="block text-[11px] font-bold text-lma-slate-500 uppercase tracking-wide mb-1">{children}</label>; }
-function I(props:React.InputHTMLAttributes<HTMLInputElement>){ return <input {...props} className="w-full px-3.5 py-2.5 rounded-xl border-[1.5px] border-lma-slate-200 bg-lma-slate-50 focus:bg-white focus:border-lma-primary outline-none text-[14px] font-medium"/>; }
- 
-// ── Reusable confirm dialog (prevents accidental state changes) ──
-function ConfirmDialog({c,onClose}:{c:{title:string;message:string;confirmLabel:string;danger?:boolean;onYes:()=>void};onClose:()=>void}){
-  const [busy,setBusy]=useState(false);
-  return (
-    <div className="fixed inset-0 z-[10000] flex items-center justify-center px-6" onClick={onClose}>
-      <div className="absolute inset-0 bg-black/40"/>
-      <div className="relative w-full max-w-xs bg-white rounded-2xl p-5 lma-slide-up" onClick={e=>e.stopPropagation()}>
-        <h4 className="text-sm font-extrabold text-lma-slate-900 mb-1">{c.title}</h4>
-        <p className="text-[12px] text-lma-slate-500 mb-4">{c.message}</p>
-        <div className="flex gap-2">
-          <button disabled={busy} onClick={onClose} className="flex-1 py-2.5 rounded-xl bg-lma-slate-100 text-lma-slate-600 font-bold text-sm disabled:opacity-50">No</button>
-          <button disabled={busy} onClick={async()=>{ setBusy(true); try{ await c.onYes(); } finally { setBusy(false); onClose(); } }} className={`flex-1 py-2.5 rounded-xl text-white font-bold text-sm disabled:opacity-50 ${c.danger?"bg-lma-danger":"bg-lma-primary"}`}>{busy?"…":c.confirmLabel}</button>
+    <div className="flex overflow-hidden rounded-[18px] border border-lma-line bg-lma-surface shadow-lma-card">
+      <span aria-hidden="true" className="w-1.5 shrink-0 bg-lma-ink-3"/>
+      <div className="min-w-0 flex-1 p-3.5">
+        <div className="flex items-start gap-2">
+          <div className="min-w-0 flex-1">
+            <div className="text-[15.5px] font-bold leading-snug text-lma-ink">{it.name}</div>
+            <div className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-[12px] text-lma-ink-3">
+              <span className="font-semibold text-lma-ink-2">{it.branch||it.library}</span>
+              <span aria-hidden="true">·</span><span>Seat {it.seat_no||"—"}</span>
+              <span aria-hidden="true">·</span><span>{it.shift_name||it.shift}</span>
+              <span aria-hidden="true">·</span><span>was till {fmtDMY(it.booking_to)}</span>
+            </div>
+          </div>
+          <span className="shrink-0 rounded-full bg-lma-out-soft px-2 py-0.5 text-[11px] font-bold text-lma-out">Cancelled</span>
+        </div>
+        <Refs it={it} onRno={onRno} onStu={onStu}/>
+        <div className={cx("mt-3 grid gap-2", it.cancel_whatsapp_text?"grid-cols-3":"grid-cols-2")}>
+          <button type="button" onClick={onRenew} className="lma-glass-btn h-11 rounded-[12px] text-[14px] font-bold text-white">Renew</button>
+          {it.cancel_whatsapp_text&&<button type="button" onClick={()=>{ navigator.clipboard.writeText(it.cancel_whatsapp_text!); showToast("Copied cancel message"); }}
+            className="h-11 whitespace-nowrap rounded-[12px] bg-[#e3f6ec] text-[13px] font-semibold text-[#0b7a52] ring-1 ring-inset ring-[#c6ecd8]">Copy message</button>}
+          <button type="button" onClick={onReset} className="h-11 rounded-[12px] bg-lma-surface text-[13px] font-semibold text-lma-ink-2 ring-1 ring-inset ring-lma-line">Undo</button>
         </div>
       </div>
     </div>

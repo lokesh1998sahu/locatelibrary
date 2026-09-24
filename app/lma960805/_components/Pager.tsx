@@ -8,10 +8,10 @@ export default function Pager({ page, totalPages, onPage }:{
   return (
     <div className="flex items-center justify-center gap-4 mt-4 mb-1">
       <button disabled={page<=1} onClick={()=>onPage(page-1)}
-        className="px-4 py-2 rounded-xl bg-white border border-lma-slate-200 text-lma-slate-700 font-bold text-sm disabled:opacity-40">‹ Prev</button>
-      <span className="text-xs font-bold text-lma-slate-500 tabular-nums">Page {page} / {totalPages}</span>
+        className="h-11 rounded-[12px] bg-lma-surface px-4 text-[14px] font-semibold text-lma-ink-2 ring-1 ring-inset ring-lma-line disabled:opacity-40">‹ Prev</button>
+      <span className="font-lma-mono text-[13px] font-semibold text-lma-ink-3">Page {page} / {totalPages}</span>
       <button disabled={page>=totalPages} onClick={()=>onPage(page+1)}
-        className="px-4 py-2 rounded-xl bg-white border border-lma-slate-200 text-lma-slate-700 font-bold text-sm disabled:opacity-40">Next ›</button>
+        className="h-11 rounded-[12px] bg-lma-surface px-4 text-[14px] font-semibold text-lma-ink-2 ring-1 ring-inset ring-lma-line disabled:opacity-40">Next ›</button>
     </div>
   );
 }
