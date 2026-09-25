@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useLMA } from "../_components/LMAProvider";
 import { Screen, IconButton, Skeleton, Card } from "../_ui/kit";
 import { IconRefresh } from "../_ui/icons";
@@ -46,21 +46,29 @@ export default function LmaSettingsPage() {
   };
 
   // ── Toast ──
-  const lma = useLMA();
-  const showToast = useCallback((msg:string, type:"success"|"error"="success") => { lma.showToast(msg, type); }, [lma]);
-  const ask = lma.confirm;
+  // Only the provider's stable functions are used here. Depending on the whole
+  // provider value (a new object on every render) made these callbacks change on
+  // every render, which re-ran the loaders endlessly (the flickering seat layout).
+  const { showToast: lmaToast, confirm: ask, refreshInit } = useLMA();
+  const showToast = useCallback((msg:string, type:"success"|"error"="success") => { lmaToast(msg, type); }, [lmaToast]);
+  const loadedOnce = useRef(false);
 
   // ── Data fetch ──
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
       const res = await fetch(`${API}?action=getInitData`).then(r => r.json());
-      if (res.ok) { setData(res); lma.refreshInit().catch(()=>{}); }
+      if (res.ok) {
+        setData(res);
+        // after a change, refresh the app-wide setup so other screens see it at once
+        if (loadedOnce.current) refreshInit().catch(()=>{});
+        loadedOnce.current = true;
+      }
       else showToast(res.error || "Failed to load data", "error");
     } catch (e) {
       showToast(e instanceof Error ? e.message : String(e), "error");
     } finally { setLoading(false); }
-  }, [showToast]);
+  }, [showToast, refreshInit]);
   useEffect(() => { if (unlocked) fetchData(); }, [unlocked, fetchData]);
 
   // ── Generic POST wrapper ──

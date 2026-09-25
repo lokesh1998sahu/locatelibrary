@@ -249,6 +249,14 @@ export default function LMAProvider({ children }: { children: ReactNode }) {
     setToast(null);
   }, []);
 
+  // One value object, rebuilt only when something in it changes. Screens that
+  // depend on it (or on its functions) then never re-run their loaders just
+  // because a toast or dialog re-rendered the provider.
+  const ctxValue = useMemo<LMAContextValue>(
+    () => ({ init, refreshInit, loading, lock, showToast, post, confirm: confirmDialog }),
+    [init, refreshInit, loading, lock, showToast, post, confirmDialog],
+  );
+
   if (!hydrated) return null;
 
   if (!unlocked) {
@@ -278,7 +286,7 @@ export default function LMAProvider({ children }: { children: ReactNode }) {
 
   const withTabs = !tabBarHidden(pathname);
   return (
-    <LMAContext.Provider value={{ init, refreshInit, loading, lock, showToast, post, confirm: confirmDialog }}>
+    <LMAContext.Provider value={ctxValue}>
       <div className="lma-app" style={{ paddingBottom: withTabs ? undefined : 0 }}>
         {children}
         <TabBar onLock={lock} />
