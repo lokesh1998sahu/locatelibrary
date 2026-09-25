@@ -8,6 +8,12 @@
 import { useState } from "react";
 import { useLMA } from "./LMAProvider";
 import { TagBankNote, TagChips } from "./TagBank";
+import { DateChips } from "../_ui/kit";
+import { todayIso, shiftIso, dayLabel } from "../_ui/format";
+
+// dates the student actually left and was paid back — often not the day you record it
+const daysAgo = (iso:string) => Math.round((new Date(todayIso()+"T00:00:00").getTime()-new Date(iso+"T00:00:00").getTime())/86400000);
+const dmyOf = (iso:string) => { const d=new Date(iso+"T00:00:00"); return `${d.getDate()}-${d.getMonth()+1}-${d.getFullYear()}`; };
 
 export interface CancelTarget {
   receipt_no: string;
@@ -42,19 +48,23 @@ export default function CancelRefundSheet({
   const [refundAmount,setRefundAmount]=useState("");
   const [refundReason,setRefundReason]=useState("");
   const [busy,setBusy]=useState(false);
-
-  const canSubmit = !busy && !(withRefund && (!refundMode || !refundAmount));
+  const [cancelIso,setCancelIso]=useState(todayIso());          // the day the cancellation takes effect
+  const [refundIso,setRefundIso]=useState<string|null>(null);   // null = same day as the cancellation
+  const refundDay = refundIso ?? cancelIso;
+  const future = cancelIso > todayIso() || (withRefund && refundDay > todayIso());
+  const canSubmit = !busy && !future && !(withRefund && (!refundMode || !refundAmount));
 
   const submit=async()=>{
     setBusy(true);
     if(withRefund){
       if(!refundMode||!refundAmount){ setBusy(false); return; }
-      const r=await post("markReceiptCancelledWithRefund",{receipt_no:target.receipt_no,cancel_remark:remark,refund_mode:refundMode,refund_amount:Number(refundAmount),refund_reason:refundReason});
+      const r=await post("markReceiptCancelledWithRefund",{receipt_no:target.receipt_no,cancel_remark:remark,refund_mode:refundMode,refund_amount:Number(refundAmount),refund_reason:refundReason,
+        cancel_date:dmyOf(cancelIso), refund_date:dmyOf(refundDay)});
       setBusy(false);
       if(r&&r.cancelled){ showToast(`Receipt ${target.receipt_no} cancelled + refunded`); onDone({refunded:true,whatsapp_text:r.cancel_whatsapp_text||r.refund_whatsapp_text||""}); }
       else showToast((r&&r.error)||"Cancel failed","error");
     }else{
-      const r=await post("markReceiptCancelled",{receipt_no:target.receipt_no,cancel_remark:remark});
+      const r=await post("markReceiptCancelled",{receipt_no:target.receipt_no,cancel_remark:remark,cancel_date:dmyOf(cancelIso)});
       setBusy(false);
       if(r&&r.updated){ showToast(`Receipt ${target.receipt_no} cancelled`); onDone({refunded:false,whatsapp_text:r.cancel_whatsapp_text||""}); }
       else showToast((r&&r.error)||"Cancel failed","error");
@@ -75,6 +85,10 @@ export default function CancelRefundSheet({
       <h3 className="mb-1 text-[18px] font-bold tracking-[-0.01em] text-lma-ink">{heading}</h3>
       <p className="mb-3 text-[13px] leading-relaxed text-lma-ink-3">{sub}</p>
       {(target.fees_due_balance||0)>0 && <div role="alert" className="mb-3 rounded-[12px] bg-lma-out-soft p-3 text-[12.5px] font-semibold text-lma-out">⚠ ₹{target.fees_due_balance} dues outstanding on this receipt.</div>}
+      <DateChips title="Cancelled on" value={cancelIso} onChange={setCancelIso} ago={daysAgo(cancelIso)} label={dayLabel(cancelIso)} today={todayIso()} yesterday={shiftIso(todayIso(),-1)}/>
+      {cancelIso>todayIso()
+        ? <p role="alert" className="-mt-1 mb-3 px-1 text-[12.5px] font-semibold text-lma-out">A cancellation can’t be dated in the future. For a student leaving later, use Do not renew.</p>
+        : <p className="-mt-1 mb-3 px-1 text-[12px] leading-relaxed text-lma-ink-3">The day the student actually left. The seat is freed as soon as you save.</p>}
 
       <label className="mb-3 flex min-h-[52px] cursor-pointer items-center gap-3 rounded-[14px] bg-lma-surface px-3.5 ring-1 ring-inset ring-lma-line">
         <input type="checkbox" checked={withRefund} onChange={e=>setWithRefund(e.target.checked)} className="h-5 w-5 shrink-0 accent-[#4f46e5]"/>
@@ -90,6 +104,12 @@ export default function CancelRefundSheet({
           </div>
           <div><CLabel>Refund Amount (₹)</CLabel><CInput type="number" value={refundAmount} onChange={e=>setRefundAmount(e.target.value)} placeholder="rupees handed back"/></div>
           <div><CLabel>Refund Reason</CLabel><CInput value={refundReason} onChange={e=>setRefundReason(e.target.value)} placeholder="optional"/></div>
+          <div className="pt-2">
+            <DateChips title="Refund paid on" value={refundDay} onChange={setRefundIso} ago={daysAgo(refundDay)} label={dayLabel(refundDay)} today={todayIso()} yesterday={shiftIso(todayIso(),-1)}/>
+            {refundDay>todayIso()
+              ? <p role="alert" className="-mt-1 px-1 text-[12.5px] font-semibold text-lma-out">A refund can’t be dated in the future.</p>
+              : <p className="-mt-1 px-1 text-[12px] leading-relaxed text-lma-ink-3">{refundIso===null?"Same day as the cancellation unless you change it.":"The day the money was handed back."}</p>}
+          </div>
         </div>
       )}
 

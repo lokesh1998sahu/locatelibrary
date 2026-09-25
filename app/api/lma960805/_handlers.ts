@@ -1013,7 +1013,7 @@ async function getOccupancySummary() {
       status: up(r.status ?? ""),
       dues_status: up(r.dues_status ?? ""),
       renewed_from: up(r.renewed_from ?? ""),
-      cancelled_on: "",
+      cancelled_on: String(r.cancelled_on ?? ""),   // filled by getCancellationsQueue from receipt_cancellations
       irrecoverable_remark: String(r.irrecoverable_remark ?? ""),
       remark: String(r.remark ?? ""),
       cancel_whatsapp_text: String(r.cancel_whatsapp_text ?? ""),
@@ -1474,6 +1474,13 @@ async function getOccupancySummary() {
       items.push(mapReceiptRow(r));
     }
     items.reverse();
+    // when each one took effect (only once receipt_cancellations exists)
+    if (items.length && await _hasCancelTableW(sql)) {
+      const dates = (await sql`select receipt_no, cancelled_on from receipt_cancellations`) as any[];
+      const byNo: Record<string, string> = {};
+      for (const d of dates) byNo[up(d.receipt_no)] = String(d.cancelled_on ?? "");
+      for (const it of items) if (byNo[it.receipt_no]) it.cancelled_on = byNo[it.receipt_no];
+    }
     return { items, total: items.length };
   }
 
@@ -2842,7 +2849,7 @@ async function getOccupancySummary() {
   }
 
   // cancellation WhatsApp (with / without refund flavour) — mirror 10_Renewals _buildCancelWhatsApp
-  function _buildCancelWhatsAppW(r: any, libName: string, cancelRemark: string, refundCtx: any): string {
+  function _buildCancelWhatsAppW(r: any, libName: string, cancelRemark: string, refundCtx: any, effIso?: string): string {
     const displayStudentId = composeSid(up(r.student_id ?? ""), up(r.is_cross_library ?? ""));
     const name = up(r.name ?? "");
     const receiptNo = up(r.receipt_no ?? "");
@@ -2861,7 +2868,7 @@ async function getOccupancySummary() {
       "*" + formatForReceiptW(r.booking_from) + " to " + formatForReceiptW(r.booking_to) + "*",
       "",
       "Dear " + name + ",",
-      "Your booking *" + receiptNo + "* has been cancelled effective " + formatForReceiptW(todayIsoIst()) + ".",
+      "Your booking *" + receiptNo + "* has been cancelled effective " + formatForReceiptW(effIso || todayIsoIst()) + ".",
     ];
     if (refundCtx) {
       lines.push("");
@@ -2887,6 +2894,27 @@ async function getOccupancySummary() {
 
   // core status setter — mirror 10_Renewals _setReceiptStatus
   // opts: { generateCancelWhatsApp?, cancelRemark?, refundCtx? }
+  // ── Cancellation date ───────────────────────────────────────────
+  // The day the cancellation takes effect (today, or earlier when it is
+  // recorded late). Kept in its own small table, receipt_cancellations (see
+  // cancel-date-setup.sql), so receipt_log itself is never altered. Until that
+  // table exists the date is only used in the cancellation message.
+  let _cancelTable: boolean | null = null;
+  async function _hasCancelTableW(tx: any): Promise<boolean> {
+    if (_cancelTable) return true;   // only a "yes" is remembered, so running the SQL later needs no restart
+    const c = (await tx`select 1 from information_schema.tables
+                          where table_schema='public' and table_name='receipt_cancellations' limit 1`) as any[];
+    _cancelTable = c.length > 0 ? true : null;
+    return c.length > 0;
+  }
+  function _cancelDateW(v: unknown): string {
+    if (v === undefined || v === null || String(v).trim() === "") return todayIsoIst();
+    const iso = _ymdKeyStr(v);
+    if (!iso) throw new Error("Cancellation date is not a valid date.");
+    if (iso > todayIsoIst()) throw new Error("Cancellation date can't be in the future. Use Do not renew for a student leaving later.");
+    return iso;
+  }
+
   async function _setReceiptStatusW(tx: any, receiptNo: string, newStatus: string, opts: any): Promise<any> {
     opts = opts || {};
     const target = up(receiptNo);
@@ -2902,8 +2930,12 @@ async function getOccupancySummary() {
     let cancelText = "";
     if (newStatus === "CANCELLED" && opts.generateCancelWhatsApp) {
       const libName = await _lookupLibraryNameW(up(r.library ?? ""));
-      cancelText = _buildCancelWhatsAppW(r, libName, opts.cancelRemark || "", opts.refundCtx || null);
+      cancelText = _buildCancelWhatsAppW(r, libName, opts.cancelRemark || "", opts.refundCtx || null, opts.cancelDate || undefined);
       await tx`update receipt_log set cancel_whatsapp_text=${cancelText} where upper(receipt_no)=${target}`;
+    }
+    if (newStatus === "CANCELLED" && await _hasCancelTableW(tx)) {
+      await tx`insert into receipt_cancellations (receipt_no, cancelled_on) values (${target}, ${opts.cancelDate || todayIsoIst()})
+               on conflict (receipt_no) do update set cancelled_on=excluded.cancelled_on, created_at=now()`;
     }
     return { updated: true, new_status: newStatus, cancel_whatsapp_text: cancelText };
   }
@@ -2926,6 +2958,7 @@ async function getOccupancySummary() {
         generateCancelWhatsApp: true,
         cancelRemark: String(p.cancel_remark || ""),
         refundCtx: null,
+        cancelDate: _cancelDateW(p.cancel_date),
       })
     );
   }
@@ -2955,6 +2988,7 @@ async function getOccupancySummary() {
           if (successor) return { ok: false, error: "Cannot reset — receipt " + successor + " has renewed_from=" + target + ". Delete successor first." };
         }
         await tx`update receipt_log set status='', cancel_whatsapp_text='' where upper(receipt_no)=${target}`;
+        if (await _hasCancelTableW(tx)) await tx`delete from receipt_cancellations where receipt_no=${target}`;
         return { reset: true, previous_status: cur };
       });
     } catch (e: any) {
@@ -3060,6 +3094,7 @@ async function getOccupancySummary() {
     if (!p.refund_mode) throw new Error("refund_mode is required for Cancel+Refund.");
     if (p.refund_amount === undefined || p.refund_amount === null || p.refund_amount === "")
       throw new Error("refund_amount is required for Cancel+Refund.");
+    _cancelDateW(p.cancel_date);   // rejects a bad or future date before anything is written
 
     const tagMap = await _loadTagMap();
     return await sql.begin(async (tx: any) => {
@@ -3078,6 +3113,7 @@ async function getOccupancySummary() {
         generateCancelWhatsApp: true,
         cancelRemark: String(p.cancel_remark ?? ""),
         refundCtx: { refundId: refundResult.refund_id, refundAmount: num(p.refund_amount), refundMode: up(p.refund_mode) },
+        cancelDate: _cancelDateW(p.cancel_date),
       });
       if (statusResult && statusResult.ok === false) throw new Error(statusResult.error || "Could not cancel the receipt.");
 

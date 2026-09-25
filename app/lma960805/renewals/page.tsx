@@ -26,7 +26,7 @@ interface QueueItem {
   seat_no:string; shift:string; shift_name:string; booking_from:string; booking_to:string;
   fee:number; fees_due_balance:number; dues_status:string; is_cross_library:string;
   status:string; renewed_from:string; lifecycle:string; days_until_expiry:number;
-  receipt_text:string; cancel_whatsapp_text?:string; phone?:string; phones?:{number:string;tag:string}[]; remark?:string;
+  receipt_text:string; cancel_whatsapp_text?:string; cancelled_on?:string; phone?:string; phones?:{number:string;tag:string}[]; remark?:string;
 }
 type Tab = "EXPIRING"|"EXPIRED"|"CANCELLED";
 
@@ -278,6 +278,7 @@ function CancelledCard({ it, onRenew, onReset, onRno, onStu, showToast }:{
               <span aria-hidden="true">·</span><span>Seat {it.seat_no||"—"}</span>
               <span aria-hidden="true">·</span><span>{it.shift_name||it.shift}</span>
               <span aria-hidden="true">·</span><span>was till {fmtDMY(it.booking_to)}</span>
+              {it.cancelled_on&&<><span aria-hidden="true">·</span><span className="font-semibold text-lma-out">cancelled {fmtDMY(it.cancelled_on)}</span></>}
             </div>
           </div>
           <span className="shrink-0 rounded-full bg-lma-out-soft px-2 py-0.5 text-[11px] font-bold text-lma-out">Cancelled</span>

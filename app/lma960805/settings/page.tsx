@@ -1,7 +1,9 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo } from "react";
-import Link from "next/link";
+import { useLMA } from "../_components/LMAProvider";
+import { Screen, IconButton, Skeleton, Card } from "../_ui/kit";
+import { IconRefresh } from "../_ui/icons";
 import SeatLayoutEditor from "../_components/SeatLayoutEditor";
 
 const API = "/api/lma960805";
@@ -44,17 +46,16 @@ export default function LmaSettingsPage() {
   };
 
   // ── Toast ──
-  const showToast = useCallback((msg:string, type:"success"|"error"="success") => {
-    setToast({ msg, type });
-    setTimeout(() => setToast(null), 3000);
-  }, []);
+  const lma = useLMA();
+  const showToast = useCallback((msg:string, type:"success"|"error"="success") => { lma.showToast(msg, type); }, [lma]);
+  const ask = lma.confirm;
 
   // ── Data fetch ──
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
       const res = await fetch(`${API}?action=getInitData`).then(r => r.json());
-      if (res.ok) setData(res);
+      if (res.ok) { setData(res); lma.refreshInit().catch(()=>{}); }
       else showToast(res.error || "Failed to load data", "error");
     } catch (e) {
       showToast(e instanceof Error ? e.message : String(e), "error");
@@ -82,21 +83,21 @@ export default function LmaSettingsPage() {
   if (!unlocked) {
     return (
       <div className="min-h-screen flex items-center justify-center px-4">
-        <div className="w-full max-w-sm bg-white rounded-2xl shadow-lg p-7 lma-slide-up">
+        <div className="w-full max-w-sm bg-white rounded-[18px] shadow-lg p-7 lma-slide-up">
           <div className="text-center mb-5">
             <div className="text-4xl mb-2">⚙️</div>
-            <h1 className="text-xl font-extrabold text-lma-slate-900">Settings</h1>
-            <p className="text-sm text-lma-slate-500 mt-1">LMA Admin</p>
+            <h1 className="text-xl font-bold text-lma-ink">Settings</h1>
+            <p className="text-sm text-lma-ink-3 mt-1">LMA Admin</p>
           </div>
           <input
             type="password" autoFocus value={pwInput}
             onChange={e=>{setPwInput(e.target.value); setPwErr("");}}
             onKeyDown={e=>{if(e.key==="Enter") tryUnlock();}}
             placeholder="Password"
-            className="w-full px-4 py-3 rounded-xl border-[1.5px] border-lma-slate-200 bg-lma-slate-50 focus:bg-white focus:border-lma-primary outline-none text-[15px] font-medium"
+            className="w-full h-12 px-3.5 rounded-[14px] border border-lma-line bg-lma-surface text-[15px] font-medium text-lma-ink outline-none focus:border-lma-brand"
           />
           {pwErr && <p className="text-sm text-lma-danger mt-2 font-medium">{pwErr}</p>}
-          <button onClick={tryUnlock} className="w-full mt-4 py-3 rounded-xl bg-gradient-to-br from-lma-primary to-lma-primary-2 text-white font-bold text-[15px] shadow-md">Unlock</button>
+          <button onClick={tryUnlock} className="w-full mt-4 py-3 rounded-[14px] lma-glass-btn text-white font-bold text-[15px]">Unlock</button>
         </div>
       </div>
     );
@@ -104,19 +105,17 @@ export default function LmaSettingsPage() {
 
   // ── MAIN ──
   return (
-    <div className="lma-page-body max-w-md mx-auto px-4 pt-4">
-      {/* Header */}
-      <header className="flex items-center gap-3 mb-4">
-        <Link href="/lma960805" className="text-xl text-lma-slate-600 hover:text-lma-slate-900">←</Link>
-        <div className="flex-1">
-          <h1 className="text-xl font-extrabold tracking-tight text-lma-slate-900">Settings</h1>
-          <p className="text-[11px] text-lma-slate-500 font-medium">Reference data & admin</p>
+    <Screen>
+      <header className="flex items-start gap-2 pb-4 pt-[calc(env(safe-area-inset-top)+16px)]">
+        <div className="min-w-0 flex-1">
+          <h1 className="text-[24px] font-bold tracking-[-0.02em] text-lma-ink">Settings</h1>
+          <p className="mt-0.5 text-[12.5px] text-lma-ink-3">Libraries, shifts, tags, fees and seat layouts</p>
         </div>
-        <button onClick={fetchData} disabled={loading} className="text-xs font-bold px-3 py-2 rounded-lg bg-lma-slate-100 text-lma-slate-600 hover:bg-lma-slate-200 disabled:opacity-50">{loading?"...":"↻"}</button>
+        <IconButton label="Refresh" onClick={fetchData} className="-mr-2"><IconRefresh size={19} className={loading?"animate-spin":""}/></IconButton>
       </header>
 
       {!data ? (
-        <div className="text-center text-sm text-lma-slate-500 py-8">Loading…</div>
+        <div className="text-center text-sm text-lma-ink-3 py-8">Loading…</div>
       ) : (
         <>
           {/* Libraries */}
@@ -132,6 +131,7 @@ export default function LmaSettingsPage() {
                   active={lib.active}
                   onEdit={()=>setModal({ kind:"library-edit", payload: lib })}
                   onToggle={async ()=>{
+                    if (lib.active && !(await ask({ title:`Switch off ${lib.library_code}?`, body:"It will be hidden across the app (new bookings, pickers and lists). You can switch it back on any time.", confirmLabel:"Switch off", danger:true }))) return;
                     const r = await post("toggleLibrary", { library_code: lib.library_code });
                     if (r) {
                       if (r.dependency_count > 0 && !r.active) {
@@ -159,6 +159,7 @@ export default function LmaSettingsPage() {
                   active={br.active}
                   onEdit={()=>setModal({ kind:"branch-edit", payload: br })}
                   onToggle={async ()=>{
+                    if (br.active && !(await ask({ title:`Switch off ${br.branch_code}?`, body:"It will be hidden across the app (new bookings, pickers and lists). You can switch it back on any time.", confirmLabel:"Switch off", danger:true }))) return;
                     const r = await post("toggleBranch", { branch_code: br.branch_code });
                     if (r) { showToast(r.active ? "Activated" : "Deactivated"); fetchData(); }
                   }}
@@ -180,6 +181,7 @@ export default function LmaSettingsPage() {
                   active={sh.active}
                   onEdit={()=>setModal({ kind:"shift-edit", payload: sh })}
                   onToggle={async ()=>{
+                    if (sh.active && !(await ask({ title:`Switch off ${sh.shift_key}?`, body:"It will be hidden across the app (new bookings, pickers and lists). You can switch it back on any time.", confirmLabel:"Switch off", danger:true }))) return;
                     const r = await post("toggleShift", { shift_key: sh.shift_key });
                     if (r) { showToast(r.active ? "Activated" : "Deactivated"); fetchData(); }
                   }}
@@ -201,6 +203,7 @@ export default function LmaSettingsPage() {
                   active={t.active}
                   onEdit={()=>setModal({ kind:"tag-edit", payload: t })}
                   onToggle={async ()=>{
+                    if (t.active && !(await ask({ title:`Switch off ${t.tag_name}?`, body:"It will be hidden across the app (new bookings, pickers and lists). You can switch it back on any time.", confirmLabel:"Switch off", danger:true }))) return;
                     const r = await post("togglePaymentTag", { tag_name: t.tag_name });
                     if (r) { showToast(r.active ? "Activated" : "Deactivated"); fetchData(); }
                   }}
@@ -222,10 +225,10 @@ export default function LmaSettingsPage() {
                 <button
                   key={s.library}
                   onClick={()=>setModal({ kind:"counters-edit", payload: s })}
-                  className="w-full text-left bg-white rounded-xl p-3 shadow-sm hover:shadow-md transition active:scale-[0.99]"
+                  className="w-full text-left bg-white rounded-[14px] p-3 shadow-sm hover:shadow-md transition active:scale-[0.99]"
                 >
                   <div className="flex items-center justify-between mb-1.5">
-                    <div className="text-sm font-bold text-lma-slate-900">{s.library}</div>
+                    <div className="text-sm font-bold text-lma-ink">{s.library}</div>
                     <div className="text-[10px] font-bold text-lma-warn bg-lma-warn/10 px-2 py-0.5 rounded">alert {s.renewal_alert_days}d · urgent {s.renewal_alert_days_primary}d</div>
                   </div>
                   <div className="grid grid-cols-2 gap-1.5 text-[11px]">
@@ -303,7 +306,7 @@ export default function LmaSettingsPage() {
 
       {/* Toast */}
       {toast && (
-        <div className={`fixed bottom-24 left-1/2 -translate-x-1/2 px-5 py-3 rounded-2xl text-white font-bold text-sm shadow-lg z-[9999] lma-slide-up ${toast.type==="success"?"bg-lma-accent":"bg-lma-danger"}`}>
+        <div className={`fixed bottom-24 left-1/2 -translate-x-1/2 px-5 py-3 rounded-[18px] text-white font-bold text-sm shadow-lg z-[9999] lma-slide-up ${toast.type==="success"?"bg-lma-accent":"bg-lma-danger"}`}>
           {toast.type==="success"?"✓ ":"✕ "}{toast.msg}
         </div>
       )}
@@ -311,14 +314,14 @@ export default function LmaSettingsPage() {
       {/* Confirm dialog */}
       {confirm && (
         <BottomSheet onClose={()=>setConfirm(null)}>
-          <p className="text-[15px] font-semibold text-lma-slate-800 leading-relaxed text-center mb-5">{confirm.msg}</p>
+          <p className="text-[15px] font-semibold text-lma-ink leading-relaxed text-center mb-5">{confirm.msg}</p>
           <div className="flex gap-2.5">
-            <button onClick={()=>setConfirm(null)} className="flex-1 py-3.5 rounded-xl bg-lma-slate-100 text-lma-slate-600 font-bold">Cancel</button>
-            <button onClick={()=>{ confirm.onYes(); setConfirm(null); }} className="flex-1 py-3.5 rounded-xl bg-lma-danger text-white font-bold">Confirm</button>
+            <button onClick={()=>setConfirm(null)} className="flex-1 py-3.5 rounded-[14px] bg-lma-surface text-lma-ink-2 ring-1 ring-inset ring-lma-line font-semibold">Cancel</button>
+            <button onClick={()=>{ confirm.onYes(); setConfirm(null); }} className="flex-1 py-3.5 rounded-[14px] bg-lma-danger text-white font-bold">Confirm</button>
           </div>
         </BottomSheet>
       )}
-    </div>
+    </Screen>
   );
 }
 
@@ -328,36 +331,38 @@ export default function LmaSettingsPage() {
 
 function Accordion({ title, emoji, count, isOpen, onToggle, children }:{ title:string; emoji:string; count:number; isOpen:boolean; onToggle:()=>void; children:React.ReactNode }) {
   return (
-    <section className="bg-white rounded-2xl shadow-sm mb-3 overflow-hidden">
-      <button onClick={onToggle} className="w-full flex items-center justify-between p-4 hover:bg-lma-slate-50 transition active:bg-lma-slate-100">
-        <div className="flex items-center gap-3">
-          <span className="text-xl">{emoji}</span>
-          <span className="text-sm font-bold text-lma-slate-900">{title}</span>
-          <span className="text-[10px] font-bold text-lma-slate-500 bg-lma-slate-100 px-1.5 py-0.5 rounded">{count}</span>
-        </div>
-        <span className={`text-lma-slate-400 transition-transform ${isOpen?"rotate-180":""}`}>▾</span>
+    <section className="mb-3 overflow-hidden rounded-[18px] border border-lma-line bg-lma-surface shadow-lma-card">
+      <button type="button" onClick={onToggle} aria-expanded={isOpen} className="lma-noscale flex min-h-[60px] w-full items-center gap-3 px-4 py-3 text-left active:bg-lma-bg">
+        <span aria-hidden="true" className="grid h-10 w-10 shrink-0 place-items-center rounded-[12px] bg-lma-brand-soft text-[19px]">{emoji}</span>
+        <span className="min-w-0 flex-1 text-[15.5px] font-semibold text-lma-ink">{title}</span>
+        <span className="rounded-full bg-lma-bg px-2 py-0.5 font-lma-mono text-[12px] font-semibold text-lma-ink-2">{count}</span>
+        <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.4} strokeLinecap="round" strokeLinejoin="round"
+          className="shrink-0 text-lma-ink-3 transition" style={{transform:isOpen?"rotate(90deg)":"none"}}><path d="M9.5 5.5 16 12l-6.5 6.5"/></svg>
       </button>
-      {isOpen && <div className="p-3 pt-1 border-t border-lma-slate-100 lma-slide-up">{children}</div>}
+      {isOpen && <div className="border-t border-lma-line bg-lma-bg/60 p-3">{children}</div>}
     </section>
   );
 }
 
 function ItemRow({ emoji, color, title, subtitle, active, onEdit, onToggle }:{ emoji:string; color?:string; title:string; subtitle:string; active:boolean; onEdit:()=>void; onToggle:()=>void }) {
   return (
-    <div className="flex items-center gap-2 bg-lma-slate-50 rounded-xl p-2.5">
-      <div className="w-8 h-8 rounded-lg flex items-center justify-center text-base shrink-0" style={color?{ background: color+"22", color: color }:{ background:"#e2e8f0" }}>{emoji}</div>
-      <button onClick={onEdit} className="flex-1 text-left min-w-0">
-        <div className="text-[13px] font-bold text-lma-slate-900 truncate">{title}</div>
-        <div className="text-[11px] text-lma-slate-500 truncate">{subtitle}</div>
+    <div className="flex items-center gap-3 rounded-[14px] bg-lma-surface p-2.5 ring-1 ring-inset ring-lma-line">
+      <span aria-hidden="true" className="grid h-10 w-10 shrink-0 place-items-center rounded-[12px] text-[18px]" style={color?{ background: color+"22", color: color }:{ background:"#eef0f6" }}>{emoji}</span>
+      <button type="button" onClick={onEdit} className="lma-noscale min-w-0 flex-1 text-left">
+        <span className={`block truncate text-[14.5px] font-semibold ${active?"text-lma-ink":"text-lma-ink-3"}`}>{title}</span>
+        <span className="block truncate text-[12px] text-lma-ink-3">{subtitle}</span>
       </button>
-      <button onClick={onToggle} className={`text-[10px] font-bold px-2 py-1 rounded ${active?"bg-lma-accent/15 text-lma-accent":"bg-lma-slate-200 text-lma-slate-500"}`}>{active?"ON":"OFF"}</button>
+      <button type="button" role="switch" aria-checked={active} aria-label={active?`Switch off ${title}`:`Switch on ${title}`} onClick={onToggle}
+        className={`relative h-7 w-12 shrink-0 rounded-full transition ${active?"bg-lma-in":"bg-[#cbd2e1]"}`}>
+        <span className={`absolute top-0.5 h-6 w-6 rounded-full bg-white shadow transition-all ${active?"left-[22px]":"left-0.5"}`}/>
+      </button>
     </div>
   );
 }
 
 function AddButton({ label, onClick }:{ label:string; onClick:()=>void }) {
   return (
-    <button onClick={onClick} className="w-full mt-3 py-2.5 rounded-xl border-[1.5px] border-dashed border-lma-primary/40 text-lma-primary font-bold text-sm hover:bg-lma-primary/5 active:scale-[0.99]">
+    <button type="button" onClick={onClick} className="mt-3 h-12 w-full rounded-[14px] border-[1.5px] border-dashed border-[#c7cbf5] text-[14.5px] font-semibold text-lma-brand active:bg-lma-brand-soft">
       + {label}
     </button>
   );
@@ -365,9 +370,9 @@ function AddButton({ label, onClick }:{ label:string; onClick:()=>void }) {
 
 function Counter({ label, value, mini }:{ label:string; value:number; mini?:boolean }) {
   return (
-    <div className={`rounded-md ${mini?"bg-lma-slate-50":"bg-lma-slate-100"} p-1.5`}>
-      <div className="text-[9px] text-lma-slate-500 font-semibold uppercase tracking-wide">{label}</div>
-      <div className={`font-extrabold text-lma-slate-900 ${mini?"text-xs":"text-sm"}`}>{value}</div>
+    <div className={`rounded-md ${mini?"bg-lma-bg":"bg-lma-bg"} p-1.5`}>
+      <div className="text-[9px] text-lma-ink-3 font-semibold uppercase tracking-wide">{label}</div>
+      <div className={`font-bold text-lma-ink ${mini?"text-xs":"text-sm"}`}>{value}</div>
     </div>
   );
 }
@@ -375,9 +380,9 @@ function Counter({ label, value, mini }:{ label:string; value:number; mini?:bool
 function BottomSheet({ onClose, children }:{ onClose:()=>void; children:React.ReactNode }) {
   return (
     <div className="fixed inset-0 z-[9998] flex items-end justify-center" onClick={onClose}>
-      <div className="absolute inset-0 bg-black/50 backdrop-blur-sm"/>
-      <div className="relative w-full max-w-md bg-white rounded-t-3xl p-5 max-h-[88vh] overflow-y-auto lma-slide-up" onClick={e=>e.stopPropagation()}>
-        <div className="w-9 h-1 bg-lma-slate-200 rounded-full mx-auto mb-4"/>
+      <div className="lma-fade-in absolute inset-0 bg-[rgb(15_23_42/0.5)]"/>
+      <div role="dialog" aria-modal="true" className="lma-sheet-up relative w-full max-w-[560px] max-h-[90dvh] overflow-y-auto overscroll-contain rounded-t-[24px] bg-lma-bg px-4 pt-2 pb-[calc(env(safe-area-inset-bottom)+18px)] shadow-lma-float" onClick={e=>e.stopPropagation()}>
+        <div className="mx-auto mb-3 h-1.5 w-10 rounded-full bg-[#dfe1ee]"/>
         {children}
       </div>
     </div>
@@ -400,19 +405,19 @@ function FeesMatrix({ data, onCellTap }:{ data:InitData; onCellTap:(fk:string,sk
       <table className="w-full text-xs">
         <thead>
           <tr>
-            <th className="text-left pb-2 font-bold text-lma-slate-500 sticky left-0 bg-white">Key</th>
-            {shifts.map(sk => <th key={sk} className="px-1.5 pb-2 font-bold text-lma-slate-500 text-center">{sk.slice(0,4)}</th>)}
+            <th className="text-left pb-2 font-bold text-lma-ink-3 sticky left-0 bg-white">Key</th>
+            {shifts.map(sk => <th key={sk} className="px-1.5 pb-2 font-bold text-lma-ink-3 text-center">{sk.slice(0,4)}</th>)}
           </tr>
         </thead>
         <tbody>
           {feeKeys.map(fk => (
-            <tr key={fk} className="border-t border-lma-slate-100">
-              <td className="py-2 pr-2 font-bold text-lma-slate-800 sticky left-0 bg-white">{fk}</td>
+            <tr key={fk} className="border-t border-lma-line">
+              <td className="py-2 pr-2 font-bold text-lma-ink sticky left-0 bg-white">{fk}</td>
               {shifts.map(sk => {
                 const v = data.fees[fk]?.[sk] || 0;
                 return (
                   <td key={sk} className="py-1.5 px-1 text-center">
-                    <button onClick={()=>onCellTap(fk, sk, v)} className={`w-full py-2 rounded-lg text-[12px] font-bold hover:bg-lma-primary/10 active:scale-[0.97] ${v>0?"bg-lma-slate-50 text-lma-slate-800":"bg-lma-warn/10 text-lma-warn"}`}>
+                    <button onClick={()=>onCellTap(fk, sk, v)} className={`w-full py-2 rounded-lg text-[12px] font-bold hover:bg-lma-brand-soft active:scale-[0.97] ${v>0?"bg-lma-bg text-lma-ink":"bg-lma-warn/10 text-lma-warn"}`}>
                       {v > 0 ? v : "—"}
                     </button>
                   </td>
@@ -422,7 +427,7 @@ function FeesMatrix({ data, onCellTap }:{ data:InitData; onCellTap:(fk:string,sk
           ))}
         </tbody>
       </table>
-      <p className="text-[10px] text-lma-slate-400 mt-3 px-1">Tap any cell to edit. "—" means no fee set.</p>
+      <p className="text-[10px] text-lma-ink-3 mt-3 px-1">Tap any cell to edit. "—" means no fee set.</p>
     </div>
   );
 }
@@ -430,19 +435,19 @@ function FeesMatrix({ data, onCellTap }:{ data:InitData; onCellTap:(fk:string,sk
 // ── FORMS ────────────────────────────────────────────────────────
 
 function FormTitle({ children }:{ children:React.ReactNode }) {
-  return <h3 className="text-base font-extrabold text-lma-slate-900 mb-4">{children}</h3>;
+  return <h3 className="mb-3 text-[18px] font-bold tracking-[-0.01em] text-lma-ink">{children}</h3>;
 }
 function Label({ children }:{ children:React.ReactNode }) {
-  return <label className="block text-[11px] font-bold text-lma-slate-500 uppercase tracking-wide mb-1">{children}</label>;
+  return <label className="mb-1.5 mt-3 block px-1 text-[12px] font-bold uppercase tracking-[0.08em] text-lma-ink-3">{children}</label>;
 }
 function Input(props: React.InputHTMLAttributes<HTMLInputElement>) {
-  return <input {...props} className="w-full px-3.5 py-2.5 rounded-xl border-[1.5px] border-lma-slate-200 bg-lma-slate-50 focus:bg-white focus:border-lma-primary outline-none text-[14px] font-medium"/>;
+  return <input {...props} className="h-12 w-full rounded-[14px] border border-lma-line bg-lma-surface px-3.5 text-[15px] font-medium text-lma-ink outline-none placeholder:text-lma-ink-3 focus:border-lma-brand"/>;
 }
 function FormActions({ onCancel, submitLabel="Save" }:{ onCancel:()=>void; submitLabel?:string }) {
   return (
-    <div className="flex gap-2.5 mt-5">
-      <button type="button" onClick={onCancel} className="flex-1 py-3 rounded-xl bg-lma-slate-100 text-lma-slate-600 font-bold">Cancel</button>
-      <button type="submit" className="flex-1 py-3 rounded-xl bg-gradient-to-br from-lma-primary to-lma-primary-2 text-white font-bold shadow-md">{submitLabel}</button>
+    <div className="mt-5 grid grid-cols-2 gap-2">
+      <button type="button" onClick={onCancel} className="h-12 rounded-[14px] bg-lma-surface text-[15px] font-semibold text-lma-ink-2 ring-1 ring-inset ring-lma-line">Cancel</button>
+      <button type="submit" className="lma-glass-btn h-12 rounded-[14px] text-[15px] font-bold text-white">{submitLabel}</button>
     </div>
   );
 }
@@ -472,7 +477,7 @@ function LibraryForm({ initial, onCancel, onSubmit }:{ initial?:Library; onCance
       <Input value={f.address} onChange={e=>setF({...f, address:e.target.value})} placeholder="Full address shown to students"/>
       <Label>Contact Number</Label>
       <Input value={f.contact} onChange={e=>setF({...f, contact:e.target.value})} placeholder="10-digit number" inputMode="numeric"/>
-      <p className="text-[11px] text-lma-slate-500 mt-2">Shown on the public enquiry form. Branches inherit these unless they set their own.</p>
+      <p className="text-[11px] text-lma-ink-3 mt-2">Shown on the public enquiry form. Branches inherit these unless they set their own.</p>
       <div className="grid grid-cols-2 gap-3 mt-3">
         <div>
           <Label>Emoji</Label>
@@ -480,12 +485,12 @@ function LibraryForm({ initial, onCancel, onSubmit }:{ initial?:Library; onCance
         </div>
         <div>
           <Label>Color</Label>
-          <input type="color" value={f.color} onChange={e=>setF({...f, color:e.target.value})} className="w-full h-[42px] rounded-xl border-[1.5px] border-lma-slate-200 bg-lma-slate-50 cursor-pointer"/>
+          <input type="color" value={f.color} onChange={e=>setF({...f, color:e.target.value})} className="w-full h-[42px] rounded-[14px] border-[1.5px] border-lma-line bg-lma-bg cursor-pointer"/>
         </div>
       </div>
       <label className="flex items-center gap-2 mt-4 cursor-pointer">
         <input type="checkbox" checked={f.has_branches} onChange={e=>setF({...f, has_branches:e.target.checked})} className="w-4 h-4 accent-lma-primary"/>
-        <span className="text-sm font-semibold text-lma-slate-700">Has branches</span>
+        <span className="text-sm font-semibold text-lma-ink-2">Has branches</span>
       </label>
       <FormActions onCancel={onCancel}/>
     </form>
@@ -508,7 +513,7 @@ function BranchForm({ libraries, initial, onCancel, onSubmit }:{ libraries:Libra
     <form onSubmit={e=>{e.preventDefault(); onSubmit(f);}}>
       <FormTitle>{isEdit?"Edit Branch":"Add Branch"}</FormTitle>
       <Label>Parent Library</Label>
-      <select value={f.library_code} onChange={e=>setF({...f, library_code:e.target.value})} disabled={isEdit} required className="w-full px-3.5 py-2.5 rounded-xl border-[1.5px] border-lma-slate-200 bg-lma-slate-50 text-sm font-medium">
+      <select value={f.library_code} onChange={e=>setF({...f, library_code:e.target.value})} disabled={isEdit} required className="w-full h-12 px-3.5 rounded-[14px] border border-lma-line bg-lma-surface text-[15px] font-medium text-lma-ink outline-none focus:border-lma-brand">
         {branchable.map(l => <option key={l.library_code} value={l.library_code}>{l.library_code} — {l.display_name}</option>)}
       </select>
       <Label>Branch Code</Label>
@@ -519,7 +524,7 @@ function BranchForm({ libraries, initial, onCancel, onSubmit }:{ libraries:Libra
       <Input value={f.address} onChange={e=>setF({...f, address:e.target.value})} placeholder="Leave blank to use the library's"/>
       <Label>Contact Number</Label>
       <Input value={f.contact} onChange={e=>setF({...f, contact:e.target.value})} placeholder="Leave blank to use the library's" inputMode="numeric"/>
-      <p className="text-[11px] text-lma-slate-500 mt-2">Only fill what differs from the parent library — blank cells inherit.</p>
+      <p className="text-[11px] text-lma-ink-3 mt-2">Only fill what differs from the parent library — blank cells inherit.</p>
       <div className="grid grid-cols-2 gap-3 mt-3">
         <div>
           <Label>Emoji</Label>
@@ -527,7 +532,7 @@ function BranchForm({ libraries, initial, onCancel, onSubmit }:{ libraries:Libra
         </div>
         <div>
           <Label>Color</Label>
-          <input type="color" value={f.color} onChange={e=>setF({...f, color:e.target.value})} className="w-full h-[42px] rounded-xl border-[1.5px] border-lma-slate-200 bg-lma-slate-50 cursor-pointer"/>
+          <input type="color" value={f.color} onChange={e=>setF({...f, color:e.target.value})} className="w-full h-[42px] rounded-[14px] border-[1.5px] border-lma-line bg-lma-bg cursor-pointer"/>
         </div>
       </div>
       <FormActions onCancel={onCancel}/>
@@ -573,7 +578,7 @@ function TagForm({ initial, accounts, onCancel, onSubmit }:{ initial?:PaymentTag
         value={f.fees_mode}
         onChange={e=>setF({...f, fees_mode:e.target.value})}
         required
-        className="w-full px-3.5 py-2.5 rounded-xl border-[1.5px] border-lma-slate-200 bg-lma-slate-50 focus:bg-white focus:border-lma-primary outline-none text-[14px] font-medium"
+        className="w-full h-12 px-3.5 rounded-[14px] border border-lma-line bg-lma-surface text-[15px] font-medium text-lma-ink outline-none focus:border-lma-brand"
       >
         <option value="">Choose an account…</option>
         {!!f.fees_mode && !(accounts ?? []).some(a => a.bank_code === f.fees_mode) && (
@@ -585,11 +590,11 @@ function TagForm({ initial, accounts, onCancel, onSubmit }:{ initial?:PaymentTag
           </option>
         ))}
       </select>
-      <p className="text-[11px] text-lma-slate-500 mt-2">The account this tag&apos;s money lands in. Add new accounts in My Financials &rarr; Accounts.</p>
+      <p className="text-[11px] text-lma-ink-3 mt-2">The account this tag&apos;s money lands in. Add new accounts in My Financials &rarr; Accounts.</p>
       <div className="mt-3">
         <Label>Settlement Days</Label>
         <Input type="number" inputMode="numeric" min={0} max={90} value={f.settlement_days} onChange={e=>setF({...f, settlement_days:Number(e.target.value)})}/>
-        <p className="text-[11px] text-lma-slate-500 mt-2">Days until the money actually lands in the bank. <b>0</b> = same day (cash/UPI). <b>1</b> = next day, and so on. Drives the settlement date used by My Financials reconciliation.</p>
+        <p className="text-[11px] text-lma-ink-3 mt-2">Days until the money actually lands in the bank. <b>0</b> = same day (cash/UPI). <b>1</b> = next day, and so on. Drives the settlement date used by My Financials reconciliation.</p>
       </div>
       <FormActions onCancel={onCancel}/>
     </form>
@@ -602,11 +607,11 @@ function FeeForm({ payload, onCancel, onSubmit }:{ payload:{ fee_key:string; shi
   return (
     <form onSubmit={e=>{e.preventDefault(); onSubmit({ fee_key: payload.fee_key, shift_key: payload.shift_key, fee_amount: amount });}}>
       <FormTitle>{isNew ? "Add Fee" : "Edit Fee"}</FormTitle>
-      <div className="bg-lma-slate-50 rounded-xl p-3 mb-4">
-        <div className="text-[11px] font-bold text-lma-slate-500 uppercase tracking-wide">Fee Key</div>
-        <div className="text-base font-extrabold text-lma-slate-900">{payload.fee_key}</div>
-        <div className="text-[11px] font-bold text-lma-slate-500 uppercase tracking-wide mt-2">Shift</div>
-        <div className="text-base font-extrabold text-lma-slate-900">{payload.shift_key}</div>
+      <div className="bg-lma-bg rounded-[14px] p-3 mb-4">
+        <div className="text-[11px] font-bold text-lma-ink-3 uppercase tracking-wide">Fee Key</div>
+        <div className="text-base font-bold text-lma-ink">{payload.fee_key}</div>
+        <div className="text-[11px] font-bold text-lma-ink-3 uppercase tracking-wide mt-2">Shift</div>
+        <div className="text-base font-bold text-lma-ink">{payload.shift_key}</div>
       </div>
       <Label>Fee Amount (₹)</Label>
       <Input type="number" inputMode="numeric" value={amount} onChange={e=>setAmount(Number(e.target.value))} required autoFocus/>
@@ -628,7 +633,7 @@ function CountersForm({ initial, onCancel, onSubmit }:{ initial:LibSettings; onC
   return (
     <form onSubmit={e=>{e.preventDefault(); onSubmit({ library: initial.library, ...f });}}>
       <FormTitle>Counters: {initial.library}</FormTitle>
-      <div className="bg-lma-warn/10 border border-lma-warn/30 rounded-xl p-2.5 mb-4 text-[11px] text-lma-slate-700">
+      <div className="bg-lma-warn/10 border border-lma-warn/30 rounded-[14px] p-2.5 mb-4 text-[11px] text-lma-ink-2">
         ⚠ Counters can only be <b>raised</b>, not lowered. Cutoffs are set once; immutable after.
       </div>
       <div className="grid grid-cols-2 gap-3">
@@ -649,12 +654,12 @@ function CountersForm({ initial, onCancel, onSubmit }:{ initial:LibSettings; onC
           <Input type="number" value={f.cutoff_receipt_no} onChange={e=>setF({...f, cutoff_receipt_no:Number(e.target.value)})} disabled={cutoffsLocked}/>
         </div>
       </div>
-       <div className="mt-6 mb-3 text-center text-base font-extrabold uppercase tracking-wide text-lma-slate-700">Expiring Thresholds</div>
+       <div className="mt-6 mb-3 text-center text-base font-bold uppercase tracking-wide text-lma-ink-2">Expiring Thresholds</div>
     <div className="grid grid-cols-2 gap-3">
         <div><Label>Expiring soon (pink)</Label><Input type="number" value={f.renewal_alert_days} onChange={e=>setF({...f, renewal_alert_days:Number(e.target.value)})} min={1} max={60}/></div>
         <div><Label>Urgent (red)</Label><Input type="number" value={f.renewal_alert_days_primary} onChange={e=>setF({...f, renewal_alert_days_primary:Number(e.target.value)})} min={1} max={60}/></div>
       </div>
-    <p className="text-[11px] text-lma-slate-500 mt-1.5">Seat goes pink within the expiring-soon window, then vivid red within the smaller urgent window. Urgent must be ≤ expiring-soon.</p>
+    <p className="text-[11px] text-lma-ink-3 mt-1.5">Seat goes pink within the expiring-soon window, then vivid red within the smaller urgent window. Urgent must be ≤ expiring-soon.</p>
       <FormActions onCancel={onCancel}/>
     </form>
   );

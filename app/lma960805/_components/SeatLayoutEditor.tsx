@@ -82,9 +82,9 @@ export default function SeatLayoutEditor({ libraries, branches, onToast }: Props
 
   return (
     <div>
-      <p className="text-[11px] text-lma-slate-500 mb-3">Tap a library/branch to set up or edit its seat layout.</p>
+      <p className="text-[11px] text-lma-ink-3 mb-3">Tap a library/branch to set up or edit its seat layout.</p>
       {loading && summaries.length === 0 ? (
-        <div className="text-center text-sm text-lma-slate-500 py-4">Loading…</div>
+        <div className="text-center text-sm text-lma-ink-3 py-4">Loading…</div>
       ) : (
         <div className="space-y-2">
           {scopes.map(s => {
@@ -93,18 +93,18 @@ export default function SeatLayoutEditor({ libraries, branches, onToast }: Props
               <button
                 key={s.library_code + "|" + s.branch_code}
                 onClick={() => setEditing({ library_code: s.library_code, branch_code: s.branch_code })}
-                className="w-full text-left bg-white rounded-xl p-3 shadow-sm hover:shadow-md active:scale-[0.99] transition flex items-center gap-3"
+                className="w-full text-left bg-white rounded-[14px] p-3 shadow-sm hover:shadow-md active:scale-[0.99] transition flex items-center gap-3"
               >
-                <div className="w-10 h-10 rounded-xl flex items-center justify-center text-base shrink-0 font-extrabold" style={s.color ? { background: s.color+"22", color: s.color } : { background:"#e2e8f0" }}>
+                <div className="w-10 h-10 rounded-[14px] flex items-center justify-center text-base shrink-0 font-bold" style={s.color ? { background: s.color+"22", color: s.color } : { background:"#e2e8f0" }}>
                   {s.emoji}
                 </div>
                 <div className="flex-1 min-w-0">
-                  <div className="text-sm font-bold text-lma-slate-900">{s.label}</div>
-                  <div className="text-[11px] text-lma-slate-500">
+                  <div className="text-sm font-bold text-lma-ink">{s.label}</div>
+                  <div className="text-[11px] text-lma-ink-3">
                     {sum ? `${sum.seat_count} seats${sum.dead_count ? ` · ${sum.dead_count} dead` : ""} · ${sum.section_count} section${sum.section_count===1?"":"s"}` : "Not set up yet"}
                   </div>
                 </div>
-                <span className="text-lma-slate-400 text-lg">›</span>
+                <span className="text-lma-ink-3 text-lg">›</span>
               </button>
             );
           })}
@@ -161,23 +161,23 @@ function LayoutBuilder({ library_code, branch_code, scopeLabel, onClose, onToast
   return (
     <div>
       {/* Subheader */}
-      <div className="flex items-center gap-2 mb-3 pb-3 border-b border-lma-slate-200">
-        <button onClick={onClose} className="text-lma-slate-600 hover:text-lma-slate-900 text-lg">←</button>
+      <div className="flex items-center gap-2 mb-3 pb-3 border-b border-lma-line">
+        <button onClick={onClose} className="text-lma-ink-2 hover:text-lma-ink text-lg">←</button>
         <div className="flex-1">
-          <h3 className="text-sm font-extrabold text-lma-slate-900">Seat Layout: {scopeLabel}</h3>
-          <p className="text-[10px] text-lma-slate-500">{layout?.sections.length || 0} section{(layout?.sections.length||0)===1?"":"s"}</p>
+          <h3 className="text-sm font-bold text-lma-ink">Seat Layout: {scopeLabel}</h3>
+          <p className="text-[10px] text-lma-ink-3">{layout?.sections.length || 0} section{(layout?.sections.length||0)===1?"":"s"}</p>
         </div>
       </div>
 
       {loading ? (
-        <div className="text-center text-sm text-lma-slate-500 py-4">Loading…</div>
+        <div className="text-center text-sm text-lma-ink-3 py-4">Loading…</div>
       ) : (
         <>
           {layout && layout.sections.length === 0 && (
-            <div className="bg-lma-slate-50 rounded-xl p-4 text-center mb-3">
+            <div className="bg-lma-bg rounded-[14px] p-4 text-center mb-3">
               <div className="text-3xl mb-2">🪑</div>
-              <p className="text-sm font-semibold text-lma-slate-700">No sections yet.</p>
-              <p className="text-[11px] text-lma-slate-500 mb-3">Add your first section to start placing seats.</p>
+              <p className="text-sm font-semibold text-lma-ink-2">No sections yet.</p>
+              <p className="text-[11px] text-lma-ink-3 mb-3">Add your first section to start placing seats.</p>
             </div>
           )}
 
@@ -197,7 +197,7 @@ function LayoutBuilder({ library_code, branch_code, scopeLabel, onClose, onToast
 
           <button
             onClick={() => setShowNewSection(true)}
-            className="w-full mt-3 py-3 rounded-xl border-[1.5px] border-dashed border-lma-primary/40 text-lma-primary font-bold text-sm hover:bg-lma-primary/5 active:scale-[0.99]"
+            className="w-full mt-3 py-3 rounded-[14px] border-[1.5px] border-dashed border-lma-primary/40 text-lma-brand font-bold text-sm hover:bg-lma-brand-soft active:scale-[0.99]"
           >
             + Add Section
           </button>
@@ -385,44 +385,44 @@ function SectionCard({ library_code, branch_code, section, onSaved, onDeleted, o
   };
 
   return (
-    <div className="bg-white rounded-xl shadow-sm overflow-hidden">
+    <div className="bg-white rounded-[14px] shadow-sm overflow-hidden">
       {/* Header */}
       <button
         onClick={() => setExpanded(!expanded)}
-        className="w-full flex items-center justify-between p-3 hover:bg-lma-slate-50 transition active:bg-lma-slate-100"
+        className="w-full flex items-center justify-between p-3 hover:bg-lma-bg transition active:bg-lma-bg"
       >
         <div className="flex-1 text-left">
           <div className="flex items-center gap-2">
-            <span className="text-[10px] font-bold bg-lma-slate-100 text-lma-slate-500 px-1.5 py-0.5 rounded">#{order}</span>
-            <span className="text-sm font-bold text-lma-slate-900">{name}</span>
+            <span className="text-[10px] font-bold bg-lma-bg text-lma-ink-3 px-1.5 py-0.5 rounded">#{order}</span>
+            <span className="text-sm font-bold text-lma-ink">{name}</span>
             {dirty && <span className="text-[10px] font-bold text-lma-warn bg-lma-warn/10 px-1.5 py-0.5 rounded">UNSAVED</span>}
           </div>
-          <div className="text-[11px] text-lma-slate-500 mt-0.5">
+          <div className="text-[11px] text-lma-ink-3 mt-0.5">
             {seats.length} / {rows * cols} cells filled · {rows}×{cols}
           </div>
         </div>
-        <span className={`text-lma-slate-400 transition-transform ${expanded?"rotate-180":""}`}>▾</span>
+        <span className={`text-lma-ink-3 transition-transform ${expanded?"rotate-180":""}`}>▾</span>
       </button>
 
       {expanded && (
-        <div className="px-3 pb-3 border-t border-lma-slate-100 lma-slide-up">
+        <div className="px-3 pb-3 border-t border-lma-line lma-slide-up">
           {/* Section settings */}
           <div className="grid grid-cols-2 gap-2 mt-3 mb-3">
             <FieldMini label="Name">
-              <input value={name} onChange={e => { setName(e.target.value); markDirty(); }} className="w-full px-2.5 py-2 rounded-lg border-[1.5px] border-lma-slate-200 bg-lma-slate-50 text-sm font-medium"/>
+              <input value={name} onChange={e => { setName(e.target.value); markDirty(); }} className="w-full px-2.5 py-2 rounded-lg border-[1.5px] border-lma-line bg-lma-bg text-sm font-medium"/>
             </FieldMini>
             <FieldMini label="Order">
-              <input type="number" value={order} onChange={e => { setOrder(Number(e.target.value) || 1); markDirty(); }} min={1} className="w-full px-2.5 py-2 rounded-lg border-[1.5px] border-lma-slate-200 bg-lma-slate-50 text-sm font-medium"/>
+              <input type="number" value={order} onChange={e => { setOrder(Number(e.target.value) || 1); markDirty(); }} min={1} className="w-full px-2.5 py-2 rounded-lg border-[1.5px] border-lma-line bg-lma-bg text-sm font-medium"/>
             </FieldMini>
             <FieldMini label="Rows">
-              <input type="number" value={rows} onChange={e => tryResize(Number(e.target.value)||1, cols)} min={1} max={30} className="w-full px-2.5 py-2 rounded-lg border-[1.5px] border-lma-slate-200 bg-lma-slate-50 text-sm font-medium"/>
+              <input type="number" value={rows} onChange={e => tryResize(Number(e.target.value)||1, cols)} min={1} max={30} className="w-full px-2.5 py-2 rounded-lg border-[1.5px] border-lma-line bg-lma-bg text-sm font-medium"/>
             </FieldMini>
             <FieldMini label="Cols">
-              <input type="number" value={cols} onChange={e => tryResize(rows, Number(e.target.value)||1)} min={1} max={30} className="w-full px-2.5 py-2 rounded-lg border-[1.5px] border-lma-slate-200 bg-lma-slate-50 text-sm font-medium"/>
+              <input type="number" value={cols} onChange={e => tryResize(rows, Number(e.target.value)||1)} min={1} max={30} className="w-full px-2.5 py-2 rounded-lg border-[1.5px] border-lma-line bg-lma-bg text-sm font-medium"/>
             </FieldMini>
           </div>
 
-          <p className="text-[10px] text-lma-slate-500 mb-2 px-0.5">
+          <p className="text-[10px] text-lma-ink-3 mb-2 px-0.5">
             Tap any cell to add or edit a seat. Empty cells render as gaps.
           </p>
 
@@ -440,14 +440,14 @@ function SectionCard({ library_code, branch_code, section, onSaved, onDeleted, o
             <button
               onClick={() => setConfirmDelete(true)}
               disabled={saving}
-              className="px-3 py-2.5 rounded-xl bg-lma-danger/10 text-lma-danger font-bold text-xs"
+              className="px-3 py-2.5 rounded-[14px] bg-lma-danger/10 text-lma-danger font-bold text-xs"
             >
               Delete Section
             </button>
             <button
               onClick={handleSave}
               disabled={saving || !dirty}
-              className={`flex-1 py-2.5 rounded-xl font-bold text-sm shadow-md transition ${dirty && !saving ? "bg-gradient-to-br from-lma-primary to-lma-primary-2 text-white" : "bg-lma-slate-200 text-lma-slate-500 cursor-not-allowed"}`}
+              className={`flex-1 py-2.5 rounded-[14px] font-bold text-sm transition ${dirty && !saving ? "lma-glass-btn text-white" : "bg-lma-line text-lma-ink-3 cursor-not-allowed"}`}
             >
               {saving ? "Saving…" : dirty ? "Save Section" : "✓ Saved"}
             </button>
@@ -470,12 +470,12 @@ function SectionCard({ library_code, branch_code, section, onSaved, onDeleted, o
       {/* Delete confirmation */}
       {confirmDelete && (
         <BottomSheet onClose={() => setConfirmDelete(false)}>
-          <p className="text-[15px] font-semibold text-lma-slate-800 text-center mb-5">
+          <p className="text-[15px] font-semibold text-lma-ink text-center mb-5">
             Delete section &quot;{section.section_name}&quot; and all {section.seats.length} seat{section.seats.length===1?"":"s"} in it?
           </p>
           <div className="flex gap-2.5">
-            <button onClick={() => setConfirmDelete(false)} className="flex-1 py-3 rounded-xl bg-lma-slate-100 text-lma-slate-600 font-bold">Cancel</button>
-            <button onClick={handleDelete} className="flex-1 py-3 rounded-xl bg-lma-danger text-white font-bold">Delete</button>
+            <button onClick={() => setConfirmDelete(false)} className="flex-1 py-3 rounded-[14px] bg-lma-surface text-lma-ink-2 ring-1 ring-inset ring-lma-line font-semibold">Cancel</button>
+            <button onClick={handleDelete} className="flex-1 py-3 rounded-[14px] bg-lma-danger text-white font-bold">Delete</button>
           </div>
         </BottomSheet>
       )}
@@ -495,10 +495,10 @@ function SectionGrid({ rows, cols, cellMap, onCellClick, onExpandRequest }: {
 }) {
   // Cell size: scale to fit container, target ~36px on mobile, larger on desktop
   return (
-    <div className="bg-lma-slate-50 rounded-xl p-2 overflow-x-auto">
+    <div className="overflow-x-auto rounded-[14px] bg-lma-bg p-2 ring-1 ring-inset ring-lma-line">
       <div
         className="grid gap-1"
-        style={{ gridTemplateColumns: `repeat(${cols}, minmax(36px, 1fr))` }}
+        style={{ gridTemplateColumns: `repeat(${cols}, minmax(42px, 1fr))` }}
       >
         {Array.from({ length: rows * cols }).map((_, idx) => {
           const r = Math.floor(idx / cols) + 1;
@@ -507,13 +507,13 @@ function SectionGrid({ rows, cols, cellMap, onCellClick, onExpandRequest }: {
           const isDead = cell?.cell_type === "DEAD";
           const isSeat = cell && !isDead;
 
-          let className = "aspect-square rounded-md flex flex-col items-center justify-center text-[11px] font-bold transition active:scale-95 ";
+          let className = "aspect-square rounded-[10px] flex flex-col items-center justify-center text-[12.5px] font-bold transition active:scale-95 ";
           if (isDead) {
-            className += "bg-lma-slate-500 text-lma-slate-100 border border-lma-slate-600 hover:bg-lma-slate-600";
+            className += "bg-[#475569] text-white/80 border border-[#334155]";
           } else if (isSeat) {
-            className += "bg-lma-primary/15 text-lma-primary border border-lma-primary/30 hover:bg-lma-primary/25";
+            className += "bg-lma-brand-soft text-lma-brand border border-[#c7cbf5] shadow-[inset_0_1px_0_rgb(255_255_255/0.6)]";
           } else {
-            className += "bg-white text-lma-slate-300 border border-dashed border-lma-slate-200 hover:border-lma-primary/40 hover:text-lma-primary/60";
+            className += "bg-lma-surface text-lma-ink-3 border border-dashed border-[#cfd3e6]";
           }
 
           return (
@@ -532,7 +532,7 @@ function SectionGrid({ rows, cols, cellMap, onCellClick, onExpandRequest }: {
               ) : isSeat ? (
                 <>
                   <span className="leading-tight">{cell.display_label}</span>
-                  {cell.notes && <span className="text-[7px] text-lma-slate-500 leading-none">·</span>}
+                  {cell.notes && <span className="text-[7px] text-lma-ink-3 leading-none">·</span>}
                 </>
               ) : (
                 <span className="text-[14px] opacity-30">+</span>
@@ -545,13 +545,13 @@ function SectionGrid({ rows, cols, cellMap, onCellClick, onExpandRequest }: {
       <div className="flex gap-2 mt-2">
         <button
           onClick={() => onExpandRequest(rows + 1, cols)}
-          className="flex-1 py-1.5 rounded-md text-[10px] font-bold text-lma-slate-500 bg-white border border-dashed border-lma-slate-200 hover:border-lma-primary/40 hover:text-lma-primary"
+          className="h-10 flex-1 rounded-[10px] border border-dashed border-[#c7cbf5] bg-lma-surface text-[12.5px] font-semibold text-lma-brand"
         >
           + Add Row
         </button>
         <button
           onClick={() => onExpandRequest(rows, cols + 1)}
-          className="flex-1 py-1.5 rounded-md text-[10px] font-bold text-lma-slate-500 bg-white border border-dashed border-lma-slate-200 hover:border-lma-primary/40 hover:text-lma-primary"
+          className="h-10 flex-1 rounded-[10px] border border-dashed border-[#c7cbf5] bg-lma-surface text-[12.5px] font-semibold text-lma-brand"
         >
           + Add Col
         </button>
@@ -598,31 +598,31 @@ function CellEditModal({ row, col, existing, onSave, onRemove, onCancel }: {
 
   return (
     <BottomSheet onClose={onCancel}>
-      <h3 className="text-base font-extrabold text-lma-slate-900 mb-1">
+      <h3 className="text-base font-bold text-lma-ink mb-1">
         {existing ? "Edit Cell" : "Add Cell"}
       </h3>
-      <p className="text-[11px] text-lma-slate-500 mb-4">Position: Row {row}, Column {col}</p>
+      <p className="text-[11px] text-lma-ink-3 mb-4">Position: Row {row}, Column {col}</p>
 
       {/* Cell type toggle */}
-      <div className="bg-lma-slate-100 rounded-xl p-1 flex gap-1 mb-4">
+      <div className="bg-lma-bg rounded-[14px] p-1 flex gap-1 mb-4">
         <button
           type="button"
           onClick={() => setCellType("SEAT")}
-          className={`flex-1 py-2.5 rounded-lg text-sm font-bold transition ${cellType==="SEAT" ? "bg-white shadow-sm text-lma-primary" : "text-lma-slate-500 hover:text-lma-slate-800"}`}
+          className={`flex-1 py-2.5 rounded-lg text-sm font-bold transition ${cellType==="SEAT" ? "bg-white shadow-sm text-lma-brand" : "text-lma-ink-3 hover:text-lma-ink"}`}
         >
           🪑 Seat
         </button>
         <button
           type="button"
           onClick={() => setCellType("DEAD")}
-          className={`flex-1 py-2.5 rounded-lg text-sm font-bold transition ${cellType==="DEAD" ? "bg-white shadow-sm text-lma-slate-700" : "text-lma-slate-500 hover:text-lma-slate-800"}`}
+          className={`flex-1 py-2.5 rounded-lg text-sm font-bold transition ${cellType==="DEAD" ? "bg-white shadow-sm text-lma-ink-2" : "text-lma-ink-3 hover:text-lma-ink"}`}
         >
           ⬛ Dead Zone
         </button>
       </div>
 
       {cellType === "DEAD" ? (
-        <div className="bg-lma-slate-50 rounded-xl p-3 mb-3 text-[11px] text-lma-slate-600 leading-relaxed">
+        <div className="bg-lma-bg rounded-[14px] p-3 mb-3 text-[11px] text-lma-ink-2 leading-relaxed">
           Marks this cell as a non-seatable area (wall, aisle, AC unit, pillar, etc.).
           On the seat chart and downloaded image, it renders as a solid colored block.
         </div>
@@ -635,7 +635,7 @@ function CellEditModal({ row, col, existing, onSave, onRemove, onCancel }: {
             onChange={e => setLabel(e.target.value)}
             onKeyDown={e => { if (e.key === "Enter") handleSave(); }}
             placeholder="e.g. 1, 5A, 26A"
-            className="w-full px-3.5 py-2.5 rounded-xl border-[1.5px] border-lma-slate-200 bg-lma-slate-50 focus:bg-white focus:border-lma-primary outline-none text-[14px] font-medium mb-3"
+            className="w-full h-12 px-3.5 rounded-[14px] border border-lma-line bg-lma-surface text-[15px] font-medium text-lma-ink outline-none focus:border-lma-brand mb-3"
           />
 
           <Label>Seat Number (numeric, for sorting)</Label>
@@ -645,9 +645,9 @@ function CellEditModal({ row, col, existing, onSave, onRemove, onCancel }: {
             value={seatNo}
             onChange={e => { setSeatNo(e.target.value); setSeatNoTouched(true); }}
             placeholder="Auto-derived from label"
-            className="w-full px-3.5 py-2.5 rounded-xl border-[1.5px] border-lma-slate-200 bg-lma-slate-50 focus:bg-white focus:border-lma-primary outline-none text-[14px] font-medium mb-1"
+            className="w-full h-12 px-3.5 rounded-[14px] border border-lma-line bg-lma-surface text-[15px] font-medium text-lma-ink outline-none focus:border-lma-brand mb-1"
           />
-          <p className="text-[10px] text-lma-slate-500 mb-3">Auto-derived from label&apos;s digits; override if needed.</p>
+          <p className="text-[10px] text-lma-ink-3 mb-3">Auto-derived from label&apos;s digits; override if needed.</p>
         </>
       )}
 
@@ -656,18 +656,18 @@ function CellEditModal({ row, col, existing, onSave, onRemove, onCancel }: {
         value={notes}
         onChange={e => setNotes(e.target.value)}
         placeholder={cellType === "DEAD" ? "e.g. AC unit, water cooler, librarian desk" : "e.g. corner, near AC"}
-        className="w-full px-3.5 py-2.5 rounded-xl border-[1.5px] border-lma-slate-200 bg-lma-slate-50 focus:bg-white focus:border-lma-primary outline-none text-[14px] font-medium mb-3"
+        className="w-full h-12 px-3.5 rounded-[14px] border border-lma-line bg-lma-surface text-[15px] font-medium text-lma-ink outline-none focus:border-lma-brand mb-3"
       />
 
       <div className="flex gap-2 mt-4">
-        <button onClick={onCancel} className="px-4 py-3 rounded-xl bg-lma-slate-100 text-lma-slate-600 font-bold">Cancel</button>
+        <button onClick={onCancel} className="px-4 py-3 rounded-[14px] bg-lma-surface text-lma-ink-2 ring-1 ring-inset ring-lma-line font-semibold">Cancel</button>
         {onRemove && (
-          <button onClick={onRemove} className="px-4 py-3 rounded-xl bg-lma-danger/10 text-lma-danger font-bold">Remove</button>
+          <button onClick={onRemove} className="px-4 py-3 rounded-[14px] bg-lma-danger/10 text-lma-danger font-bold">Remove</button>
         )}
         <button
           onClick={handleSave}
           disabled={cellType === "SEAT" && !label.trim()}
-          className="flex-1 py-3 rounded-xl bg-gradient-to-br from-lma-primary to-lma-primary-2 text-white font-bold shadow-md disabled:opacity-50"
+          className="flex-1 py-3 rounded-[14px] lma-glass-btn text-white font-bold disabled:opacity-50"
         >
           {existing ? "Update" : "Add"}
         </button>
@@ -692,30 +692,30 @@ function NewSectionDialog({ defaultName, defaultOrder, onCancel, onCreate }: {
 
   return (
     <BottomSheet onClose={onCancel}>
-      <h3 className="text-base font-extrabold text-lma-slate-900 mb-1">New Section</h3>
-      <p className="text-[11px] text-lma-slate-500 mb-4">You can resize and rename anytime after creation.</p>
+      <h3 className="text-base font-bold text-lma-ink mb-1">New Section</h3>
+      <p className="text-[11px] text-lma-ink-3 mb-4">You can resize and rename anytime after creation.</p>
 
       <Label>Name</Label>
-      <input autoFocus value={name} onChange={e=>setName(e.target.value)} className="w-full px-3.5 py-2.5 rounded-xl border-[1.5px] border-lma-slate-200 bg-lma-slate-50 focus:bg-white focus:border-lma-primary outline-none text-[14px] font-medium mb-3"/>
+      <input autoFocus value={name} onChange={e=>setName(e.target.value)} className="w-full h-12 px-3.5 rounded-[14px] border border-lma-line bg-lma-surface text-[15px] font-medium text-lma-ink outline-none focus:border-lma-brand mb-3"/>
 
       <div className="grid grid-cols-3 gap-3 mb-3">
         <div>
           <Label>Order</Label>
-          <input type="number" value={order} onChange={e=>setOrder(Number(e.target.value)||1)} min={1} className="w-full px-3 py-2.5 rounded-xl border-[1.5px] border-lma-slate-200 bg-lma-slate-50 text-sm font-medium"/>
+          <input type="number" value={order} onChange={e=>setOrder(Number(e.target.value)||1)} min={1} className="w-full h-12 px-3.5 rounded-[14px] border border-lma-line bg-lma-surface text-[15px] font-medium text-lma-ink outline-none focus:border-lma-brand"/>
         </div>
         <div>
           <Label>Rows</Label>
-          <input type="number" value={rows} onChange={e=>setRows(Number(e.target.value)||1)} min={1} max={30} className="w-full px-3 py-2.5 rounded-xl border-[1.5px] border-lma-slate-200 bg-lma-slate-50 text-sm font-medium"/>
+          <input type="number" value={rows} onChange={e=>setRows(Number(e.target.value)||1)} min={1} max={30} className="w-full h-12 px-3.5 rounded-[14px] border border-lma-line bg-lma-surface text-[15px] font-medium text-lma-ink outline-none focus:border-lma-brand"/>
         </div>
         <div>
           <Label>Cols</Label>
-          <input type="number" value={cols} onChange={e=>setCols(Number(e.target.value)||1)} min={1} max={30} className="w-full px-3 py-2.5 rounded-xl border-[1.5px] border-lma-slate-200 bg-lma-slate-50 text-sm font-medium"/>
+          <input type="number" value={cols} onChange={e=>setCols(Number(e.target.value)||1)} min={1} max={30} className="w-full h-12 px-3.5 rounded-[14px] border border-lma-line bg-lma-surface text-[15px] font-medium text-lma-ink outline-none focus:border-lma-brand"/>
         </div>
       </div>
 
       <div className="flex gap-2 mt-3">
-        <button onClick={onCancel} className="flex-1 py-3 rounded-xl bg-lma-slate-100 text-lma-slate-600 font-bold">Cancel</button>
-        <button onClick={() => name.trim() && onCreate(name.trim(), order, rows, cols)} disabled={!name.trim()} className="flex-1 py-3 rounded-xl bg-gradient-to-br from-lma-primary to-lma-primary-2 text-white font-bold shadow-md disabled:opacity-50">Create</button>
+        <button onClick={onCancel} className="flex-1 py-3 rounded-[14px] bg-lma-surface text-lma-ink-2 ring-1 ring-inset ring-lma-line font-semibold">Cancel</button>
+        <button onClick={() => name.trim() && onCreate(name.trim(), order, rows, cols)} disabled={!name.trim()} className="flex-1 py-3 rounded-[14px] lma-glass-btn text-white font-bold disabled:opacity-50">Create</button>
       </div>
     </BottomSheet>
   );
@@ -727,9 +727,9 @@ function NewSectionDialog({ defaultName, defaultOrder, onCancel, onCreate }: {
 function BottomSheet({ onClose, children }:{ onClose:()=>void; children:React.ReactNode }) {
   return (
     <div className="fixed inset-0 z-[9998] flex items-end justify-center" onClick={onClose}>
-      <div className="absolute inset-0 bg-black/50 backdrop-blur-sm"/>
-      <div className="relative w-full max-w-md bg-white rounded-t-3xl p-5 max-h-[88vh] overflow-y-auto lma-slide-up" onClick={e=>e.stopPropagation()}>
-        <div className="w-9 h-1 bg-lma-slate-200 rounded-full mx-auto mb-4"/>
+      <div className="lma-fade-in absolute inset-0 bg-[rgb(15_23_42/0.5)]"/>
+      <div role="dialog" aria-modal="true" className="lma-sheet-up relative w-full max-w-[560px] max-h-[90dvh] overflow-y-auto overscroll-contain rounded-t-[24px] bg-lma-bg px-4 pt-2 pb-[calc(env(safe-area-inset-bottom)+18px)] shadow-lma-float" onClick={e=>e.stopPropagation()}>
+        <div className="mx-auto mb-3 h-1.5 w-10 rounded-full bg-[#dfe1ee]"/>
         {children}
       </div>
     </div>
@@ -737,13 +737,13 @@ function BottomSheet({ onClose, children }:{ onClose:()=>void; children:React.Re
 }
 
 function Label({ children }:{ children:React.ReactNode }) {
-  return <label className="block text-[11px] font-bold text-lma-slate-500 uppercase tracking-wide mb-1">{children}</label>;
+  return <label className="mb-1.5 mt-3 block px-1 text-[12px] font-bold uppercase tracking-[0.08em] text-lma-ink-3">{children}</label>;
 }
 
 function FieldMini({ label, children }:{ label:string; children:React.ReactNode }) {
   return (
     <div>
-      <label className="block text-[10px] font-bold text-lma-slate-500 uppercase tracking-wide mb-1">{label}</label>
+      <label className="mb-1 block px-1 text-[11px] font-bold uppercase tracking-[0.06em] text-lma-ink-3">{label}</label>
       {children}
     </div>
   );

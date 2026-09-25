@@ -2,15 +2,15 @@
 
 import WhatsAppButton from "../_components/WhatsAppButton";
 import { useState, useEffect, useCallback, useMemo } from "react";
-import Link from "next/link";
-import { useLMA } from "../_components/LMAProvider";
+import { useLMA, useScopeChips } from "../_components/LMAProvider";
 import { fmtDMY, toIsoInput, inDateRange } from "../_lib/dates";
 import { parsePhone10 } from "../_lib/phone";
 import StudentModal from "../_components/StudentModal";
-import CodePill from "../_components/CodePill";
 import SearchBar from "../_components/SearchBar";
 import DateRangeFilter from "../_components/DateRangeFilter";
 import Pager from "../_components/Pager";
+import { Screen, Card, Segmented, ScopeChips, Button, Skeleton, Empty, IconButton, cx } from "../_ui/kit";
+import { IconRefresh, IconUsers, IconPlus } from "../_ui/icons";
 
 const API = "/api/lma960805";
 const PAGE_SIZE = 20;
@@ -41,7 +41,8 @@ function autoDetectSearchType(q:string): "NAME"|"PHONE"|"STUDENT_ID" {
 
 // ── PAGE ──────────────────────────────────────────────────────────
 export default function LmaStudentsPage() {
-  const { init, showToast, post } = useLMA();
+  const { init, showToast, post, confirm: ask } = useLMA();
+  const chips = useScopeChips();
   const [counts, setCounts] = useState<CountsResp|null>(null);
   const [students, setStudents] = useState<Student[]>([]);   // ALL students for current library scope
   const [page, setPage] = useState(1);
@@ -57,7 +58,6 @@ export default function LmaStudentsPage() {
   // Modal
   const [modal, setModal] = useState<{ kind:"add" } | null>(null);
   const [openStu, setOpenStu] = useState<{ id:string; library:string } | null>(null);
-  const [confirm, setConfirm] = useState<{ msg:string; onYes:()=>void } | null>(null);
 
   // ── Load counts (global, for header summary) ──
   useEffect(() => {
@@ -109,130 +109,65 @@ export default function LmaStudentsPage() {
   const shown = filtered.slice((page-1)*PAGE_SIZE, page*PAGE_SIZE);
 
   return (
-    <div className="lma-page-body max-w-md mx-auto px-4 pt-4">
-      {/* Header */}
-      <header className="flex items-center gap-3 mb-3">
-        <Link href="/lma960805" className="text-xl text-lma-slate-600 hover:text-lma-slate-900">←</Link>
-        <div className="flex-1">
-          <h1 className="text-xl font-extrabold tracking-tight text-lma-slate-900">Students</h1>
-          {counts && <p className="text-[11px] text-lma-slate-500 font-medium">{counts.total} total · {counts.active} on app · {counts.past} past</p>}
+    <Screen>
+      <header className="flex items-start gap-2 pb-4 pt-[calc(env(safe-area-inset-top)+16px)]">
+        <div className="min-w-0 flex-1">
+          <h1 className="text-[24px] font-bold tracking-[-0.02em] text-lma-ink">Students</h1>
+          <p className="mt-0.5 text-[12.5px] text-lma-ink-3">{counts?`${counts.total} total · ${counts.active} on app · ${counts.past} past`:"Everyone registered, by library"}</p>
         </div>
-        <button onClick={()=>setModal({ kind:"add" })} className="px-3 py-2 rounded-xl bg-gradient-to-br from-lma-primary to-lma-primary-2 text-white text-xs font-bold shadow-md active:scale-95">+ Add</button>
+        <IconButton label="Refresh" onClick={refreshAll} className="-mr-2"><IconRefresh size={19} className={loading?"animate-spin":""}/></IconButton>
       </header>
 
-      {/* On-app/Past segmented control */}
-      <div className="bg-white rounded-2xl p-1 flex gap-1 mb-2 shadow-sm">
-        {(["ANY","FALSE","TRUE"] as PastFilter[]).map(f => (
-          <button key={f} onClick={()=>setPastFilter(f)} className={`flex-1 py-2 rounded-xl text-xs font-bold transition ${pastFilter===f?"bg-lma-slate-900 text-white":"text-lma-slate-500 hover:text-lma-slate-800"}`}>
-            {f==="ANY"?"All":f==="FALSE"?"On App":"Past"}
-          </button>
-        ))}
-      </div>
+      <Button size="lg" full className="mb-3" onClick={()=>setModal({ kind:"add" })}><IconPlus size={18}/> Add student</Button>
 
-      {/* Library + Branch chip row (LOCKED RULE: branches appear alongside parent libraries) */}
-      {init && (
-        <div className="flex gap-1.5 mb-3 overflow-x-auto -mx-4 px-4 pb-1">
-          <Chip active={libFilter===""} onClick={()=>setLibFilter("")}>All Libraries <span className={`ml-1 px-1.5 py-0.5 rounded-full text-[10px] font-bold ${libFilter===""?"bg-white/25 text-white":"bg-lma-slate-100 text-lma-slate-500"}`}>{base.length}</span></Chip>
-          {init.libraries.map(lib => (
-            <span key={lib.library_code} className="contents">
-              <Chip
-                active={libFilter===lib.library_code}
-                onClick={()=>setLibFilter(libFilter===lib.library_code?"":lib.library_code)}
-                color={lib.color}
-              >
-                {lib.emoji} {lib.library_code} <span className={`ml-1 px-1.5 py-0.5 rounded-full text-[10px] font-bold ${libFilter===lib.library_code?"bg-white/25 text-white":"bg-lma-slate-100 text-lma-slate-500"}`}>{studentCounts[lib.library_code]||0}</span>
-              </Chip>
-              {lib.has_branches && init.branches
-                .filter(b => b.library_code === lib.library_code && b.active)
-                .map(br => (
-                  <Chip
-                    key={br.branch_code}
-                    active={libFilter===br.branch_code}
-                    onClick={()=>setLibFilter(libFilter===br.branch_code?"":br.branch_code)}
-                    color={br.color || lib.color}
-                  >
-                    {br.emoji || "·"} {br.branch_code} <span className={`ml-1 px-1.5 py-0.5 rounded-full text-[10px] font-bold ${libFilter===br.branch_code?"bg-white/25 text-white":"bg-lma-slate-100 text-lma-slate-500"}`}>{studentCounts[br.branch_code]||0}</span>
-                  </Chip>
-                ))
-              }
-            </span>
-          ))}
-        </div>
-      )}
+      <Segmented className="mb-3" value={pastFilter} onChange={v=>setPastFilter(v as PastFilter)}
+        options={[{v:"ANY",label:"All"},{v:"FALSE",label:"On app"},{v:"TRUE",label:"Past"}]}/>
 
-      {/* Search + date range */}
+      {init&&<ScopeChips chips={chips} value={libFilter} onChange={setLibFilter} counts={{ "":base.length, ...studentCounts }}/>}
+
       <SearchBar value={draft} onChange={setDraft} onSearch={()=>setSearch(draft)} searching={loading}/>
-      <DateRangeFilter from={dFrom} to={dTo} onChange={(f,t)=>{setDFrom(f);setDTo(t);setPage(1);}} className="mt-2 mb-3"/>
+      <DateRangeFilter from={dFrom} to={dTo} onChange={(f,t)=>{setDFrom(f);setDTo(t);setPage(1);}} className="mb-3"/>
 
-      {/* List */}
       {loading && students.length === 0 ? (
-        <div className="text-center text-sm text-lma-slate-500 py-8">Loading…</div>
+        <div className="space-y-2">{[0,1,2,3].map(i=><Card key={i}><Skeleton className="h-4 w-40"/><Skeleton className="mt-2 h-3 w-28"/></Card>)}</div>
       ) : filtered.length === 0 ? (
-        <div className="text-center text-sm text-lma-slate-500 py-8">
-          {students.length === 0 ? "No students yet." : "No matches found."}
-        </div>
+        <Card><Empty icon={<IconUsers size={22}/>} title={students.length === 0 ? "No students yet" : "No matches found"}
+          body={students.length === 0 ? "Add one here, or they are added automatically when you book a new admission." : undefined}/></Card>
       ) : (
         <>
           <div className="space-y-2">
             {shown.map(s => (
-              <StudentCard
-                key={`${s.library}-${s.student_id}`}
-                student={s}
-                librariesMap={init?.libraries || []}
-                onTap={()=>setOpenStu({ id:s.student_id, library:s.library })}
-              />
+              <StudentCard key={`${s.library}-${s.student_id}`} student={s} librariesMap={init?.libraries || []}
+                onTap={()=>setOpenStu({ id:s.student_id, library:s.library })}/>
             ))}
           </div>
           <Pager page={page} totalPages={totalPages} onPage={setPage}/>
         </>
       )}
 
-      {/* MODAL */}
       {modal && (
         <BottomSheet onClose={()=>setModal(null)}>
           {modal.kind === "add" && init && (
-            <StudentForm
-              libraries={init.libraries}
-              branches={init.branches}
-              onCancel={()=>setModal(null)}
+            <StudentForm libraries={init.libraries} branches={init.branches} onCancel={()=>setModal(null)}
               onSubmit={async (p)=>{
                 const r = await post("addStudent", p);
                 if (r) { setModal(null); showToast(`${r.student_id} added`); refreshAll(); }
-              }}
-            />
+              }}/>
           )}
         </BottomSheet>
       )}
 
-      {/* Shared student view/edit modal (universal) */}
       {openStu && (
-        <StudentModal
-          studentId={openStu.id}
-          library={openStu.library}
-          onClose={()=>setOpenStu(null)}
-          onSaved={()=>refreshAll()}
-          onDelete={()=>{
+        <StudentModal studentId={openStu.id} library={openStu.library} onClose={()=>setOpenStu(null)} onSaved={()=>refreshAll()}
+          onDelete={async ()=>{
             const id=openStu.id, lib=openStu.library;
             setOpenStu(null);
-            setConfirm({
-              msg: `Delete ${id}? This cannot be undone.`,
-              onYes: async () => { const r = await post("deleteStudent", { student_id:id, library:lib }); if (r) { showToast("Student deleted"); refreshAll(); } }
-            });
-          }}
-        />
+            if(!(await ask({ title:`Delete ${id}?`, body:"This removes the student record and can’t be undone.", confirmLabel:"Delete student", danger:true }))) return;
+            const r = await post("deleteStudent", { student_id:id, library:lib });
+            if (r) { showToast("Student deleted"); refreshAll(); }
+          }}/>
       )}
-
-      {/* Confirm dialog */}
-      {confirm && (
-        <BottomSheet onClose={()=>setConfirm(null)}>
-          <p className="text-[15px] font-semibold text-lma-slate-800 leading-relaxed text-center mb-5">{confirm.msg}</p>
-          <div className="flex gap-2.5">
-            <button onClick={()=>setConfirm(null)} className="flex-1 py-3.5 rounded-xl bg-lma-slate-100 text-lma-slate-600 font-bold">Cancel</button>
-            <button onClick={()=>{ confirm.onYes(); setConfirm(null); }} className="flex-1 py-3.5 rounded-xl bg-lma-danger text-white font-bold">Delete</button>
-          </div>
-        </BottomSheet>
-      )}
-    </div>
+    </Screen>
   );
 }
 
@@ -240,43 +175,28 @@ export default function LmaStudentsPage() {
 // COMPONENTS
 // ─────────────────────────────────────────────────────────────────
 
-function Chip({ active, onClick, color, children }:{ active:boolean; onClick:()=>void; color?:string; children:React.ReactNode }) {
-  const style = active && color ? { background: color, color: "#fff" } : undefined;
-  return (
-    <button
-      onClick={onClick}
-      style={style}
-      className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-bold whitespace-nowrap transition ${active && !color ? "bg-lma-slate-900 text-white" : active ? "" : "bg-white text-lma-slate-600 hover:bg-lma-slate-100"} shadow-sm`}
-    >
-      {children}
-    </button>
-  );
-}
 
 function StudentCard({ student, librariesMap, onTap }:{ student:Student; librariesMap:Library[]; onTap:()=>void }) {
   const lib = librariesMap.find(l => l.library_code === student.library);
   const primaryPhone = student.phones[0];
   return (
-    <div className="flex items-stretch gap-1 bg-white rounded-2xl shadow-sm hover:shadow-md transition">
-      <button onClick={onTap} className="flex-1 min-w-0 text-left p-3 active:scale-[0.99]">
-        <div className="flex items-start gap-2.5">
-          <div className="w-10 h-10 rounded-xl flex items-center justify-center text-base shrink-0 font-extrabold" style={lib?.color ? { background: lib.color+"22", color: lib.color } : { background:"#e2e8f0" }}>
-            {lib?.emoji || "📚"}
-          </div>
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-1.5">
-              <span className="text-sm font-extrabold text-lma-slate-900">{student.student_id}</span>
-              {student.is_past && <span className="text-[9px] font-bold text-lma-warn bg-lma-warn/10 px-1.5 py-0.5 rounded">PAST</span>}
-              <span className="text-[10px] font-bold text-lma-slate-400 ml-auto"><CodePill code={student.branch||student.library}/></span>
-            </div>
-            <div className="text-sm font-semibold text-lma-slate-800 truncate">{student.name}</div>
-            {primaryPhone && (
-              <div className="text-[11px] text-lma-slate-500 font-mono mt-0.5">📱 {primaryPhone.number}{primaryPhone.tag && primaryPhone.tag !== "SELF" ? ` (${primaryPhone.tag})` : ""}</div>
-            )}
-          </div>
-        </div>
+    <div className="flex overflow-hidden rounded-[18px] border border-lma-line bg-lma-surface shadow-lma-card">
+      <button type="button" onClick={onTap} className="lma-noscale flex min-w-0 flex-1 items-center gap-3 px-3.5 py-3 text-left active:bg-lma-bg">
+        <span aria-hidden="true" className="grid h-11 w-11 shrink-0 place-items-center rounded-[12px] text-[18px]"
+          style={lib?.color ? { background: lib.color+"1f", color: lib.color } : { background:"#eef0f6" }}>{lib?.emoji || "📚"}</span>
+        <span className="min-w-0 flex-1">
+          <span className="block break-words text-[15px] font-semibold leading-snug text-lma-ink">{student.name}</span>
+          <span className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-[12px] text-lma-ink-3">
+            <span className="font-lma-mono font-semibold text-lma-ink-2">{student.student_id}</span>
+            <span aria-hidden="true">·</span><span className="font-semibold">{student.branch||student.library}</span>
+            {primaryPhone&&<><span aria-hidden="true">·</span><span className="font-lma-mono">{primaryPhone.number}{primaryPhone.tag && primaryPhone.tag !== "SELF" ? ` (${primaryPhone.tag})` : ""}</span></>}
+          </span>
+        </span>
+        {student.is_past && <span className="shrink-0 rounded-md bg-lma-warn-soft px-1.5 py-0.5 text-[11px] font-bold text-lma-warn-2">Past</span>}
       </button>
-      <div className="flex items-center pr-2 shrink-0"><WhatsAppButton phones={student.phones} className="px-2.5 py-2 rounded-lg bg-lma-accent/10 text-lma-accent font-bold text-xs disabled:opacity-40"/></div>
+      <div className="flex shrink-0 items-center pr-3">
+        <WhatsAppButton phones={student.phones} chat label="WhatsApp" className="h-9 rounded-full bg-[#e3f6ec] px-3 text-[12.5px] font-semibold text-[#0b7a52] ring-1 ring-inset ring-[#c6ecd8] disabled:opacity-40"/>
+      </div>
     </div>
   );
 }
@@ -322,14 +242,14 @@ function StudentForm({ libraries, branches, initial, onCancel, onSubmit }:{ libr
       <FormTitle>{isEdit?`Edit Student`:"Add Student"}</FormTitle>
 
       <Label>Library *</Label>
-      <select value={f.library} onChange={e=>setF({...f, library:e.target.value, branch:""})} disabled={isEdit} required className="w-full px-3.5 py-2.5 rounded-xl border-[1.5px] border-lma-slate-200 bg-lma-slate-50 text-sm font-medium mb-3">
+      <select value={f.library} onChange={e=>setF({...f, library:e.target.value, branch:""})} disabled={isEdit} required className="w-full h-12 px-3.5 rounded-[14px] border border-lma-line bg-lma-surface text-[15px] font-medium text-lma-ink outline-none focus:border-lma-brand mb-3">
         {libraries.filter(l=>l.active).map(l => <option key={l.library_code} value={l.library_code}>{l.emoji} {l.library_code} — {l.display_name}</option>)}
       </select>
 
       {hasBranches && (
         <>
           <Label>Branch *</Label>
-          <select value={f.branch} onChange={e=>setF({...f, branch:e.target.value})} required className="w-full px-3.5 py-2.5 rounded-xl border-[1.5px] border-lma-slate-200 bg-lma-slate-50 text-sm font-medium mb-3">
+          <select value={f.branch} onChange={e=>setF({...f, branch:e.target.value})} required className="w-full h-12 px-3.5 rounded-[14px] border border-lma-line bg-lma-surface text-[15px] font-medium text-lma-ink outline-none focus:border-lma-brand mb-3">
             <option value="">Select branch…</option>
             {availableBranches.map(b => <option key={b.branch_code} value={b.branch_code}>{b.branch_code} — {b.branch_display}</option>)}
           </select>
@@ -352,13 +272,13 @@ function StudentForm({ libraries, branches, initial, onCancel, onSubmit }:{ libr
           <div key={i} className="flex gap-2">
             <input type="tel" inputMode="numeric" value={ph.number} onChange={e=>{
               const next = [...f.phones]; next[i] = { ...next[i], number: parsePhone10(e.target.value) }; setF({...f, phones: next});
-            }} placeholder={i===0?"Primary phone":`Phone ${i+1}`} className="flex-1 px-3 py-2.5 rounded-xl border-[1.5px] border-lma-slate-200 bg-lma-slate-50 text-sm font-medium"/>
+            }} placeholder={i===0?"Primary phone":`Phone ${i+1}`} className="flex-1 h-12 px-3.5 rounded-[14px] border border-lma-line bg-lma-surface text-[15px] font-medium text-lma-ink outline-none focus:border-lma-brand"/>
             <input value={ph.tag} onChange={e=>{
               const next = [...f.phones]; next[i] = { ...next[i], tag: e.target.value.toUpperCase() }; setF({...f, phones: next});
-            }} placeholder="TAG" className="w-24 px-3 py-2.5 rounded-xl border-[1.5px] border-lma-slate-200 bg-lma-slate-50 text-sm font-medium uppercase"/>
+            }} placeholder="TAG" className="w-24 h-12 px-3.5 rounded-[14px] border border-lma-line bg-lma-surface text-[15px] font-medium text-lma-ink outline-none focus:border-lma-brand uppercase"/>
           </div>
         ))}
-        <p className="text-[10px] text-lma-slate-500">Tag examples: SELF (default, leave blank), FATHER, MOTHER, GUARDIAN</p>
+        <p className="text-[10px] text-lma-ink-3">Tag examples: SELF (default, leave blank), FATHER, MOTHER, GUARDIAN</p>
       </div>
 
       <Label>Address</Label>
@@ -372,17 +292,17 @@ function StudentForm({ libraries, branches, initial, onCancel, onSubmit }:{ libr
         </div>
         <div>
           <Label>Date of Birth</Label>
-          <Input type="date" value={toIsoInput(f.date_of_birth)} onChange={e=>setF({...f, date_of_birth:e.target.value})}/>{f.date_of_birth && <span className="block text-[10px] font-bold text-lma-slate-500 mt-1">{fmtDMY(f.date_of_birth)}</span>}
+          <Input type="date" value={toIsoInput(f.date_of_birth)} onChange={e=>setF({...f, date_of_birth:e.target.value})}/>{f.date_of_birth && <span className="block text-[10px] font-bold text-lma-ink-3 mt-1">{fmtDMY(f.date_of_birth)}</span>}
         </div>
       </div>
 
       {!isEdit ? (
         <label className="flex items-center gap-2 mt-4 cursor-pointer">
           <input type="checkbox" checked={f.is_past} onChange={e=>setF({...f, is_past:e.target.checked})} className="w-4 h-4 accent-lma-primary"/>
-          <span className="text-sm font-semibold text-lma-slate-700">Past student (pre-app era)</span>
+          <span className="text-sm font-semibold text-lma-ink-2">Past student (pre-app era)</span>
         </label>
       ) : (
-        <div className="mt-4 flex items-center gap-2 text-xs text-lma-slate-500">
+        <div className="mt-4 flex items-center gap-2 text-xs text-lma-ink-3">
           <span className={`text-[10px] font-bold px-2 py-1 rounded ${initial!.is_past?"bg-lma-warn/10 text-lma-warn":"bg-lma-accent/10 text-lma-accent"}`}>
             {initial!.is_past ? "PAST STUDENT" : "ON APP"}
           </span>
@@ -398,9 +318,9 @@ function StudentForm({ libraries, branches, initial, onCancel, onSubmit }:{ libr
 function BottomSheet({ onClose, children }:{ onClose:()=>void; children:React.ReactNode }) {
   return (
     <div className="fixed inset-0 z-[9998] flex items-end justify-center" onClick={onClose}>
-      <div className="absolute inset-0 bg-black/50 backdrop-blur-sm"/>
-      <div className="relative w-full max-w-md bg-white rounded-t-3xl p-5 max-h-[88vh] overflow-y-auto lma-slide-up" onClick={e=>e.stopPropagation()}>
-        <div className="w-9 h-1 bg-lma-slate-200 rounded-full mx-auto mb-4"/>
+      <div className="lma-fade-in absolute inset-0 bg-[rgb(15_23_42/0.5)]"/>
+      <div role="dialog" aria-modal="true" className="lma-sheet-up relative w-full max-w-[560px] max-h-[90dvh] overflow-y-auto overscroll-contain rounded-t-[24px] bg-lma-bg px-4 pt-2 pb-[calc(env(safe-area-inset-bottom)+18px)] shadow-lma-float" onClick={e=>e.stopPropagation()}>
+        <div className="mx-auto mb-3 h-1.5 w-10 rounded-full bg-[#dfe1ee]"/>
         {children}
       </div>
     </div>
@@ -408,19 +328,19 @@ function BottomSheet({ onClose, children }:{ onClose:()=>void; children:React.Re
 }
 
 function FormTitle({ children }:{ children:React.ReactNode }) {
-  return <h3 className="text-base font-extrabold text-lma-slate-900 mb-4">{children}</h3>;
+  return <h3 className="mb-3 text-[18px] font-bold tracking-[-0.01em] text-lma-ink">{children}</h3>;
 }
 function Label({ children }:{ children:React.ReactNode }) {
-  return <label className="block text-[11px] font-bold text-lma-slate-500 uppercase tracking-wide mb-1">{children}</label>;
+  return <label className="mb-1.5 mt-3 block px-1 text-[12px] font-bold uppercase tracking-[0.08em] text-lma-ink-3">{children}</label>;
 }
 function Input(props: React.InputHTMLAttributes<HTMLInputElement>) {
-  return <input {...props} className="w-full px-3.5 py-2.5 rounded-xl border-[1.5px] border-lma-slate-200 bg-lma-slate-50 focus:bg-white focus:border-lma-primary outline-none text-[14px] font-medium mb-3"/>;
+  return <input {...props} className="h-12 w-full rounded-[14px] border border-lma-line bg-lma-surface px-3.5 text-[15px] font-medium text-lma-ink outline-none placeholder:text-lma-ink-3 focus:border-lma-brand"/>;
 }
 function FormActions({ onCancel, submitLabel="Save" }:{ onCancel:()=>void; submitLabel?:string }) {
   return (
     <div className="flex gap-2.5 mt-5">
-      <button type="button" onClick={onCancel} className="flex-1 py-3 rounded-xl bg-lma-slate-100 text-lma-slate-600 font-bold">Cancel</button>
-      <button type="submit" className="flex-1 py-3 rounded-xl bg-gradient-to-br from-lma-primary to-lma-primary-2 text-white font-bold shadow-md">{submitLabel}</button>
+      <button type="button" onClick={onCancel} className="h-12 flex-1 rounded-[14px] bg-lma-surface text-[15px] font-semibold text-lma-ink-2 ring-1 ring-inset ring-lma-line">Cancel</button>
+      <button type="submit" className="lma-glass-btn h-12 flex-1 rounded-[14px] text-[15px] font-bold text-white">{submitLabel}</button>
     </div>
   );
 }
