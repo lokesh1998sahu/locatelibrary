@@ -6,8 +6,8 @@
 // Home "Ledger" card. Data comes from getMoneyLedger, which reads the SAME
 // money lines as getDashboard — so the totals always equal the tapped figure.
 
-import { useState, useEffect, useCallback, useMemo, useRef } from "react";
-import { useRouter } from "next/navigation";
+import { useState, useEffect, useCallback, useMemo, useRef, Suspense } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useLMA, useScopeChips } from "../../_components/LMAProvider";
 import ReceiptModal, { MoneyTrail } from "../../_components/ReceiptModal";
 import SearchBar from "../../_components/SearchBar";
@@ -62,8 +62,14 @@ const keyLabel=(k:string)=>k&&k!=="—"?k:"Unassigned";
 const plural=(n:number,one:string,many:string)=>`${n} ${n===1?one:many}`;
 const groupKeyOf=(l:Line,basis:Basis)=>(basis==="credit"?l.sday:l.day)||"";
 
+// useSearchParams needs a Suspense boundary in the App Router.
 export default function LedgerPage(){
+  return <Suspense fallback={null}><LedgerScreen/></Suspense>;
+}
+
+function LedgerScreen(){
   const router=useRouter();
+  const linkQs=useSearchParams().toString();   // the link that opened this screen
   const { init, showToast, post }=useLMA();
   const chips=useScopeChips();
 
@@ -91,19 +97,22 @@ export default function LedgerPage(){
   const reqId=useRef(0);
   const adoptKey=useRef(false);   // server picked the key: take it without refetching
 
-  // Read the link once. (window, not useSearchParams: needs no Suspense boundary.)
+  // Read the link — and read it again whenever it changes. The app keeps this
+  // screen mounted when another link opens it (e.g. tapping a bank on Today while
+  // the Ledger is already open), so reading it only once kept the old view.
+  // Anything the link doesn't say goes back to its default.
   useEffect(()=>{
-    const q=new URLSearchParams(window.location.search);
-    const d=q.get("dim"); if(d==="bank"||d==="tag"||d==="library") setDim(d);
+    const q=new URLSearchParams(linkQs);
+    const d=q.get("dim"); setDim(d==="bank"||d==="tag"||d==="library"?d:"all");
     setKey((q.get("key")||"").toUpperCase());
     const p=q.get("p"), f=parseAnyDate(q.get("from")), t=parseAnyDate(q.get("to"));
     if(f&&t) setPeriod({ preset:isPreset(p)?p:"custom", from:f, to:t });
-    else if(isPreset(p)) setPeriod(periodOf(p));
+    else setPeriod(periodOf(isPreset(p)?p:"month"));
     setScope((q.get("lib")||"").toUpperCase());
-    const s=q.get("src"); if(s==="RECEIPTS"||s==="DUES"||s==="MISC"||s==="REFUNDS") setSrc(s);
-    if(q.get("basis")==="credit") setBasis("credit");
+    const s=q.get("src"); setSrc(s==="RECEIPTS"||s==="DUES"||s==="MISC"||s==="REFUNDS"?s:"");
+    setBasis(q.get("basis")==="credit"?"credit":"pay");
     setReady(true);
-  },[]);
+  },[linkQs]);
 
   const load=useCallback(async()=>{
     if(!ready) return;
@@ -142,13 +151,16 @@ export default function LedgerPage(){
   const subRows=useMemo(()=>{
     const m=new Map<string,{key:string;net:number}>();
     afterSrc.forEach(l=>{ const k=(subDim==="tag"?l.tag:l.bank)||"—"; const r=m.get(k)||{key:k,net:0}; r.net+=l.dir==="OUT"?-l.amt:l.amt; m.set(k,r); });
-    return Array.from(m.values()).sort((a,b)=>b.net-a.net);
-  },[afterSrc,subDim]);
+    const rows=Array.from(m.values()).sort((a,b)=>b.net-a.net);
+    // keep the chosen chip on screen (₹0) when this library/period has none of it
+    if(sub&&!rows.some(r=>r.key===sub)) rows.unshift({key:sub,net:0});
+    return rows;
+  },[afterSrc,subDim,sub]);
   const unassigned=useMemo(()=>lines.filter(l=>!l.tag||!l.bank),[lines]);
   const unassignedSum=useMemo(()=>unassigned.reduce((s,l)=>s+(l.dir==="OUT"?-l.amt:l.amt),0),[unassigned]);
 
   // ── reconciliation tick-off: bank view on credit dates only ──
-  const tickMode=dim==="bank"&&basis==="credit"&&!!data?.ticks_ready;
+  const tickMode=basis==="credit"&&!!data?.ticks_ready;
   const tickOf=useCallback((l:Line):Tick|null=>{ const k=l.key||""; return k in tickOver ? tickOver[k] : (l.tick||null); },[tickOver]);
   const tickState=useCallback((l:Line):TickState=>{
     const t=tickOf(l); if(!t) return "none";
@@ -346,7 +358,7 @@ export default function LedgerPage(){
               {transit&&<div className="mt-3 rounded-[12px] bg-white/15 px-3 py-2 text-[12px] font-semibold">⏳ {inr(transit.amt)} received but not yet credited · lands by {dm(transit.last)}</div>}
             </section>
 
-            {dim==="bank"&&basis==="credit"&&data&&data.ticks_ready===false&&(
+            {basis==="credit"&&data&&data.ticks_ready===false&&(
               <p className="mb-3 rounded-[14px] bg-lma-surface px-3.5 py-2.5 text-[12.5px] leading-relaxed text-lma-ink-3 ring-1 ring-inset ring-lma-line">
                 Statement tick-off isn’t set up yet. Run <span className="font-lma-mono font-semibold text-lma-ink-2">money-ticks-setup.sql</span> once in Supabase to switch it on.
               </p>
@@ -354,7 +366,7 @@ export default function LedgerPage(){
             {recon&&(
               <div className="mb-3 rounded-[16px] bg-lma-surface p-3.5 shadow-lma-card ring-1 ring-inset ring-lma-line">
                 <div className="grid grid-cols-3 gap-2 text-center">
-                  <div><div className="text-[11px] font-semibold text-lma-ink-3">Expected in {keyLabel(activeKey)}</div><div className="mt-0.5 font-lma-mono text-[14.5px] font-semibold text-lma-ink">{inrSigned(recon.expected)}</div></div>
+                  <div><div className="text-[11px] font-semibold text-lma-ink-3">{dim==="bank"?`Expected in ${keyLabel(activeKey)}`:subDim==="bank"&&sub?`Expected in ${keyLabel(sub)}`:"Expected"}</div><div className="mt-0.5 font-lma-mono text-[14.5px] font-semibold text-lma-ink">{inrSigned(recon.expected)}</div></div>
                   <div><div className="text-[11px] font-semibold text-lma-ink-3">Ticked</div><div className="mt-0.5 font-lma-mono text-[14.5px] font-semibold text-lma-in">{inrSigned(recon.ticked)}</div></div>
                   <div><div className="text-[11px] font-semibold text-lma-ink-3">Still to find</div><div className={cx("mt-0.5 font-lma-mono text-[14.5px] font-semibold", Math.abs(recon.left)<0.5?"text-lma-in":"text-lma-warn-2")}>{inrSigned(recon.left)}</div></div>
                 </div>
@@ -469,7 +481,7 @@ function EntryRow({ l, basis, today, onOpen, ts, tk, onTick, busy }:{ l:Line; ba
   const title=l.src==="MISC"?(l.cat||"Misc income"):(l.name||l.sid||l.ref);
   const later=!!l.sday&&!!today&&l.sday>today;
   const row=(
-    <button type="button" onClick={onOpen} className="lma-noscale flex min-w-0 flex-1 items-start gap-2.5 px-3.5 py-3 text-left active:bg-lma-bg">
+    <button type="button" onClick={onOpen} className="lma-noscale flex w-full min-w-0 flex-1 items-start gap-2.5 px-3.5 py-3 text-left active:bg-lma-bg">
       <div className="min-w-0 flex-1">
         <div className="flex min-w-0 items-center gap-1.5">
           <span className={`shrink-0 rounded-md px-1.5 py-0.5 text-[10.5px] font-bold ${SRC_TONE[l.src]}`}>{SRC_LABEL[l.src]}</span>

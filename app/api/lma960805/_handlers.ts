@@ -2036,9 +2036,9 @@ async function getOccupancySummary() {
       };
     }
 
-    // Reconciliation tick-off (bank view, credit dates): each entry's tick, if any.
+    // Reconciliation tick-off (credit dates, any view): each entry's tick, if any.
     let ticks: Record<string, any> | null = null;
-    if (dim === "bank" && basis === "credit" && lines.length) ticks = await _loadTicks(lines.map(_lineKey));
+    if (basis === "credit") ticks = await _loadTicks(lines.map(_lineKey));   // any view, on credit dates
 
     return {
       ok: true,
