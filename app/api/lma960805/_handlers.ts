@@ -86,6 +86,7 @@ import { occupancyStats } from "../../lma960805/_lib/vacancy";
     "restoreMiscIncome",
     "getMiscCategories",
     "getStudentCurrentSeats",
+    "tickMoneyLines",
     "saveMiscCategory",
     // 09_Admin (writes)
     "addLibrary",
@@ -1829,10 +1830,16 @@ async function getOccupancySummary() {
 
   // Sequential on purpose (see getInitData): avoids grabbing many connections at once.
   async function _loadMoneyTables(): Promise<MoneyTables> {
-    const rcpts    = (await sql`select * from receipt_log`) as any[];
-    const dues     = (await sql`select * from fees_due_log`) as any[];
+    // Every column except the long message texts, which no money figure uses
+    // (receipt/registration/cancel/write-off texts, dues and refund WhatsApp texts).
+    const rcpts    = (await sql`select ${RECEIPT_LITE_COLS}, receipt_date_d, pay_mode_1_s_date_d, pay_mode_2_s_date_d, pay_mode_3_s_date_d from receipt_log`) as any[];
+    const dues     = (await sql`select s_no, payment_id, receipt_no, student_id, library, branch, name, phone, payment_mode, payment_fees_mode,
+                                       amount_received, balance_before, balance_after, received_on, settlement_date, notes, gender,
+                                       received_on_d, settlement_date_d from fees_due_log`) as any[];
     const misc     = (await sql`select * from misc_income`) as any[];
-    const refunds  = (await sql`select * from refund_log`) as any[];
+    const refunds  = (await sql`select s_no, refund_id, original_receipt_no, student_id, library, branch, name, phone, refund_mode, refund_fees_mode,
+                                       amount, refund_date, refund_reason, linked_to_cancellation, "timestamp", gender, is_cross_library,
+                                       refund_date_d from refund_log`) as any[];
     const branches = (await sql`select * from library_branches`) as any[];
     return { rcpts, dues, misc, refunds, branches };
   }
@@ -2029,6 +2036,10 @@ async function getOccupancySummary() {
       };
     }
 
+    // Reconciliation tick-off (bank view, credit dates): each entry's tick, if any.
+    let ticks: Record<string, any> | null = null;
+    if (dim === "bank" && basis === "credit" && lines.length) ticks = await _loadTicks(lines.map(_lineKey));
+
     return {
       ok: true,
       range: { from: _isoToDmy(fromYmd), to: _isoToDmy(toYmd), from_ymd: fromYmd, to_ymd: toYmd },
@@ -2040,8 +2051,60 @@ async function getOccupancySummary() {
       meta,
       switcher,
       totals,
-      lines: lines.map((L) => ({ ...L, amt: Math.round(L.amt * 100) / 100 })),
+      ticks_ready: ticks !== null,
+      lines: lines.map((L) => {
+        const amt = Math.round(L.amt * 100) / 100;
+        const k = _lineKey(L);
+        const t = ticks ? ticks[k] : undefined;
+        return { ...L, amt, key: k, tick: t ? { amount: num(t.amount), bank: String(t.bank || ""), credit_day: String(t.credit_day || ""), ticked_at: String(t.ticked_at || "") } : null };
+      }),
     };
+  }
+
+  // ── Reconciliation tick-off ─────────────────────────────────────
+  // A tick says "seen on the bank statement". It keeps what the entry looked like
+  // when ticked (amount, bank, credit day); if the entry is edited later the
+  // screen compares and flags it for a re-tick. Table: money_ticks
+  // (money-ticks-setup.sql). Until it exists the ledger simply has no ticks.
+  function _lineKey(L: { src: string; ref: string; part?: number }): string {
+    return L.src + "|" + L.ref + "|" + (L.part || 1);
+  }
+  let _ticksTable: boolean | null = null;
+  async function _hasTicksTable(): Promise<boolean> {
+    if (_ticksTable) return true;
+    const c = (await sql`select 1 from information_schema.tables where table_schema='public' and table_name='money_ticks' limit 1`) as any[];
+    _ticksTable = c.length > 0 ? true : null;
+    return c.length > 0;
+  }
+  async function _loadTicks(keys: string[]): Promise<Record<string, any> | null> {
+    if (!(await _hasTicksTable())) return null;
+    const rows = (await sql`select line_key, amount, bank, credit_day, to_char(ticked_at at time zone 'Asia/Kolkata','YYYY-MM-DD HH24:MI') as ticked_at
+                             from money_ticks where line_key = any(${keys})`) as any[];
+    const out: Record<string, any> = {};
+    for (const r of rows) out[String(r.line_key)] = r;
+    return out;
+  }
+  // { ticked: true|false, lines: [{ key, amount, bank, credit_day }] } — up to 500 at once.
+  async function tickMoneyLines(p: any): Promise<any> {
+    if (!p || !Array.isArray(p.lines) || !p.lines.length) throw new Error("lines are required.");
+    if (p.lines.length > 500) throw new Error("Too many entries at once (max 500).");
+    if (!(await _hasTicksTable())) return { ok: false, error: "Tick-off isn't set up yet. Run money-ticks-setup.sql once in Supabase." };
+    const KEY = /^(RECEIPTS|DUES|MISC|REFUNDS)\|[^|]{1,60}\|[1-3]$/;
+    const items = p.lines.map((l: any) => ({
+      key: String(l.key || ""), amount: num(l.amount), bank: up(l.bank || ""), credit_day: String(l.credit_day || "").slice(0, 10),
+    }));
+    for (const it of items) if (!KEY.test(it.key)) throw new Error("Bad entry key: " + it.key);
+    return await sql.begin(async (tx: any) => {
+      if (p.ticked === false) {
+        await tx`delete from money_ticks where line_key = any(${items.map((i: any) => i.key)})`;
+        return { ok: true, unticked: items.length };
+      }
+      for (const it of items) {
+        await tx`insert into money_ticks (line_key, amount, bank, credit_day) values (${it.key}, ${it.amount}, ${it.bank}, ${it.credit_day})
+                 on conflict (line_key) do update set amount=excluded.amount, bank=excluded.bank, credit_day=excluded.credit_day, ticked_at=now()`;
+      }
+      return { ok: true, ticked: items.length };
+    });
   }
 
   async function getDashboard(params: any) {
@@ -4633,6 +4696,8 @@ async function getOccupancySummary() {
         return await getMiscCategories();
       case "getStudentCurrentSeats":
         return await getStudentCurrentSeats();
+      case "tickMoneyLines":
+        return await tickMoneyLines(params);
       case "saveMiscCategory":
         return await saveMiscCategory(params);
       case "updateRefund":

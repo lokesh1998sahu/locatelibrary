@@ -26,7 +26,10 @@ interface Line {
   src:LedgerSrc; dir:"IN"|"OUT"; amt:number; day:string|null; sday:string|null;
   lib:string; tag:string; bank:string; ref:string; rno:string; sid:string; name:string;
   rtype:string; part:number; parts:number; cat:string; note:string; xlib:boolean; sno:number;
+  key?:string; tick?:Tick|null;   // reconciliation tick (bank view, credit dates)
 }
+interface Tick { amount:number; bank:string; credit_day:string; ticked_at?:string }
+type TickState = "none"|"ok"|"changed";
 interface BreakRow { key:string; gross:number; refund:number; net:number; }
 interface BankMeta { bank_name:string; owner_name:string; acct_type:string; tags:{tag:string;days:number}[]; }
 interface TagMeta  { bank:string; days:number|null; bank_name:string; owner_name:string; }
@@ -35,7 +38,7 @@ interface Ledger {
   range:{ from:string; to:string }; scope:string; dim:LedgerDim; key:string; basis:Basis; today:string|null;
   meta:BankMeta|TagMeta|null; switcher:BreakRow[];
   totals:{ gross:number; refund:number; net:number; entries:number; receipts:number };
-  lines:Line[];
+  lines:Line[]; ticks_ready?:boolean;
 }
 interface Group { k:string; items:Line[]; inn:number; out:number; net:number; payFrom:string; payTo:string; }
 
@@ -61,7 +64,7 @@ const groupKeyOf=(l:Line,basis:Basis)=>(basis==="credit"?l.sday:l.day)||"";
 
 export default function LedgerPage(){
   const router=useRouter();
-  const { init, showToast }=useLMA();
+  const { init, showToast, post }=useLMA();
   const chips=useScopeChips();
 
   const [ready,setReady]=useState(false);
@@ -73,6 +76,9 @@ export default function LedgerPage(){
   const [src,setSrc]=useState<LedgerSrc|"">("");
   const [sub,setSub]=useState("");
   const [unOnly,setUnOnly]=useState(false);
+  const [tickOver,setTickOver]=useState<Record<string,Tick|null>>({});   // ticks changed on this screen since loading
+  const [untickedOnly,setUntickedOnly]=useState(false);
+  const [tickBusy,setTickBusy]=useState(false);
   const [draft,setDraft]=useState("");
   const [search,setSearch]=useState("");
   const [page,setPage]=useState(1);
@@ -123,7 +129,7 @@ export default function LedgerPage(){
 
   useEffect(()=>{ if(adoptKey.current){ adoptKey.current=false; return; } load(); },[load]);
   useEffect(()=>{ setSub(""); setUnOnly(false); setOpenMap({}); },[dim,key,basis]);
-  useEffect(()=>{ setPage(1); },[dim,key,period,scope,basis,src,sub,unOnly,search]);
+  useEffect(()=>{ setPage(1); },[dim,key,period,scope,basis,src,sub,unOnly,search,untickedOnly]);
 
   const fresh=!!data&&data.dim===dim;                       // data belongs to the current view
   const activeKey=dim==="all"?"":(fresh&&data?data.key:key);
@@ -141,15 +147,38 @@ export default function LedgerPage(){
   const unassigned=useMemo(()=>lines.filter(l=>!l.tag||!l.bank),[lines]);
   const unassignedSum=useMemo(()=>unassigned.reduce((s,l)=>s+(l.dir==="OUT"?-l.amt:l.amt),0),[unassigned]);
 
+  // ── reconciliation tick-off: bank view on credit dates only ──
+  const tickMode=dim==="bank"&&basis==="credit"&&!!data?.ticks_ready;
+  const tickOf=useCallback((l:Line):Tick|null=>{ const k=l.key||""; return k in tickOver ? tickOver[k] : (l.tick||null); },[tickOver]);
+  const tickState=useCallback((l:Line):TickState=>{
+    const t=tickOf(l); if(!t) return "none";
+    return Math.abs(t.amount-l.amt)<0.005 && t.bank===l.bank && t.credit_day===(l.sday||"") ? "ok" : "changed";
+  },[tickOf]);
+  useEffect(()=>{ setTickOver({}); },[data]);
+  const setTicks=async(ls:Line[], on:boolean)=>{
+    const list=ls.filter(l=>l.key); if(!list.length||tickBusy) return;
+    setTickBusy(true);
+    const r=await post("tickMoneyLines",{ ticked:on, lines:list.map(l=>({ key:l.key, amount:l.amt, bank:l.bank, credit_day:l.sday||"" })) });
+    setTickBusy(false);
+    if(r){ setTickOver(o=>{ const n={...o}; list.forEach(l=>{ n[l.key!]=on?{ amount:l.amt, bank:l.bank, credit_day:l.sday||"" }:null; }); return n; }); }
+  };
+
   const shown=useMemo(()=>{
     let a=afterSrc;
     if(sub) a=a.filter(l=>((subDim==="tag"?l.tag:l.bank)||"—")===sub);
     if(unOnly) a=a.filter(l=>!l.tag||!l.bank);
+    if(tickMode&&untickedOnly) a=a.filter(l=>tickState(l)!=="ok");
     const q=search.trim().toUpperCase();
     if(q) a=a.filter(l=>[l.ref,l.rno,l.sid,l.name,l.cat,l.note.toUpperCase(),l.tag,l.bank].some(v=>!!v&&v.includes(q)));
     return a;
-  },[afterSrc,sub,unOnly,search,subDim]);
-  const filtered=!!(src||sub||unOnly||search.trim());
+  },[afterSrc,sub,unOnly,search,subDim,tickMode,untickedOnly,tickState]);
+  const filtered=!!(src||sub||unOnly||search.trim()||(tickMode&&untickedOnly));
+  const recon=useMemo(()=>{
+    if(!tickMode) return null;
+    let expected=0, ticked=0, changed=0, open=0;
+    for(const l of afterSrc){ const v=l.dir==="OUT"?-l.amt:l.amt; expected+=v; const st=tickState(l); if(st==="ok") ticked+=v; else { open++; if(st==="changed") changed++; } }
+    return { expected, ticked, left:expected-ticked, changed, open };
+  },[tickMode,afterSrc,tickState]);
 
   // Unfiltered: the server's totals (Dashboard arithmetic). Filtered: summed here.
   const tot=useMemo(()=>{
@@ -317,6 +346,25 @@ export default function LedgerPage(){
               {transit&&<div className="mt-3 rounded-[12px] bg-white/15 px-3 py-2 text-[12px] font-semibold">⏳ {inr(transit.amt)} received but not yet credited · lands by {dm(transit.last)}</div>}
             </section>
 
+            {dim==="bank"&&basis==="credit"&&data&&data.ticks_ready===false&&(
+              <p className="mb-3 rounded-[14px] bg-lma-surface px-3.5 py-2.5 text-[12.5px] leading-relaxed text-lma-ink-3 ring-1 ring-inset ring-lma-line">
+                Statement tick-off isn’t set up yet. Run <span className="font-lma-mono font-semibold text-lma-ink-2">money-ticks-setup.sql</span> once in Supabase to switch it on.
+              </p>
+            )}
+            {recon&&(
+              <div className="mb-3 rounded-[16px] bg-lma-surface p-3.5 shadow-lma-card ring-1 ring-inset ring-lma-line">
+                <div className="grid grid-cols-3 gap-2 text-center">
+                  <div><div className="text-[11px] font-semibold text-lma-ink-3">Expected in {keyLabel(activeKey)}</div><div className="mt-0.5 font-lma-mono text-[14.5px] font-semibold text-lma-ink">{inrSigned(recon.expected)}</div></div>
+                  <div><div className="text-[11px] font-semibold text-lma-ink-3">Ticked</div><div className="mt-0.5 font-lma-mono text-[14.5px] font-semibold text-lma-in">{inrSigned(recon.ticked)}</div></div>
+                  <div><div className="text-[11px] font-semibold text-lma-ink-3">Still to find</div><div className={cx("mt-0.5 font-lma-mono text-[14.5px] font-semibold", Math.abs(recon.left)<0.5?"text-lma-in":"text-lma-warn-2")}>{inrSigned(recon.left)}</div></div>
+                </div>
+                <div className="mt-3 flex items-center gap-2">
+                  <Chip on={untickedOnly} onClick={()=>setUntickedOnly(v=>!v)}>Unticked only <span className={cx("ml-1 font-lma-mono text-[12px]",untickedOnly?"text-white/80":"text-lma-ink-3")}>{recon.open}</span></Chip>
+                  {recon.changed>0&&<span className="text-[12px] font-semibold text-lma-warn-2">{plural(recon.changed,"entry","entries")} changed since ticked</span>}
+                </div>
+              </div>
+            )}
+
             {unassigned.length>0&&activeKey!=="—"&&(
               <button type="button" onClick={()=>setUnOnly(v=>!v)}
                 className={cx("lma-noscale mb-3 w-full rounded-[14px] px-3.5 py-2.5 text-left text-[13px] font-semibold", unOnly?"bg-lma-out text-white":"bg-lma-out-soft text-lma-out")}>
@@ -360,8 +408,9 @@ export default function LedgerPage(){
                     const pending=basis==="credit"&&!!today&&!!g.k&&g.k>today;
                     return (
                       <div key={g.k||"none"} className="overflow-hidden rounded-[18px] border border-lma-line bg-lma-surface shadow-lma-card">
+                        <div className="flex items-stretch">
                         <button type="button" onClick={()=>setOpenMap(m=>({...m,[g.k]:!open}))} aria-expanded={open}
-                          className="lma-noscale flex w-full items-center gap-2.5 px-3.5 py-3 text-left active:bg-lma-bg">
+                          className="lma-noscale flex min-w-0 flex-1 items-center gap-2.5 px-3.5 py-3 text-left active:bg-lma-bg">
                           <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.4} strokeLinecap="round" strokeLinejoin="round"
                             className="shrink-0 text-lma-ink-3 transition" style={{transform:open?"rotate(90deg)":"none"}}><path d="M9.5 5.5 16 12l-6.5 6.5"/></svg>
                           <div className="min-w-0 flex-1">
@@ -371,13 +420,22 @@ export default function LedgerPage(){
                               {basis==="credit"&&g.payFrom?` · paid ${g.payFrom===g.payTo?dm(g.payFrom):`${dm(g.payFrom)} to ${dm(g.payTo)}`}`:""}
                               {g.out>0?` · in ${inr(g.inn)} · out ${inr(g.out)}`:""}
                               {pending?" · not yet credited":""}
+                              {tickMode?(()=>{ const n=g.items.filter(l=>tickState(l)==="ok").length; return <span className={n===g.items.length?"font-semibold text-lma-in":""}> · {n} of {g.items.length} ticked</span>; })():null}
                             </div>
                           </div>
                           <div className={cx("shrink-0 font-lma-mono text-[14.5px] font-semibold", g.net<0?"text-lma-out":"text-lma-ink")}>{inrSigned(g.net)}</div>
                         </button>
+                        {tickMode&&(()=>{ const allOk=g.items.every(l=>tickState(l)==="ok"); return (
+                          <button type="button" disabled={tickBusy} onClick={()=>setTicks(allOk?g.items:g.items.filter(l=>tickState(l)!=="ok"), !allOk)}
+                            className={cx("lma-noscale shrink-0 border-l border-lma-line px-3 text-[12px] font-semibold disabled:opacity-50", allOk?"text-lma-ink-3":"text-lma-brand")}>
+                            {allOk?"Untick day":"Tick day"}
+                          </button>
+                        ); })()}
+                        </div>
                         {open&&(
                           <div className="divide-y divide-lma-line border-t border-lma-line">
-                            {g.items.map((l,i)=><EntryRow key={`${l.src}-${l.ref}-${l.part}-${i}`} l={l} basis={basis} today={today} onOpen={()=>setDetail(l)}/>)}
+                            {g.items.map((l,i)=><EntryRow key={`${l.src}-${l.ref}-${l.part}-${i}`} l={l} basis={basis} today={today} onOpen={()=>setDetail(l)}
+                              {...(tickMode?{ ts:tickState(l), tk:tickOf(l), onTick:()=>setTicks([l], tickState(l)!=="ok"), busy:tickBusy }:{})}/>)}
                           </div>
                         )}
                       </div>
@@ -407,11 +465,11 @@ export default function LedgerPage(){
 }
 
 // ── one money entry ──
-function EntryRow({ l, basis, today, onOpen }:{ l:Line; basis:Basis; today:string|null; onOpen:()=>void }){
+function EntryRow({ l, basis, today, onOpen, ts, tk, onTick, busy }:{ l:Line; basis:Basis; today:string|null; onOpen:()=>void; ts?:TickState; tk?:Tick|null; onTick?:()=>void; busy?:boolean }){
   const title=l.src==="MISC"?(l.cat||"Misc income"):(l.name||l.sid||l.ref);
   const later=!!l.sday&&!!today&&l.sday>today;
-  return (
-    <button type="button" onClick={onOpen} className="lma-noscale flex w-full items-start gap-2.5 px-3.5 py-3 text-left active:bg-lma-bg">
+  const row=(
+    <button type="button" onClick={onOpen} className="lma-noscale flex min-w-0 flex-1 items-start gap-2.5 px-3.5 py-3 text-left active:bg-lma-bg">
       <div className="min-w-0 flex-1">
         <div className="flex min-w-0 items-center gap-1.5">
           <span className={`shrink-0 rounded-md px-1.5 py-0.5 text-[10.5px] font-bold ${SRC_TONE[l.src]}`}>{SRC_LABEL[l.src]}</span>
@@ -434,6 +492,29 @@ function EntryRow({ l, basis, today, onOpen }:{ l:Line; basis:Basis; today:strin
       </div>
       <div className={cx("shrink-0 font-lma-mono text-[14.5px] font-semibold", l.dir==="OUT"?"text-lma-out":"text-lma-in")}>{l.dir==="OUT"?"−":"+"}{inr(l.amt)}</div>
     </button>
+  );
+  if(!onTick) return row;
+  return (
+    <div className={cx(ts==="ok"&&"bg-lma-in-soft/40")}>
+      <div className="flex items-stretch">
+        <button type="button" role="checkbox" aria-checked={ts==="ok"} disabled={busy} onClick={onTick}
+          aria-label={ts==="ok"?`Untick ${title}`:`Tick ${title} as seen on the statement`}
+          className="lma-noscale grid w-12 shrink-0 place-items-center pl-2 disabled:opacity-50">
+          <span className={cx("grid h-6 w-6 place-items-center rounded-[7px] ring-2 ring-inset",
+            ts==="ok"?"bg-lma-in text-white ring-lma-in":ts==="changed"?"bg-[#fef3c7] text-[#92400e] ring-[#f59e0b]":"bg-lma-surface text-transparent ring-[#cbd2e1]")}>
+            {ts==="changed"
+              ? <span className="text-[13px] font-bold">!</span>
+              : <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={3} strokeLinecap="round" strokeLinejoin="round"><path d="M5 12.5 9.5 17 19 7.5"/></svg>}
+          </span>
+        </button>
+        {row}
+      </div>
+      {ts==="changed"&&tk&&(
+        <div className="-mt-1.5 pb-2.5 pl-12 pr-3.5 text-[11.5px] font-semibold text-lma-warn-2">
+          Changed since ticked — was {inr(tk.amount)} · {tk.bank||"no bank"} · {tk.credit_day?dm(tk.credit_day):"no date"}. Check and tick again.
+        </div>
+      )}
+    </div>
   );
 }
 
