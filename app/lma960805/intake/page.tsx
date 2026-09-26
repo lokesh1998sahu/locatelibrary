@@ -4,7 +4,7 @@
 // WhatsApp messages, track ISSUED → SUBMITTED → USED (side exit VOID).
 // Consumed by BookingFlow NEW admission. Same requests as before; new look.
 
-import { useState, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { useLMA, useScopeChips } from "../_components/LMAProvider";
 import { parsePhone10 } from "../_lib/phone";
 import { Screen, Card, Button, Chip, ScopeChips, Skeleton, Empty, IconButton, inputCls, cx } from "../_ui/kit";
@@ -21,7 +21,7 @@ export default function EnquiryCodePage(){
   const chips = useScopeChips({ includeAll:false });
   const [items,setItems]=useState<any[]>([]);
   const [loading,setLoading]=useState(false);
-  const [listLoaded,setListLoaded]=useState(false);   // the list fetches only when you tap "Show created codes"
+  const [listLoaded,setListLoaded]=useState(false);   // true once the list has arrived
   const [genOpen,setGenOpen]=useState(false);         // the create form opens on tap, once libraries are loaded
   const [listError,setListError]=useState(false);
   const [scope,setScope]=useState("");
@@ -42,6 +42,8 @@ export default function EnquiryCodePage(){
     }catch{ setListError(true); showToast("Network error","error"); }
     setLoading(false);
   },[showToast]);
+
+  useEffect(()=>{ load(); },[load]);   // the created codes load by themselves
 
   const scopes = useMemo(()=>{
     const out:{value:string;label:string;library:string;branch:string}[]=[];
@@ -167,7 +169,7 @@ export default function EnquiryCodePage(){
           <Card><Empty icon={<IconAlert size={22}/>} title="Couldn’t load codes"
             action={<Button loading={loading} loadingText="Retrying…" onClick={load}>Retry</Button>}/></Card>
         ) : (
-          <Button variant="secondary" full size="lg" loading={loading} loadingText="Loading codes…" onClick={load}>Show created codes</Button>
+          <div className="space-y-2" aria-label="Loading codes">{[0,1,2].map(i=><Card key={i}><Skeleton className="h-4 w-40"/><Skeleton className="mt-2 h-3 w-56"/><Skeleton className="mt-3 h-11"/></Card>)}</div>
         )
       ) : (
         <>

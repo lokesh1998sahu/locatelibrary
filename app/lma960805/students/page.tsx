@@ -17,6 +17,10 @@ const PAGE_SIZE = 20;
 
 // ── TYPES ─────────────────────────────────────────────────────────
 interface PhoneEntry { number:string; tag:string; }
+interface SeatNow { receipt_no:string; seat_no:string; temporary_seat:string; shift:string; shift_name:string; booking_to:string; days_left:number|null; at:string }
+const MON = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+const fmtDM = (ymd:string) => { const p = ymd.split("-"); return p.length===3 ? `${+p[2]}-${MON[+p[1]-1]}` : ymd; };
+const seatKey = (s:{student_id:string;library:string;branch:string}) => `${s.student_id.toUpperCase().split("-")[0]}|${(s.branch||s.library).toUpperCase()}`;
 interface Student   {
   s_no?:number; student_id:string; library:string; branch:string; name:string;
   phones:PhoneEntry[]; added_on:string;
@@ -82,11 +86,19 @@ export default function LmaStudentsPage() {
   useEffect(() => { setPage(1); }, [pastFilter, search, dFrom, dTo, libFilter]);
 
   // After save/delete: refetch + refresh counts
+  // where each student sits now — one small request, keyed "<id>|<home library/branch>"
+  const [seats, setSeats] = useState<Record<string, SeatNow[]>>({});
+  const loadSeats = useCallback(async () => {
+    try { const r = await fetch(`${API}?action=getStudentCurrentSeats`).then(x => x.json()); if (r && r.ok) setSeats(r.seats || {}); } catch { /* cards just show no seat line */ }
+  }, []);
+  useEffect(() => { loadSeats(); }, [loadSeats]);
+
   const refreshAll = useCallback(async () => {
     await load();
+    loadSeats();
     const c:CountsResp = await fetch(`${API}?action=getStudentCounts`).then(r => r.json());
     if (c.ok) setCounts(c);
-  }, [load]);
+  }, [load, loadSeats]);
 
   // client search (PHONE searches within phones[])
   const matchesStudent = useCallback((s:Student, q:string):boolean => {
@@ -137,7 +149,7 @@ export default function LmaStudentsPage() {
         <>
           <div className="space-y-2">
             {shown.map(s => (
-              <StudentCard key={`${s.library}-${s.student_id}`} student={s} librariesMap={init?.libraries || []}
+              <StudentCard key={`${s.library}-${s.student_id}`} student={s} librariesMap={init?.libraries || []} now={seats[seatKey(s)] || []}
                 onTap={()=>setOpenStu({ id:s.student_id, library:s.library })}/>
             ))}
           </div>
@@ -176,7 +188,7 @@ export default function LmaStudentsPage() {
 // ─────────────────────────────────────────────────────────────────
 
 
-function StudentCard({ student, librariesMap, onTap }:{ student:Student; librariesMap:Library[]; onTap:()=>void }) {
+function StudentCard({ student, librariesMap, onTap, now }:{ student:Student; librariesMap:Library[]; onTap:()=>void; now:SeatNow[] }) {
   const lib = librariesMap.find(l => l.library_code === student.library);
   const primaryPhone = student.phones[0];
   return (
@@ -191,6 +203,19 @@ function StudentCard({ student, librariesMap, onTap }:{ student:Student; librari
             <span aria-hidden="true">·</span><span className="font-semibold">{student.branch||student.library}</span>
             {primaryPhone&&<><span aria-hidden="true">·</span><span className="font-lma-mono">{primaryPhone.number}{primaryPhone.tag && primaryPhone.tag !== "SELF" ? ` (${primaryPhone.tag})` : ""}</span></>}
           </span>
+          {now.length>0&&(()=>{ const b=now[0]; const d=b.days_left;
+            const tone=d===null?"text-lma-ink-2":d<0?"text-lma-out":d<=3?"text-lma-warn-2":"text-lma-in";
+            const when=d===null?"":d<0?`expired ${-d}d ago`:d===0?"ends today":`till ${fmtDM(b.booking_to)}`;
+            const home=(student.branch||student.library).toUpperCase();
+            return (
+              <span className="mt-1 flex flex-wrap items-center gap-x-1.5 text-[12px]">
+                <span className="rounded-md bg-lma-brand-soft px-1.5 py-px font-semibold text-lma-brand">{b.temporary_seat?`Floating · was ${b.temporary_seat}`:b.seat_no?`Seat ${b.seat_no}`:"No seat"}</span>
+                <span className="text-lma-ink-2">{b.shift_name||b.shift}</span>
+                {when&&<span className={`font-semibold ${tone}`}>{when}</span>}
+                {b.at&&b.at!==home&&<span className="font-semibold text-[#7c3aed]">at {b.at}</span>}
+                {now.length>1&&<span className="text-lma-ink-3">+{now.length-1} more</span>}
+              </span>
+            ); })()}
         </span>
         {student.is_past && <span className="shrink-0 rounded-md bg-lma-warn-soft px-1.5 py-0.5 text-[11px] font-bold text-lma-warn-2">Past</span>}
       </button>

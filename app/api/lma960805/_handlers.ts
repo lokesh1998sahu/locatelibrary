@@ -85,6 +85,7 @@ import { occupancyStats } from "../../lma960805/_lib/vacancy";
     "deleteMiscIncome",
     "restoreMiscIncome",
     "getMiscCategories",
+    "getStudentCurrentSeats",
     "saveMiscCategory",
     // 09_Admin (writes)
     "addLibrary",
@@ -1117,6 +1118,35 @@ async function getOccupancySummary() {
     const start = (page - 1) * limit;
     const receipts = rows.slice(start, start + limit).map(mapReceiptRow);
     return { receipts, total, page, totalPages, limit };
+  }
+
+  // ── Where each student sits now (Students list) ─────────────────
+  // Every live booking (not cancelled, renewed or closed), grouped by student the
+  // same way booking history matches them: "<student id>|<home library/branch>".
+  // Longest-running first. Reads a handful of columns only.
+  async function getStudentCurrentSeats(): Promise<any> {
+    const rows = (await sql`
+      select receipt_no, student_id, library, branch, is_cross_library, seat_no, temporary_seat, shift, shift_name, status,
+             to_char(booking_to,'YYYY-MM-DD') as booking_to_ymd
+        from receipt_log
+       where status is null or status !~ '[A-Za-z]'`) as any[];
+    const renewed = buildRenewedFromSet((await sql`select renewed_from from receipt_log where renewed_from ~ '[^[:space:]]'`) as any[]);
+    const seats: Record<string, any[]> = {};
+    for (const r of rows) {
+      if (!r.receipt_no || up(r.status || "")) continue;
+      if (renewed[up(r.receipt_no)]) continue;
+      const sid = up(r.student_id || "").split("-")[0];
+      if (!sid) continue;
+      const key = sid + "|" + resolveOrigin(r.library, r.branch, r.is_cross_library);
+      const to = String(r.booking_to_ymd || "");
+      (seats[key] ||= []).push({
+        receipt_no: up(r.receipt_no), seat_no: String(r.seat_no ?? "").trim(), temporary_seat: String(r.temporary_seat ?? "").trim(),
+        shift: up(r.shift ?? ""), shift_name: String(r.shift_name ?? ""), booking_to: to, days_left: daysFromYmd(to),
+        at: up(r.branch || "") || up(r.library || ""),
+      });
+    }
+    for (const k of Object.keys(seats)) seats[k].sort((a, b) => (b.booking_to > a.booking_to ? 1 : b.booking_to < a.booking_to ? -1 : 0));
+    return { ok: true, seats };
   }
 
   async function getStudentBookingHistory(p: any) {
@@ -4601,6 +4631,8 @@ async function getOccupancySummary() {
         return await restoreMiscIncome(params);
       case "getMiscCategories":
         return await getMiscCategories();
+      case "getStudentCurrentSeats":
+        return await getStudentCurrentSeats();
       case "saveMiscCategory":
         return await saveMiscCategory(params);
       case "updateRefund":
