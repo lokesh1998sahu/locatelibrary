@@ -56,7 +56,7 @@ export default function ReceiptsPage(){
   const load=useCallback(async()=>{
     setLoading(true);
     try{
-      const params=new URLSearchParams({action:"getReceiptLog",all:"1"});
+      const params=new URLSearchParams({action:"getReceiptLog",all:"1",lite:"1"});   // no message texts: the list never shows them
       const r=await fetch(`${API}?${params}`).then(r=>r.json());
       if(r.receipts){ setReceipts(r.receipts); setPage(1); }
     }catch{ /* keeps what was shown */ }

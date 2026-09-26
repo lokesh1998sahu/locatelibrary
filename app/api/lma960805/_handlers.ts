@@ -199,15 +199,18 @@ import { occupancyStats } from "../../lma960805/_lib/vacancy";
   }
 
   async function getInitData() {
-    // Sequential on purpose: six tiny tables. Firing them in parallel grabbed six
-    // pooled connections at once, which starved the pool under real page load.
-    const libs         = (await sql`select * from libraries        order by s_no`) as any[];
-    const branches     = (await sql`select * from library_branches order by s_no`) as any[];
-    const fees         = (await sql`select * from library_fees`) as any[];
-    const shifts       = (await sql`select * from shifts           order by s_no`) as any[];
-    const tags         = (await sql`select r.display_code as tag_name, r.bank_code as fees_mode, r.settlement_days, (r.active_lma and a.active) as active, to_char(r.created_at,'YYYY-MM-DD HH24:MI:SS') as created_at from fin.routes r join fin.accounts a on a.bank_code = r.bank_code order by r.id`) as any[];
-    const settingsRows = (await sql`select * from settings`) as any[];
-    const finAccounts  = (await sql`select bank_code, bank_name, owner_name, acct_type from fin.accounts where active order by bank_name nulls last, bank_code`) as any[];
+    // One round trip on ONE connection: the seven small queries go together as a
+    // single multi-statement request (no parameters). Firing them in parallel once
+    // grabbed seven pooled connections and starved the pool; running them one
+    // after another cost seven network round trips (~0.3 s). Same rows and types.
+    const [libs, branches, fees, shifts, tags, settingsRows, finAccounts] = (await sql.unsafe(`
+      select * from libraries        order by s_no;
+      select * from library_branches order by s_no;
+      select * from library_fees;
+      select * from shifts           order by s_no;
+      select r.display_code as tag_name, r.bank_code as fees_mode, r.settlement_days, (r.active_lma and a.active) as active, to_char(r.created_at,'YYYY-MM-DD HH24:MI:SS') as created_at from fin.routes r join fin.accounts a on a.bank_code = r.bank_code order by r.id;
+      select * from settings;
+      select bank_code, bank_name, owner_name, acct_type from fin.accounts where active order by bank_name nulls last, bank_code`)) as unknown as any[][];
 
     return {
       libraries: (libs as any[]).map((r) => ({
@@ -396,10 +399,9 @@ import { occupancyStats } from "../../lma960805/_lib/vacancy";
     const targetBranch = up(p.branch_code ?? "");
     if (!targetLib) throw new Error("library_code is required.");
     // Only this library/branch's cells (the loop below still applies the same checks).
-    const WS = " \t\r\n";
     const rows = (await sql`select * from seat_layouts
-                             where upper(btrim(coalesce(library_code, ''), ${WS})) = ${targetLib}
-                               and upper(btrim(coalesce(branch_code, ''), ${WS})) = ${targetBranch}`) as unknown as any[];
+                             where upper(coalesce(library_code, '')) like ${"%" + targetLib + "%"}
+                               and upper(coalesce(branch_code, '')) like ${"%" + targetBranch + "%"}`) as unknown as any[];
     const sectionMap: Record<string, any> = {};
     for (const r of rows) {
       if (up(r.library_code) !== targetLib) continue;
@@ -623,16 +625,15 @@ import { occupancyStats } from "../../lma960805/_lib/vacancy";
     // (It used to pull every receipt with every column — receipt texts included —
     // on each chart load: ~2.3 MB for ~1,200 receipts. The same filters still run
     // in buildOccupancy, so this only removes rows it would have skipped anyway.)
-    const WS = " \t\r\n";
     const rows = (await sql`
       select receipt_no, student_id, is_cross_library, name, shift, shift_name,
              phone, phone_tag, phone2, phone2_tag, phone3, phone3_tag, phone4, phone4_tag,
              fees_due_balance, dues_status, remark, seat_no, temporary_seat, gender, type,
              status, library, branch, to_char(booking_to,'YYYY-MM-DD') as booking_to_ymd
         from receipt_log
-       where coalesce(btrim(status, ${WS}), '') = ''
-         and upper(btrim(coalesce(library, ''), ${WS})) = ${library_code}
-         and upper(btrim(coalesce(branch, ''), ${WS})) = ${branch_code}`) as any[];
+       where (status is null or status !~ '[A-Za-z]')
+         and upper(coalesce(library, '')) like ${"%" + library_code + "%"}
+         and upper(coalesce(branch, '')) like ${"%" + branch_code + "%"}`) as any[];
     const srow = (await sql`select * from settings where upper(library)=${library_code} limit 1`) as any[];
     const { occ, floating, unassigned, otherShift, tempHeld } = buildOccupancy(rows, library_code, branch_code);
     const blocks = await buildBlocks(library_code, branch_code);
@@ -1043,6 +1044,23 @@ async function getOccupancySummary() {
     sql`select *, to_char(booking_from,'YYYY-MM-DD') as booking_from_ymd, to_char(booking_to,'YYYY-MM-DD') as booking_to_ymd
         from receipt_log order by s_no` as unknown as Promise<any[]>;
 
+  // ── Reading only the receipts a list needs ──────────────────────
+  // Each list below used to read every receipt (with its receipt texts) and then
+  // keep a few. The SQL filters here keep a SUPERSET of those rows — the same
+  // checks still run in JavaScript afterwards — so every result is unchanged,
+  // just much less data read per request.
+  const receiptsWhere = (cond: any) =>
+    sql`select *, to_char(booking_from,'YYYY-MM-DD') as booking_from_ymd, to_char(booking_to,'YYYY-MM-DD') as booking_to_ymd
+        from receipt_log where ${cond} order by s_no` as unknown as Promise<any[]>;
+  // The receipts list without the long message texts (Receipts screen, lite=1).
+  const RECEIPT_LITE_COLS = sql`s_no, receipt_no, student_id, library, branch, name, phone, phone_tag, phone2, phone2_tag,
+    phone3, phone3_tag, phone4, phone4_tag, seat_no, shift, shift_name, shift_time, booking_from, booking_to, receipt_date,
+    fee, pay_mode_1, pay_fees_mode_1, pay_amount_1, pay_mode_1_date, pay_mode_1_s_date,
+    pay_mode_2, pay_fees_mode_2, pay_amount_2, pay_mode_2_date, pay_mode_2_s_date,
+    pay_mode_3, pay_fees_mode_3, pay_amount_3, pay_mode_3_date, pay_mode_3_s_date,
+    fees_due, fees_due_balance, type, is_cross_library, generated_at, status, dues_status, renewed_from,
+    irrecoverable_remark, temporary_seat, gender, remark`;
+
   async function getReceiptLog(p: any) {
     const targetLib = up(p.library || "");
     const query = up(p.q || "");
@@ -1052,7 +1070,24 @@ async function getOccupancySummary() {
     const page = Math.max(1, parseInt(p.page) || 1);
     const limit = String(p.all) === "1" ? 1000000000 : Math.min(100, Math.max(1, parseInt(p.limit) || 20));
 
-    let rows = (await allReceipts()).filter((r) => {
+    const libCond = targetLib
+      ? sql`(upper(coalesce(library,'')) like ${"%" + targetLib + "%"} or upper(coalesce(branch,'')) like ${"%" + targetLib + "%"})`
+      : sql`true`;
+    let qCond = sql`true`;
+    if (query) {
+      const like = "%" + query + "%";
+      if (searchType === "PHONE" && phoneQ.length >= 3) qCond = sql`regexp_replace(coalesce(phone,''), '[^0-9]', '', 'g') like ${"%" + phoneQ + "%"}`;
+      else if (searchType === "STUDENT_ID") qCond = sql`upper(coalesce(student_id,'')) like ${like}`;
+      else if (searchType === "RECEIPT_NO") qCond = sql`upper(coalesce(receipt_no,'')) like ${like}`;   // exact match is checked below
+      else qCond = sql`upper(coalesce(name,'')) like ${like}`;   // NAME, a too-short PHONE, anything else
+    }
+    const lite = String(p.lite || "") === "1";
+    const fetched = (await (lite
+      ? sql`select ${RECEIPT_LITE_COLS}, to_char(booking_from,'YYYY-MM-DD') as booking_from_ymd, to_char(booking_to,'YYYY-MM-DD') as booking_to_ymd
+              from receipt_log where ${libCond} and ${qCond} order by s_no`
+      : sql`select *, to_char(booking_from,'YYYY-MM-DD') as booking_from_ymd, to_char(booking_to,'YYYY-MM-DD') as booking_to_ymd
+              from receipt_log where ${libCond} and ${qCond} order by s_no`)) as any[];
+    let rows = fetched.filter((r) => {
       if (!r.receipt_no) return false;
       if (targetLib) {
         const rowLib = up(r.library),
@@ -1088,7 +1123,7 @@ async function getOccupancySummary() {
     const studentId = up(p.student_id || "").split("-")[0];
     const homeLib = up(p.home_library || "");
     if (!studentId || !homeLib) return { receipts: [], home_library: homeLib, total: 0 };
-    const rows = (await allReceipts()).filter((r) => {
+    const rows = (await receiptsWhere(sql`upper(coalesce(student_id,'')) like ${"%" + studentId + "%"}`)).filter((r) => {
       if (!r.receipt_no) return false;
       if (up(r.student_id || "").split("-")[0] !== studentId) return false;
       return resolveOrigin(r.library, r.branch, r.is_cross_library) === homeLib;
@@ -1138,7 +1173,7 @@ async function getOccupancySummary() {
 
   async function getPendingDues(p: any) {
     const targetLib = up(p.library || "");
-    const rows = await allReceipts();
+    const rows = await receiptsWhere(sql`coalesce(fees_due_balance,0) > 0`);
     const pending: any[] = [];
     for (const r of rows) {
       if (!r.receipt_no) continue;
@@ -1195,7 +1230,7 @@ async function getOccupancySummary() {
 
   async function getIrrecoverableDues(p: any) {
     const targetLib = up(p.library || "");
-    const rows = await allReceipts();
+    const rows = await receiptsWhere(sql`upper(coalesce(dues_status,'')) like '%IRRECOVERABLE%'`);
     const items: any[] = [];
     let sum = 0;
     for (const r of rows) {
@@ -1436,9 +1471,13 @@ async function getOccupancySummary() {
   async function getRenewalsQueue(p: any) {
     const targetLib = up(p.library || "");
     const overrideDays = parseInt(p.alert_days);
-    const rows  = await allReceipts();
     const srows = (await sql`select * from settings`) as any[];
-    const renewedSet = buildRenewedFromSet(rows);
+    // Only live receipts ending within the widest alert window can be expiring or
+    // expired; later ones are "current" and never listed. (+2 days of margin for
+    // the IST/server date boundary — the lifecycle check below still decides.)
+    const widest = Math.max(5, ...srows.map((r: any) => num(r.renewal_alert_days)), !isNaN(overrideDays) ? overrideDays : 0);
+    const rows  = await receiptsWhere(sql`(status is null or status !~ '[A-Za-z]') and booking_to <= current_date + ${widest + 2}::int`);
+    const renewedSet = buildRenewedFromSet((await sql`select renewed_from from receipt_log where renewed_from ~ '[^[:space:]]'`) as any[]);
     const cache: Record<string, number> = {};
     const alertDaysFor = (library: string) => {
       if (!isNaN(overrideDays) && overrideDays > 0) return overrideDays;
@@ -1478,7 +1517,7 @@ async function getOccupancySummary() {
   }
   async function getCancellationsQueue(p: any) {
     const targetLib = up(p.library || "");
-    const rows = await allReceipts();
+    const rows = await receiptsWhere(sql`upper(coalesce(status,'')) like '%CANCELLED%'`);
     const items: any[] = [];
     for (const r of rows) {
       if (!r.receipt_no) continue;
