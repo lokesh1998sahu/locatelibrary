@@ -6,7 +6,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { useLMA, useScopeChips } from "../_components/LMAProvider";
-import { fmtDMY, fmtDMYT, inDateRange } from "../_lib/dates";
+import { fmtDMY, fmtDMYT, toIsoInput, inDateRange } from "../_lib/dates";
 import ReceiptModal from "../_components/ReceiptModal";
 import StudentModal from "../_components/StudentModal";
 import SearchBar, { matchesSearch } from "../_components/SearchBar";
@@ -14,7 +14,7 @@ import DateRangeFilter from "../_components/DateRangeFilter";
 import Pager, { PAGE_SIZE } from "../_components/Pager";
 import WhatsAppButton from "../_components/WhatsAppButton";
 import { buildDuesReminder } from "../_lib/reminderText";
-import { TagBankNote, TagChips } from "../_components/TagBank";
+import { TagBankNote, TagChips, BankCheck } from "../_components/TagBank";
 import { Screen, Card, ScopeChips, Sheet, Button, Skeleton, Empty, IconButton, AmountPad, DateChips, TextInput, cx } from "../_ui/kit";
 import { IconRefresh, IconWallet } from "../_ui/icons";
 import { inr, todayIso, shiftIso, dayLabel } from "../_ui/format";
@@ -43,6 +43,8 @@ type Tab = "PENDING"|"PAYMENTS"|"IRRECOVERABLE";
 
 function homeLib(it:any){ return (it.is_cross_library && it.is_cross_library!=="NO") ? it.is_cross_library : (it.branch||it.library); }
 const daysAgo = (iso:string) => Math.round((new Date(todayIso()+"T00:00:00").getTime()-new Date(iso+"T00:00:00").getTime())/86400000);
+const dmyOf = (iso:string) => { const d=new Date(iso+"T00:00:00"); return `${d.getDate()}-${d.getMonth()+1}-${d.getFullYear()}`; };
+const EDITED = /\s*\(EDITED\)\s*$/;
 const keyRules = (s:string,k:string) => { if(k==="<") return s.slice(0,-1); if(k==="."&&s.includes(".")) return s; if(s.replace(".","").length>=8) return s; return (s+k).replace(/^0(?=\d)/,""); };
 
 export default function DuesPage(){
@@ -64,6 +66,7 @@ export default function DuesPage(){
   const [loaded,setLoaded]=useState(false);
   const [payFor,setPayFor]=useState<PendingDue|null>(null);
   const [irrecFor,setIrrecFor]=useState<PendingDue|null>(null);
+  const [editPay,setEditPay]=useState<DuePayment|null>(null);   // a collected payment being corrected
   const [resultText,setResultText]=useState<{title:string;text:string;phones?:{number:string;tag:string}[]}|null>(null);
 
   const load=useCallback(async()=>{
@@ -200,7 +203,7 @@ export default function DuesPage(){
               <div className="flex items-start gap-2">
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-[15px] font-semibold text-lma-ink">{p.name||p.receipt_no}</div>
-                  <div className="mt-0.5 text-[12px] text-lma-ink-3">{p.payment_mode} · {fmtDMYT(p.received_on)}</div>
+                  <div className="mt-0.5 text-[12px] text-lma-ink-3">{p.payment_mode} · {fmtDMYT(p.received_on.replace(EDITED,""))}{EDITED.test(p.received_on)&&<span className="ml-1.5 rounded bg-lma-bg px-1 text-[10.5px] font-bold text-lma-ink-3 ring-1 ring-inset ring-lma-line">edited</span>}</div>
                   <div className="mt-0.5 font-lma-mono text-[12px] text-lma-ink-3">owed {inr(p.balance_before)} → {inr(p.balance_after)}</div>
                 </div>
                 <span className="shrink-0 font-lma-mono text-[15px] font-semibold text-lma-in">+{inr(p.amount_received)}</span>
@@ -208,6 +211,7 @@ export default function DuesPage(){
               {p.notes&&<div className="mt-1.5 text-[12px] text-lma-ink-3">{p.notes}</div>}
               <div className="mt-2.5 flex flex-wrap gap-2">
                 <button type="button" onClick={()=>setOpenRno(p.receipt_no)} className="inline-flex h-9 items-center rounded-[10px] bg-lma-bg px-2.5 font-lma-mono text-[12.5px] font-semibold text-lma-ink ring-1 ring-inset ring-lma-line">{p.receipt_no} ↗</button>
+                <button type="button" onClick={()=>setEditPay(p)} className="h-9 rounded-[10px] bg-lma-brand-soft px-3 text-[12.5px] font-semibold text-lma-brand ring-1 ring-inset ring-[#dcdffb]">Edit</button>
                 {p.whatsapp_text&&<button type="button" onClick={()=>{ navigator.clipboard.writeText(p.whatsapp_text); showToast("Copied receipt message"); }}
                   className="h-9 rounded-[10px] bg-[#e3f6ec] px-3 text-[12.5px] font-semibold text-[#0b7a52] ring-1 ring-inset ring-[#c6ecd8]">Copy message</button>}
               </div>
@@ -235,6 +239,13 @@ export default function DuesPage(){
         {payFor&&(
           <PaymentForm key={payFor.receipt_no} due={payFor} post={post}
             onDone={(text)=>{ const ph=payFor.phones; setPayFor(null); if(text) setResultText({title:"Payment receipt",text,phones:ph}); showToast("Payment logged"); load(); }}/>
+        )}
+      </Sheet>
+
+      <Sheet open={!!editPay&&!!init} onClose={()=>setEditPay(null)} title={editPay?`Edit payment · ${editPay.name||editPay.receipt_no}`:""}>
+        {editPay&&(
+          <EditPaymentForm key={editPay.payment_id} pay={editPay} post={post}
+            onDone={()=>{ setEditPay(null); showToast("Payment updated"); load(); }}/>
         )}
       </Sheet>
 
@@ -321,6 +332,56 @@ function WriteOffForm({ due, onCancel, onSubmit }:{ due:PendingDue; onCancel:()=
         <Button variant="secondary" onClick={onCancel}>Cancel</Button>
         <Button variant="danger" onClick={()=>onSubmit(remark)}>Write off</Button>
       </div>
+    </div>
+  );
+}
+
+// Correct a payment already collected: amount, how it was paid, the date, the note.
+// Only what you change is sent. Changing the amount also corrects what is still
+// owed on the receipt (and on any later payments) — the server does that part.
+function EditPaymentForm({ pay, post, onDone }:{ pay:DuePayment; post:(a:string,p:any)=>Promise<any>; onDone:()=>void }){
+  const origIso=toIsoInput(pay.received_on.replace(EDITED,""))||todayIso();
+  const [amountStr,setAmountStr]=useState(String(pay.amount_received));
+  const [mode,setMode]=useState(pay.payment_mode);
+  const [move,setMove]=useState(false);
+  const [dateIso,setDateIso]=useState(origIso);
+  const [notes,setNotes]=useState(pay.notes);
+  const [busy,setBusy]=useState(false);
+  const amount=Number(amountStr||0);
+  const changed=amount!==pay.amount_received||mode!==pay.payment_mode||move||dateIso!==origIso||notes!==pay.notes;
+  const blocker=amount<=0?"Enter the amount"
+    :amount>pay.balance_before?`Can’t be more than ${inr(pay.balance_before)} (owed then)`
+    :!mode?"Pick how it was paid"
+    :dateIso>todayIso()?"The date can’t be in the future"
+    :!changed?"Nothing changed yet":"";
+  const save=async()=>{
+    if(blocker) return;
+    const payload:any={ payment_id:pay.payment_id, receipt_no:pay.receipt_no };
+    if(amount!==pay.amount_received) payload.amount_received=amount;
+    if(mode!==pay.payment_mode) payload.payment_mode=mode;
+    if(move) payload.move_bank=true;
+    if(dateIso!==origIso) payload.received_on=dmyOf(dateIso);
+    if(notes!==pay.notes) payload.notes=notes;
+    setBusy(true); const r=await post("updateDuePayment",payload); setBusy(false);
+    if(r) onDone();
+  };
+  return (
+    <div className="pb-2">
+      <p className="mb-3 px-1 text-[12.5px] leading-relaxed text-lma-ink-3">
+        {pay.receipt_no} · owed {inr(pay.balance_before)} at that time · after this payment {inr(Math.max(0,pay.balance_before-amount))}
+      </p>
+      <AmountPad value={amountStr} onKey={k=>setAmountStr(v=>keyRules(v,k))} label="Amount received"/>
+      {amount!==pay.amount_received&&amount>0&&amount<=pay.balance_before&&(
+        <p className="-mt-1 mb-3 px-1 text-[12.5px] font-semibold text-lma-warn-2">
+          Outstanding on the receipt goes {amount>pay.amount_received?"down":"up"} by {inr(Math.abs(amount-pay.amount_received))}.
+        </p>
+      )}
+      <div className="mb-1.5 px-1 text-[12px] font-bold uppercase tracking-[0.08em] text-lma-ink-3">Paid by</div>
+      <TagChips value={mode} onChange={setMode} keep={pay.payment_mode}/>
+      <div className="mb-3 mt-1"><BankCheck tag={mode} savedTag={pay.payment_mode} savedBank={pay.payment_fees_mode} move={move} onMove={setMove}/></div>
+      <DateChips title="Received on" value={dateIso} onChange={setDateIso} ago={daysAgo(dateIso)} label={dayLabel(dateIso)} today={todayIso()} yesterday={shiftIso(todayIso(),-1)}/>
+      <div className="mb-4"><TextInput value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Note (optional)" aria-label="Note"/></div>
+      <Button size="lg" full disabled={!!blocker||busy} loading={busy} loadingText="Saving…" onClick={save}>{blocker||"Save changes"}</Button>
     </div>
   );
 }

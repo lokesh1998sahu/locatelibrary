@@ -395,7 +395,11 @@ import { occupancyStats } from "../../lma960805/_lib/vacancy";
     const targetLib = up(p.library_code);
     const targetBranch = up(p.branch_code ?? "");
     if (!targetLib) throw new Error("library_code is required.");
-    const rows = (await sql`select * from seat_layouts`) as unknown as any[];
+    // Only this library/branch's cells (the loop below still applies the same checks).
+    const WS = " \t\r\n";
+    const rows = (await sql`select * from seat_layouts
+                             where upper(btrim(coalesce(library_code, ''), ${WS})) = ${targetLib}
+                               and upper(btrim(coalesce(branch_code, ''), ${WS})) = ${targetBranch}`) as unknown as any[];
     const sectionMap: Record<string, any> = {};
     for (const r of rows) {
       if (up(r.library_code) !== targetLib) continue;
@@ -615,7 +619,20 @@ import { occupancyStats } from "../../lma960805/_lib/vacancy";
     if (!library_code) throw new Error("library_code is required.");
     const branch_code = up(params.branch_code ?? "");
     const layout = await getSeatLayout({ library_code, branch_code });
-    const rows = (await sql`select *, to_char(booking_to,'YYYY-MM-DD') as booking_to_ymd from receipt_log`) as any[];
+    // Only this library's live receipts, and only the columns buildOccupancy reads.
+    // (It used to pull every receipt with every column — receipt texts included —
+    // on each chart load: ~2.3 MB for ~1,200 receipts. The same filters still run
+    // in buildOccupancy, so this only removes rows it would have skipped anyway.)
+    const WS = " \t\r\n";
+    const rows = (await sql`
+      select receipt_no, student_id, is_cross_library, name, shift, shift_name,
+             phone, phone_tag, phone2, phone2_tag, phone3, phone3_tag, phone4, phone4_tag,
+             fees_due_balance, dues_status, remark, seat_no, temporary_seat, gender, type,
+             status, library, branch, to_char(booking_to,'YYYY-MM-DD') as booking_to_ymd
+        from receipt_log
+       where coalesce(btrim(status, ${WS}), '') = ''
+         and upper(btrim(coalesce(library, ''), ${WS})) = ${library_code}
+         and upper(btrim(coalesce(branch, ''), ${WS})) = ${branch_code}`) as any[];
     const srow = (await sql`select * from settings where upper(library)=${library_code} limit 1`) as any[];
     const { occ, floating, unassigned, otherShift, tempHeld } = buildOccupancy(rows, library_code, branch_code);
     const blocks = await buildBlocks(library_code, branch_code);
@@ -2757,7 +2774,29 @@ async function getOccupancySummary() {
       }
       if (p.amount_received !== undefined) upd.amount_received = num(p.amount_received);
       if (p.notes !== undefined) upd.notes = up(p.notes);
-      if (p.received_on !== undefined) upd.received_on = String(p.received_on);
+      if (p.received_on !== undefined) upd.received_on = buildReceivedOnW(p.received_on);   // same format as when collected
+
+      // An amount change moves everything after it by the difference: this
+      // payment's balance-after, every later payment on the receipt, and the
+      // receipt's outstanding + dues status. Checked before anything is written.
+      if (p.amount_received !== undefined) {
+        const newAmt = num(p.amount_received), oldAmt = num(cur.amount_received), delta = newAmt - oldAmt;
+        if (newAmt <= 0) return { ok: false, error: "Amount must be greater than 0." };
+        if (delta !== 0) {
+          const owedThen = num(cur.balance_before);
+          if (newAmt > owedThen) return { ok: false, error: "Amount can't be more than what was owed at that time (Rs." + owedThen + ")." };
+          const recB = (await tx`select fees_due_balance, dues_status from receipt_log where upper(receipt_no)=${target} limit 1 for update`) as any[];
+          if (!recB.length) return { ok: false, error: "Receipt not found." };
+          const newBal = num(recB[0].fees_due_balance) - delta;
+          if (newBal < 0) return { ok: false, error: "That would take the outstanding below zero. Reduce the amount." };
+          upd.balance_after = owedThen - newAmt;
+          await tx`update fees_due_log set balance_before = balance_before - ${delta}, balance_after = balance_after - ${delta}
+                    where upper(receipt_no)=${target} and s_no > ${num(cur.s_no)}`;
+          const st = up(recB[0].dues_status || "");
+          const newStatus = st === "IRRECOVERABLE" ? st : (newBal <= 0 ? "SETTLED" : "PENDING");
+          await tx`update receipt_log set fees_due_balance=${newBal}, dues_status=${newStatus} where upper(receipt_no)=${target}`;
+        }
+      }
       if (Object.keys(upd).length) {
         await tx`update fees_due_log set ${tx(upd)} where upper(payment_id)=${targetPid} and upper(receipt_no)=${target}`;
       }
