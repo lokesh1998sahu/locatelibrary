@@ -6,8 +6,8 @@
 // reads categories. Neither recomputes a balance — they are period sums, and
 // nothing here can disagree with the passbook.
 
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { useMF, money } from "../_components/MFProvider";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useMF, money, groupsOf, labelsOf } from "../_components/MFProvider";
 import { TopBar, Card, Chip, Segmented, Empty, Skeleton, SectionTitle, BASE, cx } from "../_ui/kit";
 import { IconChart } from "../_ui/icons";
 import { dateLong } from "../_ui/format";
@@ -16,7 +16,8 @@ type View = "PNL" | "SPEND";
 type Period = "THIS_MONTH" | "LAST_MONTH" | "THIS_YEAR";
 
 type PnlRow = { library_code: string; branch_code: string | null; income: number; expense: number; profit: number };
-type Cat = { name: string; kind: string; total: number; entries: number };
+type Sub = { name: string | null; total: number; entries: number };
+type Cat = { name: string; kind: string; total: number; entries: number; subs?: Sub[] };
 
 const iso = (d: Date) => new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
 
@@ -35,10 +36,10 @@ function range(p: Period): { from: string; to: string; label: string } {
 }
 
 export default function Reports() {
-  const { post } = useMF();
+  const { post, init } = useMF();
   const [view, setView] = useState<View>("PNL");
   const [period, setPeriod] = useState<Period>("THIS_MONTH");
-  const [world, setWorld] = useState<"ALL" | "PERSONAL" | "LIBRARY">("ALL");
+  const [world, setWorld] = useState<string>("ALL");          // "ALL" or a group code
   const [pnl, setPnl] = useState<{ rows: PnlRow[]; totals: { income: number; expense: number; profit: number } } | null>(null);
   const [spend, setSpend] = useState<{ expenses: Cat[]; income: Cat[]; spent: number; earned: number } | null>(null);
   const [busy, setBusy] = useState(false);
@@ -135,10 +136,9 @@ export default function Reports() {
       ) : (
         <>
           <div className="-mx-4 mb-3 flex gap-2 overflow-x-auto px-4 pb-1 [scrollbar-width:none]">
-            {(["ALL", "PERSONAL", "LIBRARY"] as const).map(w => (
-              <Chip key={w} on={world === w} onClick={() => setWorld(w)}>
-                {w === "ALL" ? "Everything" : w === "PERSONAL" ? "Personal" : "Library"}
-              </Chip>
+            <Chip on={world === "ALL"} onClick={() => setWorld("ALL")}>Everything</Chip>
+            {groupsOf(init).map(g => (
+              <Chip key={g.code} on={world === g.code} onClick={() => setWorld(g.code)}>{g.name}</Chip>
             ))}
           </div>
 
@@ -155,13 +155,13 @@ export default function Reports() {
             <Card><Empty icon={<IconChart size={22} />} title="Nothing recorded in this period"
               body="Add an expense or some money in, and it shows up here by category." /></Card>
           ) : (
-            <Bars title="Where it went" rows={spend.expenses} tone="out" />
+            <Bars title="Where it went" rows={spend.expenses} tone="out" subLabel={labelsOf(init).subhead} />
           )}
-          {spend && spend.income.length > 0 && <Bars title="Where it came from" rows={spend.income} tone="in" />}
+          {spend && spend.income.length > 0 && <Bars title="Where it came from" rows={spend.income} tone="in" subLabel={labelsOf(init).subhead} />}
 
           <p className="mt-4 px-1 text-[12px] leading-relaxed text-mf-ink-3">
-            Category totals for the period, biggest first. They are sums of what you recorded — no
-            balance is recalculated here.
+            {labelsOf(init).head} totals for the period, biggest first. Tap one to see its {labelsOf(init).subhead.toLowerCase()}s.
+            They are sums of what you recorded — no balance is recalculated here.
           </p>
         </>
       )}
@@ -178,7 +178,8 @@ function Stat({ label, value, tone, big }: { label: string; value: number; tone:
   );
 }
 
-function Bars({ title, rows, tone }: { title: string; rows: Cat[]; tone: "in" | "out" }) {
+function Bars({ title, rows, tone, subLabel }: { title: string; rows: Cat[]; tone: "in" | "out"; subLabel: string }) {
+  const [open, setOpen] = useState<string | null>(null);
   const top = Math.max(...rows.map(r => Math.abs(r.total)), 1);
   const sum = rows.reduce((a, r) => a + Math.abs(r.total), 0) || 1;
   return (
@@ -187,23 +188,49 @@ function Bars({ title, rows, tone }: { title: string; rows: Cat[]; tone: "in" | 
       <Card className="space-y-3">
         {rows.map(r => {
           const share = Math.round((Math.abs(r.total) / sum) * 100);
+          const key = r.name + r.kind;
+          const subs = (r.subs || []).filter(x => x.total !== 0);
+          const hasSubs = subs.some(x => x.name);          // only heads that actually use sub-heads open up
+          const isOpen = open === key && hasSubs;
           return (
-            <div key={r.name + r.kind}>
-              <div className="flex items-baseline justify-between gap-3">
-                <span className="truncate text-[14px] text-mf-ink">{r.name}</span>
-                <span className="font-mf-mono text-[14px] text-mf-ink">{money(r.total)}</span>
-              </div>
-              <div className="mt-1.5 h-2 overflow-hidden rounded-full bg-mf-line">
-                <div className={cx("h-full rounded-full", tone === "in" ? "bg-mf-in" : "bg-mf-out")}
-                  style={{ width: `${Math.max(2, Math.round((Math.abs(r.total) / top) * 100))}%` }} />
-              </div>
-              <div className="mt-1 text-[11.5px] text-mf-ink-3">
-                {share}% · {r.entries} {r.entries === 1 ? "entry" : "entries"}
-              </div>
+            <div key={key}>
+              <Row asButton={hasSubs} onClick={() => setOpen(isOpen ? null : key)} expanded={isOpen}>
+                <div className="flex items-baseline justify-between gap-3">
+                  <span className="flex min-w-0 items-center gap-1.5 truncate text-[14px] text-mf-ink">
+                    {hasSubs && <span aria-hidden="true" className="text-mf-ink-3 transition" style={{ display: "inline-block", transform: isOpen ? "rotate(90deg)" : "none" }}>›</span>}
+                    {r.name}
+                  </span>
+                  <span className="font-mf-mono text-[14px] text-mf-ink">{money(r.total)}</span>
+                </div>
+                <div className="mt-1.5 h-2 overflow-hidden rounded-full bg-mf-line">
+                  <div className={cx("h-full rounded-full", tone === "in" ? "bg-mf-in" : "bg-mf-out")}
+                    style={{ width: `${Math.max(2, Math.round((Math.abs(r.total) / top) * 100))}%` }} />
+                </div>
+                <div className="mt-1 text-[11.5px] text-mf-ink-3">
+                  {share}% · {r.entries} {r.entries === 1 ? "entry" : "entries"}{hasSubs && !isOpen ? ` · tap for ${subLabel.toLowerCase()}s` : ""}
+                </div>
+              </Row>
+              {isOpen && (
+                <div className="mt-2 space-y-1.5 rounded-[12px] bg-mf-bg px-3 py-2.5">
+                  {subs.map(x => (
+                    <div key={x.name ?? "—"} className="flex items-baseline justify-between gap-3 text-[13px]">
+                      <span className={cx("truncate", x.name ? "text-mf-ink-2" : "italic text-mf-ink-3")}>{x.name ?? `No ${subLabel.toLowerCase()}`}</span>
+                      <span className="shrink-0 font-mf-mono text-mf-ink-2">{money(x.total)} <span className="text-mf-ink-3">· {x.entries}</span></span>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           );
         })}
       </Card>
     </>
   );
+}
+
+// A head with sub-heads is a button that opens them; one without is plain text (never looks switched off).
+function Row({ asButton, onClick, expanded, children }: { asButton: boolean; onClick: () => void; expanded: boolean; children: ReactNode }) {
+  return asButton
+    ? <button type="button" onClick={onClick} aria-expanded={expanded} className="mf-noscale block w-full text-left">{children}</button>
+    : <div>{children}</div>;
 }

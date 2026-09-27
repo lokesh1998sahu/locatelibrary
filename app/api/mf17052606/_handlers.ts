@@ -19,11 +19,11 @@ function isoDate(v: unknown): string {
 // Deliberately excludes anything that scans fin.entry_lines without a date
 // bound. That lives in initLive() and runs only when the owner asks.
 async function initData() {
-  const [accounts, categories, people, routes, libraries] = await Promise.all([
+  const [accounts, categories, people, routes, libraries, groups, labels] = await Promise.all([
     sql`select account_id, bank_code, bank_name, owner_name, acct_type, is_liability,
                active, opening_balance, opening_date, is_set_up, balance, lma_income_all_time
         from fin.v_account_balance where active order by is_liability, balance desc nulls last`,
-    sql`select id, code, name, kind, quick from fin.categories where active order by quick desc, name`,
+    sql`select id, code, name, kind, quick, group_code, parent_id, sort from fin.categories where active order by sort, name`,
     sql`select id, name, quick from fin.people where active order by quick desc, name`,
     sql`select display_code, bank_code, settlement_days from fin.v_routes_mf order by display_code`,
     sql`select l.s_no, l.library_code,
@@ -34,6 +34,8 @@ async function initData() {
                on b.library_code = l.library_code and coalesce(b.active, true)
         where coalesce(l.active, true)
         order by l.s_no, b.s_no`,
+    sql`select code, name, is_library, sort from fin.groups where active order by sort, name`,
+    sql`select key, value from fin.labels`,
   ]) as any[][];
 
   return {
@@ -49,7 +51,12 @@ async function initData() {
       opening_date: a.opening_date ?? null,
       balance: a.balance == null ? null : num(a.balance),
     })),
-    categories: categories.map((c) => ({ id: Number(c.id), code: c.code, name: c.name, kind: c.kind, quick: !!c.quick })),
+    categories: categories.map((c) => ({
+      id: Number(c.id), code: c.code, name: c.name, kind: c.kind, quick: !!c.quick,
+      group_code: c.group_code ?? null, parent_id: c.parent_id == null ? null : Number(c.parent_id), sort: Number(c.sort ?? 0),
+    })),
+    groups: groups.map((g) => ({ code: g.code, name: g.name, is_library: !!g.is_library, sort: Number(g.sort ?? 0) })),
+    labels: labelsOf(labels),
     people: people.map((p) => ({ id: Number(p.id), name: p.name, quick: !!p.quick })),
     routes: routes.map((r) => ({ code: r.display_code, bank_code: r.bank_code, settlement_days: Number(r.settlement_days ?? 0) })),
     libraries: libraries.map((l) => ({
@@ -128,9 +135,37 @@ async function initLive() {
 //
 // The database refuses anything that does not balance, so this handler
 // writes plainly and lets the guard rail be the judge.
+// ── Groups → Heads → Sub-heads ────────────────────────────────────────
+// A Group (Personal, Library, or any you add) is stored on each entry in
+// fin.entries.world. Heads are fin.categories rows with a group_code; a
+// Sub-head is a fin.categories row whose parent_id is its Head. Only the
+// Library group adds the extra "which library / branch" layer.
+function labelsOf(rows: any[]) {
+  const m: Record<string, string> = { group: "Group", head: "Head", subhead: "Sub-head" };
+  for (const r of rows || []) if (r?.key && String(r.value || "").trim()) m[String(r.key)] = String(r.value).trim();
+  return m;
+}
+async function groupOf(tx: any, code: string) {
+  const g = (await tx`select code, is_library, active from fin.groups where code = ${code} limit 1`) as any[];
+  if (!g.length) throw new Error("Choose a group.");
+  return { code: String(g[0].code), is_library: !!g[0].is_library };
+}
+// head must be of this kind and this group; the sub-head (optional) must sit under it
+async function checkHeads(tx: any, kind: string, group: string, headId: number, subId: number | null) {
+  const h = (await tx`select id, kind, group_code, parent_id from fin.categories where id = ${headId} limit 1`) as any[];
+  if (!h.length || h[0].parent_id != null) throw new Error("Choose a head.");
+  if (h[0].kind !== kind) throw new Error("That head is not an " + kind.toLowerCase() + " head.");
+  if (h[0].group_code != null && h[0].group_code !== group) throw new Error("That head belongs to another group.");
+  if (subId) {
+    const sh = (await tx`select parent_id from fin.categories where id = ${subId} limit 1`) as any[];
+    if (!sh.length || Number(sh[0].parent_id) !== headId) throw new Error("That sub-head belongs to another head.");
+  }
+}
+
 async function addExpense(p: any) {
   const entryDate = isoDate(p?.entry_date);
-  const world = up(p?.world) === "LIBRARY" ? "LIBRARY" : "PERSONAL";
+  const world = up(p?.world) || "PERSONAL";
+  const subheadId = Number(p?.subhead_id) || null;
   const legs = Array.isArray(p?.legs) ? p.legs : [];
   const split = Array.isArray(p?.split) ? p.split : [];
   const owed = p?.owed && p.owed.person_id ? p.owed : null;
@@ -149,6 +184,8 @@ async function addExpense(p: any) {
   }
 
   return await sql.begin(async (tx: any) => {
+    const grp = await groupOf(tx, world);
+    for (const s of split) await checkHeads(tx, "EXPENSE", world, Number(s.category_id), subheadId);
     let entryId: number;
     if (editId) {
       const upd = (await tx`
@@ -173,10 +210,10 @@ async function addExpense(p: any) {
 
     for (const s of split) {
       await tx`insert into fin.entry_lines
-        (entry_id, line_kind, category_id, amount, line_date, library_code, branch_code)
-        values (${entryId}, 'EXPENSE', ${Number(s.category_id)}, ${money(s.amount)}, ${entryDate}::date,
-                ${world === "LIBRARY" ? up(s.library_code) || null : null},
-                ${world === "LIBRARY" ? up(s.branch_code) || null : null})`;
+        (entry_id, line_kind, category_id, subhead_id, amount, line_date, library_code, branch_code)
+        values (${entryId}, 'EXPENSE', ${Number(s.category_id)}, ${subheadId}, ${money(s.amount)}, ${entryDate}::date,
+                ${grp.is_library ? up(s.library_code) || null : null},
+                ${grp.is_library ? up(s.branch_code) || null : null})`;
     }
 
     for (const l of legs) {
@@ -267,41 +304,118 @@ function slugCode(name: string): string {
 
 async function saveCategory(p: any) {
   const name = String(p?.name ?? "").trim();
-  const kind = up(p?.kind) === "INCOME" ? "INCOME" : "EXPENSE";
-  if (!name) throw new Error("Give the category a name.");
+  if (!name) throw new Error("Give it a name.");
   const id = Number(p?.id) || 0;
+  const parentId = Number(p?.parent_id) || null;          // set → this is a Sub-head
+  let kind = up(p?.kind) === "INCOME" ? "INCOME" : "EXPENSE";
+  let group = up(p?.group_code) || null;
+  if (parentId) {                                          // a sub-head follows its head
+    const h = (await sql`select kind, group_code, parent_id from fin.categories where id = ${parentId} limit 1`) as any[];
+    if (!h.length || h[0].parent_id != null) throw new Error("A sub-head must sit under a head.");
+    kind = h[0].kind; group = h[0].group_code ?? null;
+  } else if (!group) throw new Error("Choose the group this head belongs to.");
+  if (group) {
+    const g = (await sql`select 1 from fin.groups where code = ${group} limit 1`) as any[];
+    if (!g.length) throw new Error("That group no longer exists.");
+  }
 
   if (id) {
-    const r = (await sql`
-      update fin.categories set name = ${name}, kind = ${kind},
+    const cur = (await sql`select group_code, parent_id from fin.categories where id = ${id} limit 1`) as any[];
+    if (!cur.length) throw new Error("That item no longer exists.");
+    // moving a head to another group is allowed only while nothing is recorded under it
+    if (!parentId && (cur[0].group_code ?? null) !== group) {
+      const used = (await sql`select 1 from fin.entry_lines where category_id = ${id} or subhead_id = ${id} limit 1`) as any[];
+      if (used.length) throw new Error("Entries already use this head, so it stays in its group. Add a new head in the other group instead.");
+    }
+    await sql`
+      update fin.categories set name = ${name}, kind = ${kind}, group_code = ${group}, parent_id = ${parentId},
              quick = ${!!p?.quick}, active = ${p?.active === false ? false : true}
-      where id = ${id}
-    `) as any;
-    if (!r.count) throw new Error("That category no longer exists.");
+      where id = ${id}`;
+    if (!parentId) await sql`update fin.categories set kind = ${kind}, group_code = ${group} where parent_id = ${id}`;   // sub-heads follow
     return { saved: true, id };
   }
 
-  const code = slugCode(name);
-  const dup = (await sql`select 1 from fin.categories where code = ${code} limit 1`) as any[];
-  if (dup.length) throw new Error(`"${name}" already exists.`);
+  let code = slugCode((parentId ? "S" + parentId + " " : "") + name);
+  for (let k = 2; ; k++) {
+    const dup = (await sql`select 1 from fin.categories where code = ${code} limit 1`) as any[];
+    if (!dup.length) break;
+    code = slugCode((parentId ? "S" + parentId + " " : "") + name) + "_" + k;
+  }
+  const mx = (await sql`select coalesce(max(sort), 0) + 10 as s from fin.categories`) as any[];
   const ins = (await sql`
-    insert into fin.categories (code, name, kind, quick, active)
-    values (${code}, ${name}, ${kind}, ${!!p?.quick}, true) returning id
+    insert into fin.categories (code, name, kind, quick, active, group_code, parent_id, sort)
+    values (${code}, ${name}, ${kind}, ${!!p?.quick}, true, ${group}, ${parentId}, ${Number(mx[0].s)}) returning id
   `) as any[];
   return { saved: true, id: Number(ins[0].id) };
+}
+
+// Groups: add, rename, switch on/off. Personal and Library always exist.
+async function saveGroup(p: any) {
+  const name = String(p?.name ?? "").trim();
+  if (!name) throw new Error("Give the group a name.");
+  const code = up(p?.code);
+  if (code) {
+    const r = (await sql`update fin.groups set name = ${name}, active = ${p?.active === false ? false : true}
+                         where code = ${code}`) as any;
+    if (!r.count) throw new Error("That group no longer exists.");
+    return { saved: true, code };
+  }
+  let c = slugCode(name) || "GROUP";
+  for (let k = 2; ; k++) {
+    const dup = (await sql`select 1 from fin.groups where code = ${c} limit 1`) as any[];
+    if (!dup.length) break;
+    c = (slugCode(name) || "GROUP") + "_" + k;
+  }
+  const mx = (await sql`select coalesce(max(sort), 0) + 10 as s from fin.groups`) as any[];
+  await sql`insert into fin.groups (code, name, is_library, active, sort) values (${c}, ${name}, false, true, ${Number(mx[0].s)})`;
+  return { saved: true, code: c };
+}
+
+// Order of groups, or of heads/sub-heads: the list comes in the order wanted.
+async function reorderSetup(p: any) {
+  const what = String(p?.what || "");
+  const ids: any[] = Array.isArray(p?.order) ? p.order : [];
+  if (!ids.length) return { saved: true };
+  return await sql.begin(async (tx: any) => {
+    for (let k = 0; k < ids.length; k++) {
+      if (what === "groups") await tx`update fin.groups set sort = ${(k + 1) * 10} where code = ${up(ids[k])}`;
+      else await tx`update fin.categories set sort = ${(k + 1) * 10} where id = ${Number(ids[k])}`;
+    }
+    return { saved: true };
+  });
+}
+
+// The level names themselves (Group / Head / Sub-head) can be renamed.
+async function saveLabels(p: any) {
+  return await sql.begin(async (tx: any) => {
+    for (const key of ["group", "head", "subhead"]) {
+      const v = String(p?.[key] ?? "").trim();
+      if (!v) continue;
+      await tx`insert into fin.labels (key, value) values (${key}, ${v}) on conflict (key) do update set value = excluded.value`;
+    }
+    return { saved: true };
+  });
 }
 
 // ── Set up: every category and person, switched-off ones included ─────
 // initData sends only active ones (that is what the entry screens need);
 // Set up needs the rest too, so a switched-off item can be brought back.
 async function masters() {
-  const [categories, people] = await Promise.all([
-    sql`select id, code, name, kind, quick, active from fin.categories order by name`,
+  const [categories, people, groups, labels] = await Promise.all([
+    sql`select c.id, c.code, c.name, c.kind, c.quick, c.active, c.group_code, c.parent_id, c.sort,
+               (select count(*)::int from fin.entry_lines l where l.category_id = c.id or l.subhead_id = c.id) as uses
+          from fin.categories c order by c.sort, c.name`,
     sql`select id, name, phone, quick, active from fin.people order by name`,
+    sql`select code, name, is_library, active, sort from fin.groups order by sort, name`,
+    sql`select key, value from fin.labels`,
   ]);
   return {
+    groups: (groups as any[]).map((g) => ({ code: g.code, name: g.name, is_library: !!g.is_library, active: !!g.active, sort: Number(g.sort ?? 0) })),
+    labels: labelsOf(labels as any[]),
     categories: (categories as any[]).map((c) => ({
       id: Number(c.id), code: c.code, name: c.name, kind: c.kind, quick: !!c.quick, active: !!c.active,
+      group_code: c.group_code ?? null, parent_id: c.parent_id == null ? null : Number(c.parent_id),
+      sort: Number(c.sort ?? 0), uses: Number(c.uses ?? 0),
     })),
     people: (people as any[]).map((p) => ({
       id: Number(p.id), name: p.name, phone: p.phone ?? "", quick: !!p.quick, active: !!p.active,
@@ -347,12 +461,14 @@ async function ledger(p: any) {
   // no running balance. Never on a single account: filtering rows there would
   // make the balance column skip transactions and stop matching the bank.
   const wWorld = up(p?.world);
-  const wScoped = wWorld === "PERSONAL" || wWorld === "LIBRARY";
+  const wScoped = !!wWorld;   // any group
 
   if (!accountId) {
     const rows = (await sql`
       select e.id, e.entry_date, e.entry_type, e.description, e.total, e.world, e.voided,
-             (select c.name from fin.entry_lines cl join fin.categories c on c.id = cl.category_id
+             (select c.name || coalesce(' · ' || sc.name, '') from fin.entry_lines cl
+                join fin.categories c on c.id = cl.category_id
+                left join fin.categories sc on sc.id = cl.subhead_id
                where cl.entry_id = e.id limit 1) as category
       from fin.entries e
       where e.voided = false
@@ -365,6 +481,7 @@ async function ledger(p: any) {
       rows: rows.map((r) => ({
         entry_id: Number(r.id), on_date: r.entry_date, kind: r.entry_type,
         label: r.description || r.category || r.entry_type,
+        category: r.category ?? null,          // "Head · Sub-head", shown under the remark
         amount: -Math.abs(num(r.total)), balance: null, source: "MF", world: r.world,
       })),
     };
@@ -387,6 +504,10 @@ async function ledger(p: any) {
                       (select c.name from fin.entry_lines cl join fin.categories c on c.id = cl.category_id
                         where cl.entry_id = e.id limit 1),
                       e.entry_type) as label,
+             (select c.name || coalesce(' · ' || sc.name, '') from fin.entry_lines cl
+                join fin.categories c on c.id = cl.category_id
+                left join fin.categories sc on sc.id = cl.subhead_id
+               where cl.entry_id = e.id limit 1) as category,
              e.world::text as world, 'MF' as source
       from fin.entry_lines l
       join fin.entries e on e.id = l.entry_id
@@ -394,7 +515,7 @@ async function ledger(p: any) {
     ),
     lma as (
       select i.on_date, i.amount, i.src as kind, null::bigint as entry_id,
-             i.src || ' ' || i.ref as label, 'LIBRARY'::text as world, 'LMA' as source
+             i.src || ' ' || i.ref as label, null::text as category, 'LIBRARY'::text as world, 'LMA' as source
       from fin.v_lma_income i
       where i.bank_code = ${acc.bank_code}
     )
@@ -408,7 +529,7 @@ async function ledger(p: any) {
     run = money(run + num(r.amount));
     return {
       entry_id: r.entry_id == null ? null : Number(r.entry_id),
-      on_date: r.on_date, kind: r.kind, label: r.label,
+      on_date: r.on_date, kind: r.kind, label: r.label, category: r.category ?? null,
       amount: money(r.amount), balance: run, source: r.source, world: r.world,
     };
   });
@@ -533,7 +654,8 @@ async function saveCheck(p: any) {
 // LMA records those and the bridge picks them up automatically.
 async function addIncome(p: any) {
   const entryDate = isoDate(p?.entry_date);
-  const world = up(p?.world) === "LIBRARY" ? "LIBRARY" : "PERSONAL";
+  const world = up(p?.world) || "PERSONAL";
+  const subheadId = Number(p?.subhead_id) || null;
   const accountId = Number(p?.account_id) || 0;
   const categoryId = Number(p?.category_id) || 0;
   const amount = money(p?.amount);
@@ -543,6 +665,9 @@ async function addIncome(p: any) {
   if (!categoryId) throw new Error("Choose what the money was for.");
 
   return await sql.begin(async (tx: any) => {
+    const grp = await groupOf(tx, world);
+    await checkHeads(tx, "INCOME", world, categoryId, subheadId);
+    if (grp.is_library && !up(p?.library_code)) throw new Error("Which library was this for?");
     const ins = (await tx`
       insert into fin.entries (entry_type, entry_date, description, world, total)
       values ('INCOME', ${entryDate}::date, ${String(p?.description ?? "").trim() || null}, ${world}, ${amount})
@@ -552,9 +677,10 @@ async function addIncome(p: any) {
 
     await tx`insert into fin.entry_lines (entry_id, line_kind, account_id, amount, line_date)
              values (${entryId}, 'ACCOUNT', ${accountId}, ${amount}, ${entryDate}::date)`;
-    await tx`insert into fin.entry_lines (entry_id, line_kind, category_id, amount, line_date, library_code)
-             values (${entryId}, 'INCOME', ${categoryId}, ${amount}, ${entryDate}::date,
-                     ${world === "LIBRARY" ? up(p?.library_code) || null : null})`;
+    await tx`insert into fin.entry_lines (entry_id, line_kind, category_id, subhead_id, amount, line_date, library_code, branch_code)
+             values (${entryId}, 'INCOME', ${categoryId}, ${subheadId}, ${amount}, ${entryDate}::date,
+                     ${grp.is_library ? up(p?.library_code) || null : null},
+                     ${grp.is_library ? up(p?.branch_code) || null : null})`;
 
     return { entry_id: entryId, total: amount };
   });
@@ -738,24 +864,33 @@ async function reportSpending(p: any) {
   const from = isoDate(p?.from);
   const to = isoDate(p?.to);
   const world = up(p?.world);
-  const scoped = world === "PERSONAL" || world === "LIBRARY";
+  const scoped = !!world && world !== "ALL";   // any group
 
   const rows = (await sql`
-    select c.name, c.kind, sum(l.amount) as total, count(distinct e.id)::int as entries
+    select c.id, c.name, c.kind, sc.name as sub, sum(l.amount) as total, count(distinct e.id)::int as entries
     from fin.entry_lines l
     join fin.entries e    on e.id = l.entry_id
     join fin.categories c on c.id = l.category_id
+    left join fin.categories sc on sc.id = l.subhead_id
     where l.line_kind in ('EXPENSE', 'INCOME')
       and e.voided = false
       and l.line_date between ${from}::date and ${to}::date
       and (${!scoped} or e.world = ${scoped ? world : "PERSONAL"})
-    group by c.name, c.kind
-    order by sum(l.amount) desc
+    group by c.id, c.name, c.kind, sc.name
   `) as any[];
 
-  const cats = rows.map((r) => ({
-    name: r.name, kind: r.kind, total: money(r.total), entries: Number(r.entries),
-  }));
+  // one row per head, with its sub-heads inside (entries without a sub-head show as "No sub-head")
+  const heads = new Map<number, any>();
+  for (const r of rows) {
+    const k = Number(r.id);
+    const h = heads.get(k) || { name: r.name, kind: r.kind, total: 0, entries: 0, subs: [] as any[] };
+    h.total = money(h.total + num(r.total)); h.entries += Number(r.entries);
+    h.subs.push({ name: r.sub ?? null, total: money(r.total), entries: Number(r.entries) });
+    heads.set(k, h);
+  }
+  const cats = Array.from(heads.values())
+    .map((h) => ({ ...h, subs: h.subs.sort((a: any, b: any) => b.total - a.total) }))
+    .sort((a, b) => b.total - a.total);
 
   return {
     from, to,
@@ -1400,7 +1535,7 @@ async function getEntry(p: any) {
   if (e.voided) throw new Error("That entry was removed and cannot be edited.");
 
   const lines = (await sql`
-    select line_kind, account_id, category_id, person_id, amount, line_date,
+    select line_kind, account_id, category_id, subhead_id, person_id, amount, line_date,
            library_code, branch_code
     from fin.entry_lines where entry_id = ${id} order by id
   `) as any[];
@@ -1411,7 +1546,7 @@ async function getEntry(p: any) {
       description: e.description ?? "", world: e.world, total: money(e.total),
     },
     split: lines.filter((l) => l.line_kind === "EXPENSE").map((l) => ({
-      category_id: Number(l.category_id), amount: money(l.amount),
+      category_id: Number(l.category_id), subhead_id: l.subhead_id == null ? null : Number(l.subhead_id), amount: money(l.amount),
       library_code: l.library_code ?? null, branch_code: l.branch_code ?? null,
     })),
     legs: lines.filter((l) => l.line_kind === "ACCOUNT").map((l) => ({
@@ -1464,6 +1599,9 @@ export async function handle(action: string, payload: any): Promise<any> {
     case "routeHistory":          return await routeHistory(payload);
     case "saveAccount":           return await saveAccount(payload);
     case "saveCategory":          return await saveCategory(payload);
+    case "saveGroup":             return await saveGroup(payload);
+    case "reorderSetup":          return await reorderSetup(payload);
+    case "saveLabels":            return await saveLabels(payload);
     case "savePerson":            return await savePerson(payload);
     case "masters":               return await masters();
 

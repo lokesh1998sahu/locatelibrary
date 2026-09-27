@@ -12,7 +12,7 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useMF, money } from "../_components/MFProvider";
+import { useMF, money, groupsOf } from "../_components/MFProvider";
 import { TopBar, Card, Chip, Segmented, Sheet, Button, Empty, Skeleton, BASE, cx } from "../_ui/kit";
 import { IconBook, IconWallet } from "../_ui/icons";
 import { dayLabel } from "../_ui/format";
@@ -26,6 +26,7 @@ type Row = {
   balance: number | null;
   source: "MF" | "LMA";
   world?: string | null;
+  category?: string | null;   // "Head · Sub-head"
 };
 
 const REASONS: { v: string; label: string }[] = [
@@ -48,7 +49,7 @@ export default function Passbook() {
   const [meta, setMeta] = useState<{ needs_setup?: boolean; total?: number; shown?: number } | null>(null);
   const [busy, setBusy] = useState(false);
   const [openId, setOpenId] = useState<number | null>(null);
-  const [world, setWorld] = useState<"" | "PERSONAL" | "LIBRARY">("");
+  const [world, setWorld] = useState<string>("");          // "" = every group
 
   const load = useCallback(async () => {
     setBusy(true);
@@ -89,8 +90,10 @@ export default function Passbook() {
       </div>
 
       {accountId === null && (
-        <Segmented className="mb-4" value={world} onChange={setWorld}
-          options={[{ v: "", label: "All" }, { v: "PERSONAL", label: "Personal" }, { v: "LIBRARY", label: "Library" }]} />
+        <div className="-mx-4 mb-4 flex gap-2 overflow-x-auto px-4 pb-1 [scrollbar-width:none]">
+          <Chip on={world === ""} onClick={() => setWorld("")}>All</Chip>
+          {groupsOf(init).map(g => <Chip key={g.code} on={world === g.code} onClick={() => setWorld(g.code)}>{g.name}</Chip>)}
+        </div>
       )}
 
       {busy && rows.length === 0 ? (
@@ -121,8 +124,9 @@ export default function Passbook() {
                     <>
                       <div className="min-w-0 flex-1">
                         <div className="truncate text-[14.5px] font-medium text-mf-ink">{r.label}</div>
-                        <div className="mt-0.5 flex items-center gap-1.5 text-[11.5px] text-mf-ink-3">
-                          {r.world && <span className="rounded-full px-1.5 py-px text-[10.5px] font-semibold ring-1 ring-inset ring-mf-line">{r.world === "LIBRARY" ? "Library" : "Personal"}</span>}
+                        <div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-[11.5px] text-mf-ink-3">
+                          {r.world && <span className="shrink-0 rounded-full px-1.5 py-px text-[10.5px] font-semibold ring-1 ring-inset ring-mf-line">{groupsOf(init).find(g => g.code === r.world)?.name ?? r.world}</span>}
+                          {r.category && r.category !== r.label && <span className="truncate">{r.category}</span>}
                           {r.source === "LMA" && <span className="rounded-full bg-mf-bg px-1.5 py-px text-[10.5px] font-semibold text-mf-ink-2">From LMA</span>}
                         </div>
                       </div>

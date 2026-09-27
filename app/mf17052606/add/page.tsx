@@ -15,7 +15,8 @@
 
 import { useEffect, useMemo, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { useMF, money } from "../_components/MFProvider";
+import { useMF, money, groupsOf, headsOf, subsOf, labelsOf } from "../_components/MFProvider";
+import QuickAdd from "../_components/QuickAdd";
 import { TopBar, Card, Chip, ChipGroup, Segmented, Amount, Banner, Button, Field, TextInput, AmountPad, DateChips, SaveBar, BalanceChange, BASE } from "../_ui/kit";
 import { shiftIso } from "../_ui/format";
 
@@ -43,11 +44,12 @@ export default function AddExpense() {
 
   const [amountStr, setAmountStr] = useState("");
   const [dateIso, setDateIso] = useState(todayIso);
-  const [world, setWorld] = useState<"PERSONAL" | "LIBRARY">("PERSONAL");
+  const [world, setWorld] = useState<string>("PERSONAL");          // the Group (Personal, Library, …)
   const [sel, setSel] = useState<{ library_code: string; branch_code: string | null }[]>([]);
   const [splitMode, setSplitMode] = useState<"EQUAL" | "MANUAL">("EQUAL");
   const [manual, setManual] = useState<Record<string, string>>({});
-  const [categoryId, setCategoryId] = useState<number | null>(null);
+  const [categoryId, setCategoryId] = useState<number | null>(null);   // the Head
+  const [subheadId, setSubheadId] = useState<number | null>(null);     // the Sub-head (optional)
   const [legs, setLegs] = useState<Leg[]>([]);
   const [owedPersonId, setOwedPersonId] = useState<number | null>(null);
   const [note, setNote] = useState("");
@@ -62,7 +64,11 @@ export default function AddExpense() {
   const shortBy = Math.round((total - paid) * 100) / 100;
 
   const accounts   = init?.accounts.filter(a => a.is_set_up || !a.is_liability) ?? [];
-  const categories = (init?.categories ?? []).filter(c => c.kind === "EXPENSE");
+  const groups     = groupsOf(init);
+  const L          = labelsOf(init);
+  const isLibrary  = !!groups.find(g => g.code === world)?.is_library;
+  const categories = headsOf(init, "EXPENSE", world);        // heads of this group
+  const subheads   = subsOf(init, categoryId);               // sub-heads of the chosen head
   const people     = init?.people ?? [];
   // One option per operating unit: a branch where the library has branches, the
   // library itself where it does not. initData's left join already returns
@@ -109,11 +115,12 @@ export default function AddExpense() {
       setLoadingEdit(false);
       if (!j) return;
       setDateIso(String(j.entry.entry_date).slice(0, 10));
-      setWorld(j.entry.world === "LIBRARY" ? "LIBRARY" : "PERSONAL");
+      setWorld(String(j.entry.world || "PERSONAL"));
       setNote(j.entry.description ?? "");
       setAmountStr(String(j.entry.total));
       if (j.split?.length) {
         setCategoryId(Number(j.split[0].category_id));
+        setSubheadId(j.split[0].subhead_id ? Number(j.split[0].subhead_id) : null);
         const places = j.split.filter((x: any) => x.library_code)
           .map((x: any) => ({ library_code: x.library_code, branch_code: x.branch_code ?? null }));
         if (places.length) {
@@ -175,7 +182,7 @@ export default function AddExpense() {
 
   const canSave = total > 0 && !!categoryId && (paid > 0 || !!owedPersonId) &&
                   (Math.abs(shortBy) < 0.005 || !!owedPersonId) &&
-                  (world === "PERSONAL" || (sel.length > 0 && splitOk)) && !saving;
+                  (!isLibrary || (sel.length > 0 && splitOk)) && !saving;
 
   const save = async () => {
     if (!canSave) return;
@@ -184,8 +191,9 @@ export default function AddExpense() {
       entry_id: editId || undefined,
       entry_date: dateIso,
       world,
+      subhead_id: subheadId,
       description: note.trim() || null,
-      split: world === "LIBRARY"
+      split: isLibrary
         ? splitRows.map(r => ({
             category_id: categoryId, amount: r.amount,
             library_code: r.library_code, branch_code: r.branch_code,
@@ -212,11 +220,11 @@ export default function AddExpense() {
   // Why Save is still off, in plain words. (The button itself follows canSave exactly.)
   const blocker =
     total <= 0 ? "Enter the amount" :
-    !categoryId ? "Pick what it was for" :
+    !categoryId ? `Pick the ${L.head.toLowerCase()}` :
     (paid <= 0 && !owedPersonId) ? "Pick the account it was paid from" :
     (Math.abs(shortBy) >= 0.005 && !owedPersonId) ? (shortBy > 0 ? `Pick who is owed ${money(shortBy)}` : "Paid is more than the amount") :
-    (world === "LIBRARY" && sel.length === 0) ? "Pick the library" :
-    (world === "LIBRARY" && !splitOk) ? "The library parts must add up to the amount" : "";
+    (isLibrary && sel.length === 0) ? "Pick the library" :
+    (isLibrary && !splitOk) ? "The library parts must add up to the amount" : "";
 
   return (
     <div className="mx-auto w-full max-w-[560px] px-4 pb-[calc(env(safe-area-inset-bottom)+128px)]">
@@ -228,13 +236,19 @@ export default function AddExpense() {
 
       {/* Personal or library */}
       <div className="mb-5">
-        <div className="mb-2 px-1 text-[12px] font-bold uppercase tracking-[0.08em] text-mf-ink-3">For</div>
-        <Segmented value={world}
-          onChange={w => { setWorld(w); if (w === "PERSONAL") { setSel([]); setManual({}); } }}
-          options={[{ v: "PERSONAL", label: "Personal" }, { v: "LIBRARY", label: "Library" }]} />
+        <div className="mb-2 px-1 text-[12px] font-bold uppercase tracking-[0.08em] text-mf-ink-3">{L.group}</div>
+        <div className="flex flex-wrap gap-2">
+          {groups.map(g => (
+            <Chip key={g.code} on={world === g.code} onClick={() => {
+              if (g.code === world) return;
+              setWorld(g.code); setCategoryId(null); setSubheadId(null);   // heads differ per group
+              if (!g.is_library) { setSel([]); setManual({}); }
+            }}>{g.name}</Chip>
+          ))}
+        </div>
       </div>
 
-      {world === "LIBRARY" && places.length > 0 && (
+      {isLibrary && places.length > 0 && (
         <>
           <ChipGroup label={sel.length > 1 ? `Split across ${sel.length}` : "Which library"}>
             {places.map(pl => {
@@ -279,11 +293,34 @@ export default function AddExpense() {
       )}
 
       {/* What for */}
-      <ChipGroup label="What for" hint={categories.length === 0 ? "No expense categories yet. Add them in More → Set up." : undefined}>
+      <ChipGroup label={L.head}>
         {categories.map(c => (
-          <Chip key={c.id} on={categoryId === c.id} onClick={() => setCategoryId(c.id)}>{c.name}</Chip>
+          <Chip key={c.id} on={categoryId === c.id} onClick={() => { if (categoryId !== c.id) { setCategoryId(c.id); setSubheadId(null); } }}>{c.name}</Chip>
         ))}
+        <QuickAdd what={L.head.toLowerCase()} where={`in ${groups.find(g => g.code === world)?.name ?? ""} · Spending`} placeholder="Electricity"
+          existing={categories} onPickExisting={id => { setCategoryId(id); setSubheadId(null); }}
+          onSave={async name => {
+            const j = await post("saveCategory", { name, kind: "EXPENSE", group_code: world, quick: true });
+            if (!j) return null;
+            await refreshInit(); setCategoryId(Number(j.id)); setSubheadId(null); showToast(`${name} added`);
+            return Number(j.id);
+          }} />
       </ChipGroup>
+      {!!categoryId && (
+        <ChipGroup label={`${L.subhead} (optional)`}>
+          {subheads.map(c => (
+            <Chip key={c.id} on={subheadId === c.id} onClick={() => setSubheadId(subheadId === c.id ? null : c.id)}>{c.name}</Chip>
+          ))}
+          <QuickAdd what={L.subhead.toLowerCase()} where={`under ${categories.find(c => c.id === categoryId)?.name ?? ""}`} placeholder="Swiggy"
+            existing={subheads} onPickExisting={id => setSubheadId(id)}
+            onSave={async name => {
+              const j = await post("saveCategory", { name, parent_id: categoryId });
+              if (!j) return null;
+              await refreshInit(); setSubheadId(Number(j.id)); showToast(`${name} added`);
+              return Number(j.id);
+            }} />
+        </ChipGroup>
+      )}
 
       {/* Paid from */}
       <ChipGroup label="Paid from">
@@ -295,12 +332,19 @@ export default function AddExpense() {
       </ChipGroup>
 
       {total > 0 && shortBy > 0.005 && (
-        <ChipGroup label={`Who is owed ${money(shortBy)}`} hint={people.length === 0 ? "No people yet. Add them in More → Set up." : undefined}>
+        <ChipGroup label={`Who is owed ${money(shortBy)}`}>
           {people.map(p => (
             <Chip key={p.id} on={owedPersonId === p.id} onClick={() => setOwedPersonId(owedPersonId === p.id ? null : p.id)}>
               {p.name}
             </Chip>
           ))}
+          <QuickAdd what="person" placeholder="Ramesh" withPhone existing={people} onPickExisting={id => setOwedPersonId(id)}
+            onSave={async (name, phone) => {
+              const j = await post("savePerson", { name, phone, quick: true });
+              if (!j) return null;
+              await refreshInit(); setOwedPersonId(Number(j.id)); showToast(`${name} added`);
+              return Number(j.id);
+            }} />
         </ChipGroup>
       )}
 

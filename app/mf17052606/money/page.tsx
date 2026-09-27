@@ -10,8 +10,8 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import Link from "next/link";
-import { useMF, money } from "../_components/MFProvider";
+import { useMF, money, groupsOf, headsOf, subsOf, labelsOf } from "../_components/MFProvider";
+import QuickAdd from "../_components/QuickAdd";
 import { TopBar, Card, Chip, ChipGroup, Segmented, Field, TextInput, AmountPad, DateChips, SaveBar, BalanceChange, BASE } from "../_ui/kit";
 import { shiftIso } from "../_ui/format";
 
@@ -41,7 +41,10 @@ export default function MoneyInOrMove() {
   const [accountId, setAccountId] = useState<number | null>(null);
   const [fromId, setFromId] = useState<number | null>(null);
   const [toId, setToId] = useState<number | null>(null);
-  const [categoryId, setCategoryId] = useState<number | null>(null);
+  const [categoryId, setCategoryId] = useState<number | null>(null);   // the Head
+  const [subheadId, setSubheadId] = useState<number | null>(null);     // the Sub-head (optional)
+  const [group, setGroup] = useState<string>("PERSONAL");              // the Group
+  const [place, setPlace] = useState<{ library_code: string; branch_code: string | null } | null>(null);   // Library group only
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -49,7 +52,16 @@ export default function MoneyInOrMove() {
   const { label: dateLabel, ago } = prettyDate(dateIso);
 
   const accounts = init?.accounts ?? [];
-  const incomeCats = useMemo(() => (init?.categories ?? []).filter(c => c.kind === "INCOME"), [init]);
+  const groups = groupsOf(init);
+  const L = labelsOf(init);
+  const isLibrary = !!groups.find(g => g.code === group)?.is_library;
+  const incomeCats = useMemo(() => headsOf(init, "INCOME", group), [init, group]);
+  const subheads = useMemo(() => subsOf(init, categoryId), [init, categoryId]);
+  // one option per operating unit: a branch where the library has branches, else the library
+  const places = useMemo(() => (init?.libraries ?? []).map(l => ({
+    library_code: l.library_code, branch_code: l.branch_code,
+    key: l.library_code + "|" + (l.branch_code ?? ""), label: l.branch_code ? (l.branch_label || l.branch_code) : l.label,
+  })), [init]);
 
   const from = accounts.find(a => a.id === fromId) ?? null;
   const to = accounts.find(a => a.id === toId) ?? null;
@@ -57,7 +69,7 @@ export default function MoneyInOrMove() {
 
   const canSave = amount > 0 && !busy && (
     mode === "IN"
-      ? !!accountId && !!categoryId
+      ? !!accountId && !!categoryId && (!isLibrary || !!place)
       : !!fromId && !!toId && fromId !== toId
   );
 
@@ -66,8 +78,9 @@ export default function MoneyInOrMove() {
     setBusy(true);
     const j = mode === "IN"
       ? await post("addIncome", {
-          entry_date: dateIso, world: "PERSONAL", amount,
-          account_id: accountId, category_id: categoryId,
+          entry_date: dateIso, world: group, amount,
+          account_id: accountId, category_id: categoryId, subhead_id: subheadId,
+          library_code: isLibrary ? place?.library_code : null, branch_code: isLibrary ? place?.branch_code : null,
           description: note.trim() || null,
         })
       : await post("addMove", {
@@ -98,7 +111,7 @@ export default function MoneyInOrMove() {
   const blocker =
     amount <= 0 ? "Enter the amount" :
     mode === "IN"
-      ? (!accountId ? "Pick where the money landed" : !categoryId ? "Pick what it was for" : "")
+      ? (!accountId ? "Pick where the money landed" : (isLibrary && !place) ? "Pick the library" : !categoryId ? `Pick the ${L.head.toLowerCase()}` : "")
       : (!fromId ? "Pick the account it came out of" : !toId ? "Pick the account it went into" : fromId === toId ? "Pick two different accounts" : "");
 
   const name = (a: { bank_name: string; owner_name: string }) => a.bank_name + (a.owner_name ? " · " + a.owner_name : "");
@@ -122,14 +135,53 @@ export default function MoneyInOrMove() {
             ))}
           </ChipGroup>
 
-          <ChipGroup label="What for"
-            hint={incomeCats.length === 0
-              ? <>No income categories yet. Add one in <Link href={BASE + "/setup"} className="font-semibold text-mf-ink underline">Set up</Link>.</>
-              : undefined}>
-            {incomeCats.map(c => (
-              <Chip key={c.id} on={categoryId === c.id} onClick={() => setCategoryId(c.id)}>{c.name}</Chip>
+          <ChipGroup label={L.group}>
+            {groups.map(g => (
+              <Chip key={g.code} on={group === g.code} onClick={() => {
+                if (g.code === group) return;
+                setGroup(g.code); setCategoryId(null); setSubheadId(null); if (!g.is_library) setPlace(null);
+              }}>{g.name}</Chip>
             ))}
           </ChipGroup>
+
+          {isLibrary && (
+            <ChipGroup label="Which library">
+              {places.map(pl => (
+                <Chip key={pl.key} on={!!place && place.library_code === pl.library_code && place.branch_code === pl.branch_code}
+                  onClick={() => setPlace({ library_code: pl.library_code, branch_code: pl.branch_code })}>{pl.label}</Chip>
+              ))}
+            </ChipGroup>
+          )}
+
+          <ChipGroup label={L.head}>
+            {incomeCats.map(c => (
+              <Chip key={c.id} on={categoryId === c.id} onClick={() => { if (categoryId !== c.id) { setCategoryId(c.id); setSubheadId(null); } }}>{c.name}</Chip>
+            ))}
+            <QuickAdd what={L.head.toLowerCase()} where={`in ${groups.find(g => g.code === group)?.name ?? ""} · Income`} placeholder="Salary"
+              existing={incomeCats} onPickExisting={id => { setCategoryId(id); setSubheadId(null); }}
+              onSave={async name => {
+                const j = await post("saveCategory", { name, kind: "INCOME", group_code: group, quick: true });
+                if (!j) return null;
+                await refreshInit(); setCategoryId(Number(j.id)); setSubheadId(null); showToast(`${name} added`);
+                return Number(j.id);
+              }} />
+          </ChipGroup>
+
+          {!!categoryId && (
+            <ChipGroup label={`${L.subhead} (optional)`}>
+              {subheads.map(c => (
+                <Chip key={c.id} on={subheadId === c.id} onClick={() => setSubheadId(subheadId === c.id ? null : c.id)}>{c.name}</Chip>
+              ))}
+              <QuickAdd what={L.subhead.toLowerCase()} where={`under ${incomeCats.find(c => c.id === categoryId)?.name ?? ""}`} placeholder="Client A"
+                existing={subheads} onPickExisting={id => setSubheadId(id)}
+                onSave={async name => {
+                  const j = await post("saveCategory", { name, parent_id: categoryId });
+                  if (!j) return null;
+                  await refreshInit(); setSubheadId(Number(j.id)); showToast(`${name} added`);
+                  return Number(j.id);
+                }} />
+            </ChipGroup>
+          )}
 
           {landing && landing.balance != null && amount > 0 && (
             <Card className="mb-4 py-1.5">

@@ -25,7 +25,14 @@ export interface MFAccount {
   acct_type: string; is_liability: boolean; is_set_up: boolean;
   opening_balance: number | null; opening_date: string | null; balance: number | null;
 }
-export interface MFCategory { id: number; code: string; name: string; kind: "EXPENSE" | "INCOME"; quick: boolean; }
+// A Head (group_code set) or a Sub-head (parent_id = its Head).
+export interface MFCategory {
+  id: number; code: string; name: string; kind: "EXPENSE" | "INCOME"; quick: boolean;
+  group_code?: string | null; parent_id?: number | null; sort?: number;
+}
+// A Group: Personal, Library (asks which library/branch), or any you add.
+export interface MFGroup { code: string; name: string; is_library: boolean; sort: number; }
+export interface MFLabels { group: string; head: string; subhead: string; }
 export interface MFPerson   { id: number; name: string; quick: boolean; }
 export interface MFRoute    { code: string; bank_code: string; settlement_days: number; }
 export interface MFLibrary  { library_code: string; label: string; branch_code: string | null; branch_label: string | null; }
@@ -35,6 +42,8 @@ export interface MFInitData {
   people: MFPerson[];
   routes: MFRoute[];
   libraries: MFLibrary[];
+  groups?: MFGroup[];     // Personal, Library, and any you add (in your order)
+  labels?: MFLabels;      // what the levels are called (renameable in Set up)
 }
 export interface MFLiveData {
   alerts: { due_soon: number; overdue: number; next_name: string | null; next_due: string | null } | null;
@@ -212,3 +221,19 @@ export default function MFProvider({ children }: { children: ReactNode }) {
     </MFContext.Provider>
   );
 }
+
+// ── Groups → Heads → Sub-heads: one place for the rules every screen uses ──
+export const DEFAULT_GROUPS: MFGroup[] = [
+  { code: "PERSONAL", name: "Personal", is_library: false, sort: 10 },
+  { code: "LIBRARY",  name: "Library",  is_library: true,  sort: 20 },
+];
+export const labelsOf = (init: MFInitData | null | undefined): MFLabels =>
+  ({ group: "Group", head: "Head", subhead: "Sub-head", ...(init?.labels || {}) });
+export const groupsOf = (init: MFInitData | null | undefined): MFGroup[] =>
+  (init?.groups && init.groups.length ? init.groups : DEFAULT_GROUPS);
+/** Heads of this kind in this group (a head with no group shows in every group). */
+export const headsOf = (init: MFInitData | null | undefined, kind: "EXPENSE" | "INCOME", group: string): MFCategory[] =>
+  (init?.categories || []).filter(c => c.kind === kind && !c.parent_id && (!c.group_code || c.group_code === group));
+/** Sub-heads under one head. */
+export const subsOf = (init: MFInitData | null | undefined, headId: number | null): MFCategory[] =>
+  headId ? (init?.categories || []).filter(c => c.parent_id === headId) : [];
