@@ -628,12 +628,8 @@ import { occupancyStats } from "../../lma960805/_lib/vacancy";
     // on each chart load: ~2.3 MB for ~1,200 receipts. The same filters still run
     // in buildOccupancy, so this only removes rows it would have skipped anyway.)
     const rows = (await sql`
-      select receipt_no, student_id, is_cross_library, name, shift, shift_name,
-             phone, phone_tag, phone2, phone2_tag, phone3, phone3_tag, phone4, phone4_tag,
-             fees_due_balance, dues_status, remark, seat_no, temporary_seat, gender, type,
-             status, library, branch, to_char(booking_to,'YYYY-MM-DD') as booking_to_ymd
-        from receipt_log
-       where (status is null or status !~ '[A-Za-z]')
+      select ${OCC_COLS} from receipt_log
+       where ${LIVE}
          and upper(coalesce(library, '')) like ${"%" + library_code + "%"}
          and upper(coalesce(branch, '')) like ${"%" + branch_code + "%"}`) as any[];
     const srow = (await sql`select * from settings where upper(library)=${library_code} limit 1`) as any[];
@@ -758,9 +754,18 @@ function seatWorth(rate: SeatRate | undefined, st: any) {
   };
 }
 
+// The columns buildOccupancy reads — one list for every caller (seat chart,
+// vacant seats, occupancy summary), so none of them loads receipt texts.
+const OCC_COLS = sql`receipt_no, student_id, is_cross_library, name, shift, shift_name,
+  phone, phone_tag, phone2, phone2_tag, phone3, phone3_tag, phone4, phone4_tag,
+  fees_due_balance, dues_status, remark, seat_no, temporary_seat, gender, type,
+  status, library, branch, to_char(booking_to,'YYYY-MM-DD') as booking_to_ymd`;
+// buildOccupancy only counts live receipts (no status); this keeps a superset of those.
+const LIVE = sql`(status is null or status !~ '[A-Za-z]')`;
+
 async function getOccupancySummary() {
   const layoutRows = (await sql`select * from seat_layouts`) as any[];
-  const receipts = (await sql`select *, to_char(booking_to,'YYYY-MM-DD') as booking_to_ymd from receipt_log`) as any[];
+  const receipts = (await sql`select ${OCC_COLS} from receipt_log where ${LIVE}`) as any[];
   const libs = (await sql`select * from libraries order by s_no`) as any[];
   const branchRows = (await sql`select * from library_branches order by s_no`) as any[];
   const feeRows = (await sql`select fee_key, shift_key, fee_amount from library_fees`) as any[];
@@ -870,7 +875,11 @@ async function getOccupancySummary() {
     if (inc === "OTHER") return { library_code, branch_code, shift: "OTHER", needs_seat: false, sections: [] };
     const ignore = up(params.ignore_receipt_no ?? "");
     const layout = await getSeatLayout({ library_code, branch_code });
-    const rows = (await sql`select *, to_char(booking_to,'YYYY-MM-DD') as booking_to_ymd from receipt_log`) as any[];
+    const rows = (await sql`
+      select ${OCC_COLS} from receipt_log
+       where ${LIVE}
+         and upper(coalesce(library, '')) like ${"%" + library_code + "%"}
+         and upper(coalesce(branch, '')) like ${"%" + branch_code + "%"}`) as any[];
     const { occ, tempHeld } = buildOccupancy(rows, library_code, branch_code, ignore);
     const blocks = await buildBlocks(library_code, branch_code);
 
@@ -945,9 +954,16 @@ async function getOccupancySummary() {
     const seat = up(String(params.seat_no || "").trim());
     const plan = b3Shift(params.shift || "");
     if (!lib || !seat || !plan) return { ok: false, error: "library_code, seat_no and shift are required" };
+    // Only this seat's receipts in this library/branch that have ended (a superset:
+    // the checks below still decide). +1 day covers the IST/server date boundary.
+    const scopeQ = br || lib;
     const rows = (await sql`
-      select *, to_char(booking_to,'YYYY-MM-DD') as booking_to_ymd, to_char(booking_from,'YYYY-MM-DD') as booking_from_ymd
-      from receipt_log`) as unknown as any[];
+      select receipt_no, student_id, name, seat_no, shift, status, library, branch,
+             to_char(booking_to,'YYYY-MM-DD') as booking_to_ymd, to_char(booking_from,'YYYY-MM-DD') as booking_from_ymd
+        from receipt_log
+       where upper(coalesce(seat_no,'')) like ${"%" + seat + "%"}
+         and (upper(coalesce(branch,'')) like ${"%" + scopeQ + "%"} or upper(coalesce(library,'')) like ${"%" + scopeQ + "%"})
+         and booking_to <= current_date + 1`) as unknown as any[];
     const nd = new Date(Date.now() + 5.5 * 3600 * 1000);
     const today = nd.getUTCFullYear() * 10000 + (nd.getUTCMonth() + 1) * 100 + nd.getUTCDate();
     const scope = br || lib;
@@ -2433,6 +2449,7 @@ async function getOccupancySummary() {
     let resolvedPhones: any[];
     let genderVal: string;
     let needStudentInsert = false;
+    let returningPast: any = null;   // an existing student still marked "past" — cleared by this booking
 
     if (studentId) {
       const originCode = _resolveOriginCodeW(targetLib, targetBranch, isCross);
@@ -2442,6 +2459,7 @@ async function getOccupancySummary() {
       }
       resolvedPhones = (p.phones && p.phones.length) ? p.phones : (studentLookup.student.phones || []);
       genderVal = up(studentLookup.student.gender || "");
+      if (studentLookup.student.is_past === true) returningPast = studentLookup.student;
     } else {
       if (!isNewType) throw new Error("student_id is required for non-NEW receipts.");
       if (isCross && isCross !== "NO") throw new Error("Cross-library is only for existing students (Renewal). Cannot auto-generate a cross-library student.");
@@ -2470,6 +2488,13 @@ async function getOccupancySummary() {
         if (cur !== "RENEWED") {
           await tx`update receipt_log set status='RENEWED' where upper(receipt_no)=${renewedFrom}`;
         }
+      }
+
+      // (2a) A new booking means the student is back: clear "past" on their own row
+      //      (renewals never cleared it, so returning students stayed hidden from the
+      //      On-app list and the missing-details reminders).
+      if (returningPast) {
+        await tx`update students set is_past=false where s_no=${num(returningPast.s_no)} and is_past=true`;
       }
 
       // (2) NEW admission — generate student_id from counter + create the student row
