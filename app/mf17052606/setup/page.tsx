@@ -136,6 +136,22 @@ export default function Masters() {
         </>
       )}
 
+      {/* ── Backup: the same full download as LMA → Settings ── */}
+      {data !== null && (
+        <Card className="mt-6">
+          <div className="text-[15px] font-semibold text-mf-ink">Backup</div>
+          <p className="mt-1 text-[12.5px] leading-relaxed text-mf-ink-3">
+            One .zip with a spreadsheet (CSV) for every table in MF and LMA — accounts, entries, people, heads, schedules,
+            receipts, students and more. Opens in Excel or Google Sheets. Nothing changes.
+          </p>
+          <a href="/api/mf17052606/backup" download
+            className="mf-btn mt-3 flex h-12 w-full items-center justify-center rounded-[14px] bg-mf-ink text-[14.5px] font-semibold text-white active:opacity-90">
+            Download backup
+          </a>
+          <p className="mt-2 text-center text-[11.5px] text-mf-ink-3">It holds your finances and student phone numbers — keep it private.</p>
+        </Card>
+      )}
+
       <Sheet open={edit?.kind === "head"} onClose={() => setEdit(null)}
         title={edit?.kind === "head" ? (edit.row ? L.head : `New ${L.head.toLowerCase()} in ${grp?.name ?? ""}`) : ""}>
         {edit?.kind === "head" && grp && (

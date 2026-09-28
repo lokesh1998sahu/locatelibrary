@@ -263,6 +263,20 @@ export default function LmaSettingsPage() {
               onToast={showToast}
             />
           </Accordion>
+
+          {/* ── Backup: every LMA + MF table as spreadsheets in one zip ── */}
+          <div className="mt-4 rounded-[18px] border border-lma-line bg-lma-surface p-4 shadow-lma-card">
+            <div className="flex items-center gap-2 text-[15px] font-bold text-lma-ink"><span aria-hidden="true">💾</span> Backup</div>
+            <p className="mt-1 text-[12.5px] leading-relaxed text-lma-ink-3">
+              Downloads one .zip with a spreadsheet (CSV) for every table in LMA and MF — receipts, students, dues, refunds,
+              misc income, past fees, settings and all of My Financials. Opens in Excel or Google Sheets. Nothing changes.
+            </p>
+            <a href="/api/lma960805/backup" download
+              className="lma-btn mt-3 flex h-12 w-full items-center justify-center rounded-[14px] bg-lma-ink text-[14.5px] font-semibold text-white active:opacity-90">
+              Download backup
+            </a>
+            <p className="mt-2 text-center text-[11.5px] text-lma-ink-3">It holds student phone numbers and your finances — keep it private.</p>
+          </div>
         </>
       )}
 

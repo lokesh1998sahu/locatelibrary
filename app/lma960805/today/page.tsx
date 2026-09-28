@@ -27,8 +27,9 @@ interface Dash {
   range: { from: string; to: string; from_ymd: number; to_ymd: number };
   scope: string;
   headline: { net: number; gross_in: number; refund_out: number; outstanding_dues: number; active_students: number };
-  counts: { receipts: number; dues_payments: number; misc_entries: number; refunds: number };
-  by_source: { RECEIPTS: number; DUES: number; MISC: number; REFUNDS: number };
+  counts: { receipts: number; dues_payments: number; misc_entries: number; refunds: number; past_entries?: number };
+  by_source: { RECEIPTS: number; DUES: number; MISC: number; REFUNDS: number; PAST?: number };
+  past_partial?: { month: string; lib: string; amount: number }[];   // month totals left out: the period covers only part of that month
   by_library: BreakRow[]; by_fees_mode: BreakRow[]; by_tag: BreakRow[];
   daily: DailyPt[];
 }
@@ -175,6 +176,17 @@ export default function TodayPage() {
             <Count n={data.counts.misc_entries} label="misc" onClick={() => openLedger({ src: "MISC" })} />
             <Count n={data.counts.refunds} label="refunds" onClick={() => openLedger({ src: "REFUNDS" })} />
           </div>
+          {(data.by_source.PAST || 0) > 0 && (
+            <button type="button" onClick={() => openLedger({ src: "PAST" })}
+              className="lma-noscale mt-2 w-full rounded-[12px] bg-[#f3f0ff] px-3 py-2 text-left text-[12.5px] font-semibold text-[#6d28d9] active:opacity-80">
+              Includes {inr(data.by_source.PAST || 0)} past library fees · {data.counts.past_entries ?? 0} {data.counts.past_entries === 1 ? "amount" : "amounts"}
+            </button>
+          )}
+          {(data.past_partial || []).length > 0 && (
+            <p className="mt-2 rounded-[12px] bg-lma-surface px-3 py-2 text-[12px] leading-relaxed text-lma-ink-3 ring-1 ring-inset ring-lma-line">
+              {(data.past_partial || []).map(x => `${monthName(x.month)} past total ${inr(x.amount)} (${x.lib})`).join(" · ")} not counted: this period covers only part of {(data.past_partial || []).length === 1 ? "that month" : "those months"}.
+            </p>
+          )}
 
           <SectionTitle action={<button type="button" onClick={() => openLedger({})} className="text-[12.5px] font-semibold text-lma-brand">All entries</button>}>
             Day by day
@@ -220,8 +232,9 @@ export default function TodayPage() {
           <SectionTitle>Where it came from</SectionTitle>
           <Card className="space-y-2.5">
             {([["Receipts", data.by_source.RECEIPTS, "RECEIPTS"], ["Dues", data.by_source.DUES, "DUES"],
-               ["Misc", data.by_source.MISC, "MISC"], ["Refunds", data.by_source.REFUNDS, "REFUNDS"]] as [string, number, LedgerSrc][]).map(([label, value, src]) => {
-              const max = Math.max(data.by_source.RECEIPTS, data.by_source.DUES, data.by_source.MISC, data.by_source.REFUNDS, 1);
+               ["Misc", data.by_source.MISC, "MISC"], ...((data.by_source.PAST || 0) > 0 ? [["Past fees", data.by_source.PAST || 0, "PAST"]] : []),
+               ["Refunds", data.by_source.REFUNDS, "REFUNDS"]] as [string, number, LedgerSrc][]).map(([label, value, src]) => {
+              const max = Math.max(data.by_source.RECEIPTS, data.by_source.DUES, data.by_source.MISC, data.by_source.REFUNDS, data.by_source.PAST || 0, 1);
               const out = src === "REFUNDS";
               return (
                 <button key={src} type="button" onClick={() => openLedger({ src })} className="lma-noscale flex w-full items-center gap-3 text-left active:opacity-70">
@@ -340,4 +353,11 @@ function DailyChart({ daily, onDay }: { daily: DailyPt[]; onDay: (iso: string) =
       </div>
     </div>
   );
+}
+
+// "2026-02" → "Feb 2026"
+function monthName(ym: string): string {
+  const M = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  const m = Number(ym.slice(5, 7));
+  return (M[m - 1] || ym) + " " + ym.slice(0, 4);
 }

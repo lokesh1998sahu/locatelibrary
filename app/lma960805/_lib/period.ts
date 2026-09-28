@@ -6,7 +6,7 @@
 export type Preset = "today"|"week"|"month"|"lastmonth"|"year"|"lastyear";
 export type Period = { preset:Preset|"custom"; from:Date; to:Date };
 export type LedgerDim = "all"|"bank"|"tag"|"library";
-export type LedgerSrc = "RECEIPTS"|"DUES"|"MISC"|"REFUNDS";
+export type LedgerSrc = "RECEIPTS"|"DUES"|"MISC"|"REFUNDS"|"PAST";
 
 export const PRESETS:{k:Preset;label:string}[] = [
   {k:"today",label:"Today"},{k:"week",label:"This Week"},{k:"month",label:"This Month"},

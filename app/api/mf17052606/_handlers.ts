@@ -818,6 +818,31 @@ async function reportPnl(p: any) {
   const from = isoDate(p?.from);
   const to = isoDate(p?.to);
 
+  // Past library fees (LMA → "Past library fees") follow LMA's own rules here:
+  // date-wise lines count on their date; month totals and the unknown remainder
+  // count only when the period covers the whole month (with or without a bank).
+  const pastReady = ((await sql`select 1 from information_schema.tables
+                                 where table_schema = 'public' and table_name = 'past_fee_lines' limit 1`) as any[]).length > 0;
+  const past = pastReady ? (await sql`
+    select coalesce(nullif(upper(btrim(f.library)), ''), '?') as lib, upper(btrim(f.branch)) as br, sum(x.amount) as income
+    from public.past_fees f
+    join lateral (
+      select l.amount from public.past_fee_lines l
+       where l.past_fee_id = f.id and l.kind = 'DATE' and l.line_date between ${from}::date and ${to}::date
+      union all
+      select l.amount from public.past_fee_lines l
+       where l.past_fee_id = f.id and l.kind = 'MONTH'
+         and to_date(f.month || '-01', 'YYYY-MM-DD') >= ${from}::date
+         and (to_date(f.month || '-01', 'YYYY-MM-DD') + interval '1 month' - interval '1 day')::date <= ${to}::date
+      union all
+      select f.remainder where f.remainder > 0
+         and to_date(f.month || '-01', 'YYYY-MM-DD') >= ${from}::date
+         and (to_date(f.month || '-01', 'YYYY-MM-DD') + interval '1 month' - interval '1 day')::date <= ${to}::date
+    ) x on true
+    where f.status <> 'DELETED'
+    group by 1, 2
+  `) as any[] : [];
+
   const rows = (await sql`
     select lib, br, sum(income) as income, sum(expense) as expense
     from (
@@ -826,6 +851,7 @@ async function reportPnl(p: any) {
              i.amount as income, 0::numeric as expense
       from fin.v_lma_income i
       where i.on_date between ${from}::date and ${to}::date
+        and i.src <> 'PAST'            -- past fees are added below, by their own rules
       union all
       select coalesce(nullif(btrim(l.library_code), ''), '?'),
              coalesce(nullif(btrim(l.branch_code), ''), ''),
@@ -839,7 +865,16 @@ async function reportPnl(p: any) {
     order by lib, br
   `) as any[];
 
-  const out = rows.map((r) => {
+  // merge the past fees into the library rows
+  const merged = rows.map((r) => ({ ...r }));
+  for (const pr of past) {
+    const hit = merged.find((r) => r.lib === pr.lib && (r.br || "") === (pr.br || ""));
+    if (hit) hit.income = num(hit.income) + num(pr.income);
+    else merged.push({ lib: pr.lib, br: pr.br || "", income: num(pr.income), expense: 0 });
+  }
+  merged.sort((a, b) => (a.lib + "|" + a.br).localeCompare(b.lib + "|" + b.br));
+
+  const out = merged.map((r) => {
     const income = money(r.income);
     const expense = money(r.expense);
     return {
@@ -905,34 +940,105 @@ async function reportSpending(p: any) {
 // These remind. They never record themselves — nothing in this file or the
 // database moves money on a timer. A schedule only ever becomes an entry
 // because you confirmed it actually happened.
+// ── Scheduled payments ───────────────────────────────────────────────
+// A schedule has a default split ("shares") of each instalment: your part
+// (Group → Head → Sub-head, and the library for the Library group) and/or any
+// number of people (their part is money you lend them — they owe it back).
+// Every payment is ONE entry: the full amount leaves the account, your part is
+// your expense, each person's part is lent to them. The split and the amount
+// can be changed on every payment; the defaults are only a starting point.
+
+type Share = { kind: "ME" | "PERSON"; amount: number; group?: string; head_id?: number | null; subhead_id?: number | null;
+               library_code?: string | null; branch_code?: string | null; person_id?: number | null };
+
+const STEP: Record<string, string> = { WEEKLY: "7 days", MONTHLY: "1 month", QUARTERLY: "3 months", YEARLY: "1 year" };
+
+function cleanShares(raw: any): Share[] {
+  let v = raw;
+  for (let k = 0; k < 2 && typeof v === "string"; k++) { try { v = JSON.parse(v); } catch { v = []; } }   // tolerate text-encoded lists
+  const arr = Array.isArray(v) ? v : [];
+  return arr.map((x: any) => ({
+    kind: up(x?.kind) === "PERSON" ? "PERSON" : "ME",
+    amount: money(x?.amount),
+    group: up(x?.group) || undefined,
+    head_id: Number(x?.head_id) || null,
+    subhead_id: Number(x?.subhead_id) || null,
+    library_code: up(x?.library_code) || null,
+    branch_code: up(x?.branch_code) || null,
+    person_id: Number(x?.person_id) || null,
+  })) as Share[];
+}
+
+// Shares must add up to the amount; your part needs a head; a person needs a name.
+async function checkShares(tx: any, shares: Share[], amount: number) {
+  if (!shares.length) throw new Error("Say who this is for — you, someone else, or both.");
+  if (shares.filter((x) => x.kind === "ME").length > 1) throw new Error("Your part can appear only once.");
+  const sum = money(shares.reduce((a, x) => a + num(x.amount), 0));
+  if (sum !== money(amount)) throw new Error(`The shares add up to ${money(sum)}, but the amount is ${money(amount)}.`);
+  for (const x of shares) {
+    if (num(x.amount) <= 0) throw new Error("Every share must be more than zero.");
+    if (x.kind === "ME") {
+      if (!x.group) throw new Error("Choose the group for your part.");
+      const g = await groupOf(tx, x.group);
+      if (!x.head_id) throw new Error("Choose the head for your part.");
+      await checkHeads(tx, "EXPENSE", x.group, Number(x.head_id), x.subhead_id ? Number(x.subhead_id) : null);
+      if (g.is_library && !x.library_code) throw new Error("Which library is your part for?");
+      if (!g.is_library) { x.library_code = null; x.branch_code = null; }
+    } else {
+      if (!x.person_id) throw new Error("Choose who each other share is for.");
+      const pp = (await tx`select 1 from fin.people where id = ${Number(x.person_id)} limit 1`) as any[];
+      if (!pp.length) throw new Error("That person no longer exists.");
+    }
+  }
+}
+
 async function schedules() {
   const rows = (await sql`
-    select s.*, a.bank_name, a.bank_code, c.name as category_name, p.name as person_name,
-           (s.next_due - current_date)::int as days_away
+    select s.*, a.bank_name, a.bank_code, (s.next_due - current_date)::int as days_away
     from fin.scheduled_payments s
-    left join fin.accounts   a on a.id = s.account_id
-    left join fin.categories c on c.id = s.category_id
-    left join fin.people     p on p.id = s.person_id
-    where s.active
-    order by s.next_due asc, s.name
+    left join fin.accounts a on a.id = s.account_id
+    order by (s.status = 'ACTIVE') desc, s.next_due asc, s.name
+  `) as any[];
+  const names = (await sql`
+    select 'C' || id as k, name from fin.categories union all select 'P' || id, name from fin.people
+    union all select 'G' || code, name from fin.groups
+  `) as any[];
+  const nm: Record<string, string> = {};
+  for (const r of names) nm[String(r.k)] = String(r.name);
+  const pays = (await sql`
+    select e.schedule_id, e.id, e.entry_date, e.total, coalesce(e.schedule_part, 'INSTALMENT') as part
+    from fin.entries e where e.schedule_id is not null and e.voided = false
+    order by e.entry_date desc, e.id desc
   `) as any[];
 
+  const decorate = (x: any) => ({
+    ...x,
+    label: x.kind === "PERSON" ? (nm["P" + x.person_id] ?? "Someone") : "You",
+    group_name: x.group ? (nm["G" + x.group] ?? x.group) : null,
+    head_name: x.head_id ? (nm["C" + x.head_id] ?? null) : null,
+    subhead_name: x.subhead_id ? (nm["C" + x.subhead_id] ?? null) : null,
+  });
+
   return {
-    schedules: rows.map((s) => ({
-      id: Number(s.id), name: s.name, amount: money(s.amount),
-      account_id: s.account_id == null ? null : Number(s.account_id),
-      account_name: s.bank_name ?? s.bank_code ?? null,
-      category_id: s.category_id == null ? null : Number(s.category_id),
-      category_name: s.category_name ?? null,
-      person_name: s.person_name ?? null,
-      world: s.world, library_code: s.library_code ?? null,
-      frequency: s.frequency, next_due: s.next_due,
-      days_away: Number(s.days_away),
-      installments_total: s.installments_total == null ? null : Number(s.installments_total),
-      installments_paid: Number(s.installments_paid ?? 0),
-      remaining: s.installments_total == null ? null
-        : Number(s.installments_total) - Number(s.installments_paid ?? 0),
-    })),
+    schedules: rows.map((s) => {
+      const shares = cleanShares(s.shares).map(decorate);
+      const mine = pays.filter((x) => Number(x.schedule_id) === Number(s.id));
+      return {
+        id: Number(s.id), name: s.name, amount: money(s.amount), note: s.note ?? "",
+        account_id: s.account_id == null ? null : Number(s.account_id),
+        account_name: s.bank_name ?? s.bank_code ?? null,
+        frequency: s.frequency, next_due: s.next_due, days_away: Number(s.days_away),
+        installments_total: s.installments_total == null ? null : Number(s.installments_total),
+        installments_paid: Number(s.installments_paid ?? 0),
+        remaining: s.installments_total == null ? null : Number(s.installments_total) - Number(s.installments_paid ?? 0),
+        status: s.status ?? (s.active ? "ACTIVE" : "CLOSED"), closed_reason: s.closed_reason ?? null, closed_on: s.closed_on ?? null,
+        shares,
+        paid_total: money(mine.reduce((a, x) => a + num(x.total), 0)),
+        payments: mine.slice(0, 12).map((x) => ({ entry_id: Number(x.id), on: x.entry_date, amount: money(x.total), part: x.part })),
+        // kept for older screens
+        world: s.world, library_code: s.library_code ?? null, category_id: s.category_id == null ? null : Number(s.category_id),
+      };
+    }),
   };
 }
 
@@ -943,84 +1049,154 @@ async function saveSchedule(p: any) {
   if (amount <= 0) throw new Error("The amount must be more than zero.");
   const nextDue = isoDate(p?.next_due);
   const freq = up(p?.frequency) || "MONTHLY";
-  const world = up(p?.world) === "LIBRARY" ? "LIBRARY" : "PERSONAL";
   const total = p?.installments_total == null || p?.installments_total === "" ? null : Number(p.installments_total);
+  if (total != null && (!Number.isInteger(total) || total < 1)) throw new Error("The number of instalments must be a whole number.");
+  const shares = cleanShares(p?.shares);
   const id = Number(p?.id) || 0;
+  const note = String(p?.note ?? "").trim() || null;
 
-  if (id) {
-    const r = (await sql`
-      update fin.scheduled_payments set
-        name = ${name}, amount = ${amount}, account_id = ${Number(p?.account_id) || null},
-        category_id = ${Number(p?.category_id) || null}, world = ${world},
-        library_code = ${world === "LIBRARY" ? up(p?.library_code) || null : null},
-        frequency = ${freq}, next_due = ${nextDue}::date, installments_total = ${total},
-        active = ${p?.active === false ? false : true}
-      where id = ${id}
-    `) as any;
-    if (!r.count) throw new Error("That schedule no longer exists.");
-    return { saved: true, id };
-  }
-
-  const ins = (await sql`
-    insert into fin.scheduled_payments
-      (name, amount, account_id, category_id, world, library_code, frequency, next_due, installments_total)
-    values (${name}, ${amount}, ${Number(p?.account_id) || null}, ${Number(p?.category_id) || null},
-            ${world}, ${world === "LIBRARY" ? up(p?.library_code) || null : null},
-            ${freq}, ${nextDue}::date, ${total})
-    returning id
-  `) as any[];
-  return { saved: true, id: Number(ins[0].id) };
+  return await sql.begin(async (tx: any) => {
+    await checkShares(tx, shares, amount);
+    const me = shares.find((x) => x.kind === "ME");
+    const world = me?.group || "PERSONAL";               // older columns, kept filled
+    const categoryId = me?.head_id || null;
+    const lib = me?.library_code || null;
+    if (id) {
+      const r = (await tx`
+        update fin.scheduled_payments set
+          name = ${name}, amount = ${amount}, account_id = ${Number(p?.account_id) || null},
+          category_id = ${categoryId}, world = ${world}, library_code = ${lib},
+          frequency = ${freq}, next_due = ${nextDue}::date, installments_total = ${total},
+          note = ${note}, shares = ${JSON.stringify(shares)}::text::jsonb
+        where id = ${id}
+      `) as any;
+      if (!r.count) throw new Error("That schedule no longer exists.");
+      return { saved: true, id };
+    }
+    const ins = (await tx`
+      insert into fin.scheduled_payments
+        (name, amount, account_id, category_id, world, library_code, frequency, next_due, installments_total, note, shares, status)
+      values (${name}, ${amount}, ${Number(p?.account_id) || null}, ${categoryId}, ${world}, ${lib},
+              ${freq}, ${nextDue}::date, ${total}, ${note}, ${JSON.stringify(shares)}::text::jsonb, 'ACTIVE')
+      returning id
+    `) as any[];
+    return { saved: true, id: Number(ins[0].id) };
+  });
 }
 
-// Confirming one writes a normal expense — nothing special, so it shows in the
-// passbook and can be removed like anything else — then moves the schedule on.
-async function recordSchedule(p: any) {
+// One payment on a schedule: an instalment, a prepayment (any amount; the
+// schedule keeps running) or the foreclosure (the last payment; it closes).
+//   { id, part, paid_on, account_id, amount, shares, note,
+//     adjust?: { installments_total?, amount? } }   ← prepayment only
+async function paySchedule(p: any) {
   const id = Number(p?.id) || 0;
   if (!id) throw new Error("Which schedule?");
+  const part = ["INSTALMENT", "PREPAY", "FORECLOSE"].includes(up(p?.part)) ? up(p?.part) : "INSTALMENT";
   const paidOn = p?.paid_on ? isoDate(p.paid_on) : isoDate(new Date().toISOString().slice(0, 10));
 
   return await sql.begin(async (tx: any) => {
     const rows = (await tx`select * from fin.scheduled_payments where id = ${id} for update`) as any[];
     if (!rows.length) throw new Error("That schedule no longer exists.");
     const s = rows[0];
+    if ((s.status ?? "ACTIVE") !== "ACTIVE" || s.active === false) throw new Error("This schedule is closed. Reopen it first.");
 
     const amount = p?.amount == null || p?.amount === "" ? money(s.amount) : money(p.amount);
     const accountId = Number(p?.account_id) || Number(s.account_id) || 0;
-    const categoryId = Number(s.category_id) || 0;
     if (amount <= 0) throw new Error("The amount must be more than zero.");
     if (!accountId) throw new Error("Which account did it come from?");
-    if (!categoryId) throw new Error("This schedule has no category — edit it first.");
+    let shares = p?.shares ? cleanShares(p.shares) : cleanShares(s.shares);
+    if (!p?.shares && money(shares.reduce((a, x) => a + num(x.amount), 0)) !== amount) shares = scaleShares(shares, amount);
+    await checkShares(tx, shares, amount);
 
+    const me = shares.find((x) => x.kind === "ME");
+    const label = part === "PREPAY" ? `${s.name} — prepayment` : part === "FORECLOSE" ? `${s.name} — foreclosure` : s.name;
+    const note = String(p?.note ?? "").trim();
     const ins = (await tx`
-      insert into fin.entries (entry_type, entry_date, description, world, total, schedule_id)
-      values ('EXPENSE', ${paidOn}::date, ${s.name}, ${s.world}, ${amount}, ${id})
+      insert into fin.entries (entry_type, entry_date, description, world, total, schedule_id, schedule_part)
+      values (${me ? "EXPENSE" : "RECEIVABLE"}, ${paidOn}::date, ${note ? label + " · " + note : label},
+              ${me?.group || "PERSONAL"}, ${amount}, ${id}, ${part})
       returning id
     `) as any[];
     const entryId = Number(ins[0].id);
 
-    await tx`insert into fin.entry_lines (entry_id, line_kind, category_id, amount, line_date, library_code)
-             values (${entryId}, 'EXPENSE', ${categoryId}, ${amount}, ${paidOn}::date, ${s.library_code})`;
     await tx`insert into fin.entry_lines (entry_id, line_kind, account_id, amount, line_date)
              values (${entryId}, 'ACCOUNT', ${accountId}, ${-amount}, ${paidOn}::date)`;
-
-    const step: Record<string, string> = {
-      WEEKLY: "7 days", MONTHLY: "1 month", QUARTERLY: "3 months", YEARLY: "1 year",
-    };
-    const paid = Number(s.installments_paid ?? 0) + 1;
-    const finished = s.frequency === "ONE_OFF" ||
-      (s.installments_total != null && paid >= Number(s.installments_total));
-
-    if (finished) {
-      await tx`update fin.scheduled_payments set installments_paid = ${paid}, active = false where id = ${id}`;
-    } else {
-      await tx`update fin.scheduled_payments
-               set installments_paid = ${paid},
-                   next_due = (next_due + ${step[s.frequency] ?? "1 month"}::interval)::date
-               where id = ${id}`;
+    for (const x of shares) {
+      if (x.kind === "ME") {
+        await tx`insert into fin.entry_lines (entry_id, line_kind, category_id, subhead_id, amount, line_date, library_code, branch_code)
+                 values (${entryId}, 'EXPENSE', ${Number(x.head_id)}, ${x.subhead_id ? Number(x.subhead_id) : null}, ${money(x.amount)},
+                         ${paidOn}::date, ${x.library_code || null}, ${x.branch_code || null})`;
+      } else {
+        await tx`insert into fin.entry_lines (entry_id, line_kind, person_id, amount, line_date)
+                 values (${entryId}, 'RECEIVABLE', ${Number(x.person_id)}, ${money(x.amount)}, ${paidOn}::date)`;
+      }
     }
 
-    return { entry_id: entryId, total: amount, finished };
+    let finished = false;
+    if (part === "INSTALMENT") {
+      const paid = Number(s.installments_paid ?? 0) + 1;
+      finished = s.frequency === "ONE_OFF" || (s.installments_total != null && paid >= Number(s.installments_total));
+      if (finished) {
+        await tx`update fin.scheduled_payments set installments_paid = ${paid}, active = false,
+                 status = 'CLOSED', closed_reason = 'FINISHED', closed_on = ${paidOn}::date where id = ${id}`;
+      } else {
+        await tx`update fin.scheduled_payments set installments_paid = ${paid},
+                 next_due = (next_due + ${STEP[s.frequency] ?? "1 month"}::interval)::date where id = ${id}`;
+      }
+    } else if (part === "FORECLOSE") {
+      finished = true;
+      await tx`update fin.scheduled_payments set active = false, status = 'CLOSED', closed_reason = 'FORECLOSED',
+               closed_on = ${paidOn}::date where id = ${id}`;
+    } else {
+      // a prepayment keeps the schedule running; optionally the lender changed it
+      const a = p?.adjust || {};
+      if (a.installments_total != null && a.installments_total !== "") {
+        const t = Number(a.installments_total);
+        if (!Number.isInteger(t) || t < Number(s.installments_paid ?? 0) + 1)
+          throw new Error(`Total instalments must be at least ${Number(s.installments_paid ?? 0) + 1}.`);
+        await tx`update fin.scheduled_payments set installments_total = ${t} where id = ${id}`;
+      }
+      if (a.amount != null && a.amount !== "") {
+        const na = money(a.amount);
+        if (na <= 0) throw new Error("The new instalment amount must be more than zero.");
+        const scaled = scaleShares(cleanShares(s.shares), na);
+        await tx`update fin.scheduled_payments set amount = ${na}, shares = ${JSON.stringify(scaled)}::text::jsonb where id = ${id}`;
+      }
+    }
+    return { entry_id: entryId, total: amount, finished, part };
   });
+}
+
+// Keep the same proportions at a new amount (rounding goes to the first share).
+function scaleShares(shares: Share[], amount: number): Share[] {
+  const sum = shares.reduce((a, x) => a + num(x.amount), 0);
+  if (!shares.length || sum <= 0) return shares;
+  const out = shares.map((x) => ({ ...x, amount: money((num(x.amount) / sum) * amount) }));
+  const diff = money(amount - out.reduce((a, x) => a + x.amount, 0));
+  out[0].amount = money(out[0].amount + diff);
+  return out;
+}
+
+// Stop a schedule with no payment (e.g. the EMI was cancelled), or bring it back.
+async function closeSchedule(p: any) {
+  const id = Number(p?.id) || 0;
+  const on = p?.on ? isoDate(p.on) : isoDate(new Date().toISOString().slice(0, 10));
+  const r = (await sql`update fin.scheduled_payments set active = false, status = 'CLOSED', closed_reason = 'CANCELLED',
+                       closed_on = ${on}::date where id = ${id} and status = 'ACTIVE'`) as any;
+  if (!r.count) throw new Error("That schedule is not running.");
+  return { saved: true };
+}
+async function reopenSchedule(p: any) {
+  const id = Number(p?.id) || 0;
+  const r = (await sql`update fin.scheduled_payments set active = true, status = 'ACTIVE', closed_reason = null, closed_on = null
+                       where id = ${id} and status = 'CLOSED'`) as any;
+  if (!r.count) throw new Error("That schedule is not closed.");
+  return { saved: true };
+}
+
+// Older screens call this: the default split, amount and account.
+async function recordSchedule(p: any) {
+  return await paySchedule({ id: p?.id, part: "INSTALMENT", paid_on: p?.paid_on, account_id: p?.account_id, amount: p?.amount });
 }
 
 // ── assets ───────────────────────────────────────────────────────────
@@ -1622,6 +1798,9 @@ export async function handle(action: string, payload: any): Promise<any> {
     case "schedules":             return await schedules();
     case "saveSchedule":          return await saveSchedule(payload);
     case "recordSchedule":        return await recordSchedule(payload);
+    case "paySchedule":           return await paySchedule(payload);
+    case "closeSchedule":         return await closeSchedule(payload);
+    case "reopenSchedule":        return await reopenSchedule(payload);
 
     // assets
     case "assets":                return await assets();

@@ -1,3 +1,4 @@
+import { createHash } from "crypto";
 import sql from "./_db";
 import { occupancyStats } from "../../lma960805/_lib/vacancy";
 
@@ -87,6 +88,11 @@ import { occupancyStats } from "../../lma960805/_lib/vacancy";
     "getMiscCategories",
     "getStudentCurrentSeats",
     "tickMoneyLines",
+    "getPastFees",
+    "pastFeesMonthInfo",
+    "savePastFee",
+    "deletePastFee",
+    "restorePastFee",
     "saveMiscCategory",
     // 09_Admin (writes)
     "addLibrary",
@@ -1744,7 +1750,7 @@ async function getOccupancySummary() {
       byLibrary: {},
       byFeesMode: {},
       byTag: {},
-      bySource: { RECEIPTS: 0, DUES: 0, MISC: 0, REFUNDS: 0 },
+      bySource: { RECEIPTS: 0, DUES: 0, MISC: 0, REFUNDS: 0, PAST: 0 },
       byDay: {},
       counts: { receipts: 0, dues_payments: 0, misc_entries: 0, refunds: 0 },
     };
@@ -1758,8 +1764,9 @@ async function getOccupancySummary() {
     if (!amt) return;
     A.gross += amt;
     _bump(A.byLibrary, libKey, "gross", amt);
-    _bump(A.byFeesMode, up(feesMode), "gross", amt);
-    _bump(A.byTag, up(tag), "gross", amt);
+    // a past-fee amount with no bank (or no tag) is known only in total — it stays out of those rows
+    if (!(source === "PAST" && !up(feesMode))) _bump(A.byFeesMode, up(feesMode), "gross", amt);
+    if (!(source === "PAST" && !up(tag))) _bump(A.byTag, up(tag), "gross", amt);
     A.bySource[source] = (A.bySource[source] || 0) + amt;
     if (dayKey) {
       if (!A.byDay[dayKey]) A.byDay[dayKey] = { gross: 0, refund: 0 };
@@ -1803,9 +1810,9 @@ async function getOccupancySummary() {
   // figure and its Ledger can never disagree. The four loops below are the
   // former getDashboard loops, unchanged in order and in every check.
   // ════════════════════════════════════════════════════════════════════
-  type MoneyTables = { rcpts: any[]; dues: any[]; misc: any[]; refunds: any[]; branches: any[] };
+  type MoneyTables = { rcpts: any[]; dues: any[]; misc: any[]; refunds: any[]; branches: any[]; past: any[] };
   type MoneyLine = {
-    src: "RECEIPTS" | "DUES" | "MISC" | "REFUNDS";
+    src: "RECEIPTS" | "DUES" | "MISC" | "REFUNDS" | "PAST";
     dir: "IN" | "OUT";
     amt: number; // always positive; dir says in or out
     day: string | null; // YYYY-MM-DD payment date (the Dashboard's date)
@@ -1857,7 +1864,18 @@ async function getOccupancySummary() {
                                        amount, refund_date, refund_reason, linked_to_cancellation, "timestamp", gender, is_cross_library,
                                        refund_date_d from refund_log`) as any[];
     const branches = (await sql`select * from library_branches`) as any[];
-    return { rcpts, dues, misc, refunds, branches };
+    // Past library fees (months before LMA was fully used): one row per known line,
+    // plus the entry itself (line_id null) so an entry with only a remainder still shows.
+    let past: any[] = [];
+    try {
+      past = (await sql`
+        select f.id as fee_id, f.library, f.branch, f.month, f.remainder, l.id as line_id, l.kind,
+               to_char(l.line_date, 'YYYY-MM-DD') as line_date, l.amount, l.tag, l.bank
+          from public.past_fees f left join public.past_fee_lines l on l.past_fee_id = f.id
+         where f.status <> 'DELETED'
+         order by f.month, f.id, l.id`) as any[];
+    } catch { past = []; }
+    return { rcpts, dues, misc, refunds, branches, past };
   }
 
   function _isXlib(v: unknown): boolean {
@@ -1882,7 +1900,8 @@ async function getOccupancySummary() {
     const inRange = (ymd: number | null) => ymd !== null && ymd >= fromYmd && ymd <= toYmd;
     const byCredit = basis === "credit";
     const lines: MoneyLine[] = [];
-    const counts = { receipts: 0, dues_payments: 0, misc_entries: 0, refunds: 0 };
+    const counts = { receipts: 0, dues_payments: 0, misc_entries: 0, refunds: 0, past_entries: 0 };
+    const pastPartial: { month: string; lib: string; amount: number }[] = [];   // month totals left out (period covers part of the month)
 
     // 1) RECEIPT payments (each paid slot on its own date)
     for (const row of T.rcpts) {
@@ -1983,7 +2002,52 @@ async function getOccupancySummary() {
       });
       counts.refunds++;
     }
-    return { lines, counts };
+
+    // 5) PAST LIBRARY FEES — months before LMA was fully used.
+    //    Date-wise lines count on their own date (paid = credited).
+    //    Month totals and the unknown remainder have no day, so they count only
+    //    when the period covers the whole month; they sit on the month's last day.
+    const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    const remDone = new Set<number>();
+    for (const row of T.past || []) {
+      if (!inScope(row.library, row.branch)) continue;
+      const ym = String(row.month || "");
+      const y = Number(ym.slice(0, 4)), m = Number(ym.slice(5, 7));
+      if (!y || !m) continue;
+      const lastD = new Date(Date.UTC(y, m, 0)).getUTCDate();
+      const first = y * 10000 + m * 100 + 1, last = y * 10000 + m * 100 + lastD;
+      const lastKey = ym + "-" + String(lastD).padStart(2, "0");
+      const whole = first >= fromYmd && last <= toYmd;
+      const overlaps = last >= fromYmd && first <= toYmd;
+      const libKey = _libKeyFor(row.library, row.branch);
+      const label = MON[m - 1] + " " + y;
+      const feeId = num(row.fee_id);
+      const add = (cat: string, amt: number, dayKey: string, tag: string, bank: string, ref: string, note: string) => {
+        lines.push({ src: "PAST", dir: "IN", amt, day: dayKey, sday: dayKey, lib: libKey, tag, bank, ref,
+          rno: "", sid: "", name: "", rtype: "", part: 0, parts: 0, cat, note, xlib: false, sno: feeId });
+        counts.past_entries++;
+      };
+      const miss = (amt: number) => {
+        const k = pastPartial.find((x) => x.month === ym && x.lib === libKey);
+        if (k) k.amount += amt; else pastPartial.push({ month: ym, lib: libKey, amount: amt });
+      };
+      if (row.line_id) {
+        const amt = num(row.amount);
+        if (amt > 0) {
+          if (row.kind === "DATE") {
+            if (inRange(_ymd(row.line_date))) add("DATE-WISE", amt, String(row.line_date), up(row.tag), up(row.bank), "PAST-" + feeId + "-" + num(row.line_id), label + " · date-wise");
+          } else if (whole) add("MONTH TOTAL", amt, lastKey, up(row.tag), up(row.bank), "PAST-" + feeId + "-" + num(row.line_id), label + " · month total");
+          else if (overlaps) miss(amt);
+        }
+      }
+      const rem = num(row.remainder);
+      if (rem > 0 && !remDone.has(feeId)) {
+        remDone.add(feeId);
+        if (whole) add("UNKNOWN", rem, lastKey, "", "", "PAST-" + feeId + "-R", label + " · unknown split");
+        else if (overlaps) miss(rem);
+      }
+    }
+    return { lines, counts, pastPartial };
   }
 
   // ════════════════════════════════════════════════════════════════════
@@ -2003,7 +2067,8 @@ async function getOccupancySummary() {
 
     const T = await _loadMoneyTables();
     const tagMap = await _loadTagMap();
-    const all = _moneyLines(T, fromYmd, toYmd, scope, basis, tagMap).lines;
+    const built = _moneyLines(T, fromYmd, toYmd, scope, basis, tagMap);
+    const all = built.lines;
 
     // every key of this dimension, totalled exactly like the Dashboard breakdowns
     const keyOf = (L: MoneyLine) => (dim === "bank" ? L.bank : dim === "tag" ? L.tag : L.lib) || "—";
@@ -2068,6 +2133,7 @@ async function getOccupancySummary() {
       switcher,
       totals,
       ticks_ready: ticks !== null,
+      past_partial: (built.pastPartial || []).map((x: any) => ({ ...x, amount: Math.round(x.amount) })),
       lines: lines.map((L) => {
         const amt = Math.round(L.amt * 100) / 100;
         const k = _lineKey(L);
@@ -2075,6 +2141,161 @@ async function getOccupancySummary() {
         return { ...L, amt, key: k, tick: t ? { amount: num(t.amount), bank: String(t.bank || ""), credit_day: String(t.credit_day || ""), ticked_at: String(t.ticked_at || "") } : null };
       }),
     };
+  }
+
+  // ── Past library fees ───────────────────────────────────────────
+  // Fee income for months before LMA was fully used, entered per library/branch
+  // per month: known lines (date-wise, or a month total per tag/bank — any tag
+  // with any bank) plus an optional unknown remainder. Tables: past_fees,
+  // past_fee_lines (past-library-fees-setup.sql). Deleting is a soft delete
+  // with a reason, and can be undone.
+  let _pastReady: boolean | null = null;
+  async function _pastTables(): Promise<boolean> {
+    if (_pastReady) return true;
+    const c = (await sql`select 1 from information_schema.tables where table_schema='public' and table_name='past_fee_lines' limit 1`) as any[];
+    _pastReady = c.length > 0 ? true : null;
+    return c.length > 0;
+  }
+  const _ymRe = /^\d{4}-(0[1-9]|1[0-2])$/;
+  const _thisYm = () => { const d = new Date(Date.now() + 5.5 * 3600e3); return d.getUTCFullYear() + "-" + String(d.getUTCMonth() + 1).padStart(2, "0"); };
+  const _monthBounds = (ym: string) => {
+    const y = Number(ym.slice(0, 4)), m = Number(ym.slice(5, 7));
+    const lastD = new Date(Date.UTC(y, m, 0)).getUTCDate();
+    return { first: ym + "-01", last: ym + "-" + String(lastD).padStart(2, "0"), fromYmd: y * 10000 + m * 100 + 1, toYmd: y * 10000 + m * 100 + lastD };
+  };
+
+  async function getPastFees(p: any): Promise<any> {
+    if (!(await _pastTables())) return { ok: true, ready: false, entries: [] };
+    const rows = (await sql`
+      select f.id, f.library, f.branch, f.month, f.remainder, f.note, f.status, f.deleted_reason,
+             to_char(f.created_at at time zone 'Asia/Kolkata', 'YYYY-MM-DD HH24:MI') as created_at,
+             to_char(f.updated_at at time zone 'Asia/Kolkata', 'YYYY-MM-DD HH24:MI') as updated_at,
+             coalesce(json_agg(json_build_object('id', l.id, 'kind', l.kind, 'line_date', to_char(l.line_date, 'YYYY-MM-DD'),
+                                                 'amount', l.amount, 'tag', l.tag, 'bank', l.bank) order by l.line_date nulls last, l.id)
+                      filter (where l.id is not null), '[]') as lines
+        from public.past_fees f left join public.past_fee_lines l on l.past_fee_id = f.id
+       group by f.id
+       order by f.month desc, f.library, f.branch`) as any[];
+    const scope = up(p?.library || "");
+    const out = rows
+      .filter((r) => !scope || up(r.branch) === scope || (!up(r.branch) && up(r.library) === scope) || up(r.library) === scope)
+      .map((r) => {
+        const lines = (Array.isArray(r.lines) ? r.lines : JSON.parse(r.lines || "[]")).map((l: any) => ({ ...l, amount: num(l.amount) }));
+        const known = lines.reduce((a: number, l: any) => a + l.amount, 0);
+        return {
+          id: num(r.id), library: up(r.library), branch: up(r.branch), month: String(r.month), remainder: num(r.remainder), note: String(r.note || ""),
+          deleted: up(r.status) === "DELETED", deleted_reason: r.deleted_reason ?? "", created_at: r.created_at, updated_at: r.updated_at,
+          lines, known: Math.round(known * 100) / 100, total: Math.round((known + num(r.remainder)) * 100) / 100,
+        };
+      });
+    // every bank (switched-off ones too, for history) with its MF opening date, for the balance warning
+    let banks: any[] = [];
+    try {
+      banks = ((await sql`select upper(bank_code) as bank_code, bank_name, owner_name, active, to_char(opening_date, 'YYYY-MM-DD') as opening_date
+                           from fin.accounts where not is_liability order by active desc, bank_name nulls last, bank_code`) as any[])
+        .map((r) => ({ bank_code: String(r.bank_code), bank_name: r.bank_name ?? r.bank_code, owner_name: r.owner_name ?? "", active: !!r.active, opening_date: r.opening_date ?? null }));
+    } catch { banks = []; }
+    return { ok: true, ready: true, this_month: _thisYm(), entries: out, banks };
+  }
+
+  // For the editor: what LMA itself already recorded for that library/branch and
+  // month (so only the missing part is added), and whether an entry exists.
+  async function pastFeesMonthInfo(p: any): Promise<any> {
+    const ym = String(p?.month || "");
+    const lib = up(p?.library || ""), br = up(p?.branch || "");
+    if (!_ymRe.test(ym) || !lib) throw new Error("Choose the library and the month.");
+    const b = _monthBounds(ym);
+    const T = await _loadMoneyTables();
+    T.past = [];   // LMA's own records only
+    const M = _moneyLines(T, b.fromYmd, b.toYmd, br || lib, "pay", null);
+    let lma = 0;
+    for (const L of M.lines) lma += L.dir === "IN" ? L.amt : -L.amt;
+    let existing: any = null;
+    if (await _pastTables()) {
+      const e = (await sql`select id from public.past_fees where upper(library) = ${lib} and upper(branch) = ${br} and month = ${ym} and status <> 'DELETED' limit 1`) as any[];
+      if (e.length) existing = num(e[0].id);
+    }
+    return { ok: true, month: ym, lma_total: Math.round(lma), lma_entries: M.lines.length, existing_id: existing };
+  }
+
+  async function savePastFee(p: any): Promise<any> {
+    if (!(await _pastTables())) return { ok: false, error: "Past library fees isn't set up yet. Run past-library-fees-setup.sql once in Supabase." };
+    const id = num(p?.id);
+    const lib = up(p?.library || ""), br = up(p?.branch || "");
+    const ym = String(p?.month || "");
+    if (!lib) throw new Error("Choose the library.");
+    if (!_ymRe.test(ym)) throw new Error("Choose the month.");
+    if (ym > _thisYm()) throw new Error("That month hasn't happened yet.");
+    const known = (await sql`select 1 from libraries where upper(library_code) = ${lib} limit 1`) as any[];
+    if (!known.length) throw new Error("Unknown library: " + lib);
+    if (br) {
+      const kb = (await sql`select 1 from library_branches where upper(branch_code) = ${br} and upper(library_code) = ${lib} limit 1`) as any[];
+      if (!kb.length) throw new Error("Unknown branch: " + br);
+    }
+    const b = _monthBounds(ym);
+    const remainder = Math.round(num(p?.remainder) * 100) / 100;
+    if (remainder < 0) throw new Error("The unknown amount can't be negative.");
+    const lines = (Array.isArray(p?.lines) ? p.lines : []).map((l: any) => ({
+      kind: up(l?.kind) === "DATE" ? "DATE" : "MONTH",
+      line_date: up(l?.kind) === "DATE" ? String(l?.line_date || "").slice(0, 10) : null,
+      amount: Math.round(num(l?.amount) * 100) / 100,
+      tag: up(l?.tag || ""), bank: up(l?.bank || ""),
+    }));
+    for (const l of lines) {
+      if (!(l.amount > 0)) throw new Error("Every line needs an amount.");
+      if (!l.tag && !l.bank) throw new Error("Every line needs a tag or a bank (or both).");
+      if (l.kind === "DATE" && !(l.line_date && l.line_date >= b.first && l.line_date <= b.last)) throw new Error("A date-wise line's date must be inside " + ym + ".");
+    }
+    if (!lines.length && !(remainder > 0)) throw new Error("Add at least one amount.");
+    const note = String(p?.note || "").trim().slice(0, 300);
+    try {
+      return await sql.begin(async (tx: any) => {
+        let feeId = id;
+        if (id) {
+          const r = (await tx`update public.past_fees set library = ${lib}, branch = ${br}, month = ${ym}, remainder = ${remainder},
+                              note = ${note}, updated_at = now() where id = ${id} and status <> 'DELETED'`) as any;
+          if (!r.count) throw new Error("That entry no longer exists (or was deleted).");
+          await tx`delete from public.past_fee_lines where past_fee_id = ${id}`;
+        } else {
+          const ins = (await tx`insert into public.past_fees (library, branch, month, remainder, note)
+                                values (${lib}, ${br}, ${ym}, ${remainder}, ${note}) returning id`) as any[];
+          feeId = num(ins[0].id);
+        }
+        for (const l of lines) {
+          await tx`insert into public.past_fee_lines (past_fee_id, kind, line_date, amount, tag, bank)
+                   values (${feeId}, ${l.kind}, ${l.line_date}, ${l.amount}, ${l.tag}, ${l.bank})`;
+        }
+        const total = lines.reduce((a: number, l: any) => a + l.amount, 0) + remainder;
+        return { ok: true, id: feeId, total: Math.round(total * 100) / 100 };
+      });
+    } catch (e: any) {
+      if (String(e?.code) === "23505" || /past_fees_one_per_month/.test(String(e?.message))) {
+        return { ok: false, error: `There's already an entry for ${lib === br || !br ? lib : br} in ${ym}. Open it and edit instead.` };
+      }
+      throw e;
+    }
+  }
+
+  async function deletePastFee(p: any): Promise<any> {
+    const id = num(p?.id);
+    const reason = String(p?.reason || "").trim();
+    if (!reason) throw new Error("Give a reason for deleting.");
+    const r = (await sql`update public.past_fees set status = 'DELETED', deleted_reason = ${reason}, updated_at = now()
+                         where id = ${id} and status <> 'DELETED'`) as any;
+    if (!r.count) throw new Error("That entry no longer exists.");
+    return { ok: true };
+  }
+  async function restorePastFee(p: any): Promise<any> {
+    const id = num(p?.id);
+    try {
+      const r = (await sql`update public.past_fees set status = '', deleted_reason = null, updated_at = now()
+                           where id = ${id} and status = 'DELETED'`) as any;
+      if (!r.count) throw new Error("That entry isn't deleted.");
+      return { ok: true };
+    } catch (e: any) {
+      if (String(e?.code) === "23505") return { ok: false, error: "Another entry now covers that library and month. Edit that one instead." };
+      throw e;
+    }
   }
 
   // ── Reconciliation tick-off ─────────────────────────────────────
@@ -2105,7 +2326,7 @@ async function getOccupancySummary() {
     if (!p || !Array.isArray(p.lines) || !p.lines.length) throw new Error("lines are required.");
     if (p.lines.length > 500) throw new Error("Too many entries at once (max 500).");
     if (!(await _hasTicksTable())) return { ok: false, error: "Tick-off isn't set up yet. Run money-ticks-setup.sql once in Supabase." };
-    const KEY = /^(RECEIPTS|DUES|MISC|REFUNDS)\|[^|]{1,60}\|[1-3]$/;
+    const KEY = /^(RECEIPTS|DUES|MISC|REFUNDS|PAST)\|[^|]{1,60}\|[1-3]$/;
     const items = p.lines.map((l: any) => ({
       key: String(l.key || ""), amount: num(l.amount), bank: up(l.bank || ""), credit_day: String(l.credit_day || "").slice(0, 10),
     }));
@@ -2177,7 +2398,9 @@ async function getOccupancySummary() {
         DUES: Math.round(A.bySource.DUES),
         MISC: Math.round(A.bySource.MISC),
         REFUNDS: Math.round(A.bySource.REFUNDS),
+        PAST: Math.round(A.bySource.PAST || 0),
       },
+      past_partial: (M.pastPartial || []).map((x: any) => ({ ...x, amount: Math.round(x.amount) })),
       by_library: _finalizeBreakdown(A.byLibrary),
       by_fees_mode: _finalizeBreakdown(A.byFeesMode),
       by_tag: _finalizeBreakdown(A.byTag),
@@ -4481,11 +4704,49 @@ async function getOccupancySummary() {
   }
 
   // ── READ: step-1 code check (library label only, no PII) ──
+  // ── Wrong-code limit on the public form ──
+  // Only WRONG codes count. Per phone (a cookie the API sets): 10 in 15 minutes.
+  // Per connection (all phones on one Wi-Fi share it): 50 in 15 minutes, so
+  // clearing cookies can't dodge the limit but a library full of honest
+  // students won't hit it. Both clear by themselves as the 15 minutes pass.
+  // Phone and connection are stored hashed. No table yet → no limit.
+  const INTAKE_WINDOW_MIN = 15, INTAKE_MAX_DEV = 10, INTAKE_MAX_IP = 50;
+  function _intakeHash(v: unknown): string {
+    return createHash("sha256").update("lma-intake-v1|" + String(v ?? "")).digest("hex").slice(0, 32);
+  }
+  async function _intakeGuard(p: any): Promise<string | null> {
+    if (!p?.__ip && !p?.__dev) return null;
+    try {
+      const ip = _intakeHash(p.__ip), dev = _intakeHash(p.__dev || p.__ip);
+      const r = (await sql`
+        select count(*) filter (where dev_hash = ${dev})::int as dev_n,
+               count(*)::int as ip_n,
+               ceil(extract(epoch from (min(at) + ${INTAKE_WINDOW_MIN + " minutes"}::interval - now())) / 60)::int as wait_min
+          from public.intake_attempts
+         where ip_hash = ${ip} and at > now() - ${INTAKE_WINDOW_MIN + " minutes"}::interval`) as any[];
+      const x = r[0] || {};
+      if (num(x.dev_n) >= INTAKE_MAX_DEV || num(x.ip_n) >= INTAKE_MAX_IP) {
+        const w = Math.max(1, Math.min(INTAKE_WINDOW_MIN, num(x.wait_min) || INTAKE_WINDOW_MIN));
+        return `Too many wrong codes. Please wait ${w} minute${w === 1 ? "" : "s"} and try again, or ask your library for your code.`;
+      }
+    } catch { /* table not set up yet */ }
+    return null;
+  }
+  async function _intakeMiss(p: any): Promise<void> {
+    if (!p?.__ip && !p?.__dev) return;
+    try {
+      await sql`insert into public.intake_attempts (ip_hash, dev_hash) values (${_intakeHash(p.__ip)}, ${_intakeHash(p.__dev || p.__ip)})`;
+      await sql`delete from public.intake_attempts where at < now() - interval '1 day'`;
+    } catch { /* table not set up yet */ }
+  }
+
   async function intakeCheck(params: any): Promise<any> {
+    const blocked = await _intakeGuard(params);
+    if (blocked) return { ok: false, error: blocked, locked: true };
     const codeN = _intakeNorm(params?.code);
-    if (codeN.length !== 10) return { ok: false, error: INTAKE_GENERIC };
+    if (codeN.length !== 10) { await _intakeMiss(params); return { ok: false, error: INTAKE_GENERIC }; }
     const hit = await _intakeFindCodeRowW(sql, codeN);
-    if (!hit || up(hit.status) !== "ISSUED") return { ok: false, error: INTAKE_GENERIC };
+    if (!hit || up(hit.status) !== "ISSUED") { await _intakeMiss(params); return { ok: false, error: INTAKE_GENERIC }; }
     const libCode = up(hit.library ?? ""), brCode = up(hit.branch ?? "");
     return { ok: true, library: brCode || libCode, info: await _intakeLibInfoW(sql, libCode, brCode) };
   }
@@ -4493,6 +4754,13 @@ async function getOccupancySummary() {
   // ── WRITE: submit details (ISSUED → SUBMITTED, one time) ──
   async function intakeSubmit(p: any): Promise<any> {
     p = p || {};
+    const blocked = await _intakeGuard(p);
+    if (blocked) return { ok: false, error: blocked, locked: true };
+    const res = await _intakeSubmitInner(p);
+    if (res && res.ok === false && res.error === INTAKE_GENERIC) await _intakeMiss(p);
+    return res;
+  }
+  async function _intakeSubmitInner(p: any): Promise<any> {
     const codeN = _intakeNorm(p.code);
     const name = String(p.name ?? "").trim();
     const gender = up(p.gender);
@@ -4723,6 +4991,16 @@ async function getOccupancySummary() {
         return await getStudentCurrentSeats();
       case "tickMoneyLines":
         return await tickMoneyLines(params);
+      case "getPastFees":
+        return await getPastFees(params);
+      case "pastFeesMonthInfo":
+        return await pastFeesMonthInfo(params);
+      case "savePastFee":
+        return await savePastFee(params);
+      case "deletePastFee":
+        return await deletePastFee(params);
+      case "restorePastFee":
+        return await restorePastFee(params);
       case "saveMiscCategory":
         return await saveMiscCategory(params);
       case "updateRefund":

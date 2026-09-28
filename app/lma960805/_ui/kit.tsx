@@ -390,6 +390,7 @@ export const MORE_LINKS: NavLink[] = [
   { href: BASE + "/receipts",        label: "Receipts",  desc: "Full log & edits",            icon: IconBook },
   { href: BASE + "/refunds",         label: "Refunds",   desc: "Issue & track",               icon: IconUndo },
   { href: BASE + "/dashboard/ledger",label: "Ledger",    desc: "Every entry behind a figure", icon: IconBook },
+  { href: BASE + "/past-fees",       label: "Past fees", desc: "Months before LMA",           icon: IconCalendar },
   { href: BASE + "/settings",        label: "Settings",  desc: "Libraries, fees, layouts",    icon: IconSettings },
 ];
 // The centre button: the two jumps that are not tabs. Enquiry and Misc are tabs

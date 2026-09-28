@@ -39,13 +39,14 @@ interface Ledger {
   meta:BankMeta|TagMeta|null; switcher:BreakRow[];
   totals:{ gross:number; refund:number; net:number; entries:number; receipts:number };
   lines:Line[]; ticks_ready?:boolean;
+  past_partial?:{ month:string; lib:string; amount:number }[];   // month totals left out: the period covers only part of that month
 }
 interface Group { k:string; items:Line[]; inn:number; out:number; net:number; payFrom:string; payTo:string; }
 
-const SRC_ORDER:LedgerSrc[]=["RECEIPTS","DUES","MISC","REFUNDS"];
-const SRC_LABEL:Record<LedgerSrc,string>={RECEIPTS:"Receipt",DUES:"Dues",MISC:"Misc",REFUNDS:"Refund"};
-const SRC_PLURAL:Record<LedgerSrc,string>={RECEIPTS:"Receipts",DUES:"Dues",MISC:"Misc",REFUNDS:"Refunds"};
-const SRC_TONE:Record<LedgerSrc,string>={RECEIPTS:"bg-lma-brand-soft text-lma-brand",DUES:"bg-[#fef3c7] text-[#92400e]",MISC:"bg-lma-in-soft text-lma-in",REFUNDS:"bg-lma-out-soft text-lma-out"};
+const SRC_ORDER:LedgerSrc[]=["RECEIPTS","DUES","MISC","PAST","REFUNDS"];
+const SRC_LABEL:Record<LedgerSrc,string>={RECEIPTS:"Receipt",DUES:"Dues",MISC:"Misc",REFUNDS:"Refund",PAST:"Past fees"};
+const SRC_PLURAL:Record<LedgerSrc,string>={RECEIPTS:"Receipts",DUES:"Dues",MISC:"Misc",REFUNDS:"Refunds",PAST:"Past fees"};
+const SRC_TONE:Record<LedgerSrc,string>={RECEIPTS:"bg-lma-brand-soft text-lma-brand",DUES:"bg-[#fef3c7] text-[#92400e]",MISC:"bg-lma-in-soft text-lma-in",REFUNDS:"bg-lma-out-soft text-lma-out",PAST:"bg-[#ede9fe] text-[#6d28d9]"};
 const DIMS:{k:LedgerDim;label:string;icon:string}[]=[
   {k:"all",label:"All",icon:"📒"},{k:"bank",label:"Bank",icon:"🏦"},{k:"tag",label:"Tag",icon:"🏷️"},{k:"library",label:"Library",icon:"🏛️"},
 ];
@@ -109,7 +110,7 @@ function LedgerScreen(){
     if(f&&t) setPeriod({ preset:isPreset(p)?p:"custom", from:f, to:t });
     else setPeriod(periodOf(isPreset(p)?p:"month"));
     setScope((q.get("lib")||"").toUpperCase());
-    const s=q.get("src"); setSrc(s==="RECEIPTS"||s==="DUES"||s==="MISC"||s==="REFUNDS"?s:"");
+    const s=q.get("src"); setSrc(s==="RECEIPTS"||s==="DUES"||s==="MISC"||s==="REFUNDS"||s==="PAST"?s:"");
     setBasis(q.get("basis")==="credit"?"credit":"pay");
     setReady(true);
   },[linkQs]);
@@ -156,7 +157,7 @@ function LedgerScreen(){
     if(sub&&!rows.some(r=>r.key===sub)) rows.unshift({key:sub,net:0});
     return rows;
   },[afterSrc,subDim,sub]);
-  const unassigned=useMemo(()=>lines.filter(l=>!l.tag||!l.bank),[lines]);
+  const unassigned=useMemo(()=>lines.filter(l=>l.src!=="PAST"&&(!l.tag||!l.bank)),[lines]);
   const unassignedSum=useMemo(()=>unassigned.reduce((s,l)=>s+(l.dir==="OUT"?-l.amt:l.amt),0),[unassigned]);
 
   // ── reconciliation tick-off: bank view on credit dates only ──
@@ -377,6 +378,11 @@ function LedgerScreen(){
               </div>
             )}
 
+            {(data?.past_partial||[]).length>0&&(
+              <p className="mb-3 rounded-[14px] bg-lma-surface px-3.5 py-2.5 text-[12.5px] leading-relaxed text-lma-ink-3 ring-1 ring-inset ring-lma-line">
+                {(data?.past_partial||[]).map(x=>`${["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"][Number(x.month.slice(5,7))-1]} ${x.month.slice(0,4)} past total ${inr(x.amount)} (${x.lib})`).join(" · ")} not counted: this period covers only part of that month. Pick the whole month to include it.
+              </p>
+            )}
             {unassigned.length>0&&activeKey!=="—"&&(
               <button type="button" onClick={()=>setUnOnly(v=>!v)}
                 className={cx("lma-noscale mb-3 w-full rounded-[14px] px-3.5 py-2.5 text-left text-[13px] font-semibold", unOnly?"bg-lma-out text-white":"bg-lma-out-soft text-lma-out")}>
@@ -478,7 +484,7 @@ function LedgerScreen(){
 
 // ── one money entry ──
 function EntryRow({ l, basis, today, onOpen, ts, tk, onTick, busy }:{ l:Line; basis:Basis; today:string|null; onOpen:()=>void; ts?:TickState; tk?:Tick|null; onTick?:()=>void; busy?:boolean }){
-  const title=l.src==="MISC"?(l.cat||"Misc income"):(l.name||l.sid||l.ref);
+  const title=l.src==="MISC"?(l.cat||"Misc income"):l.src==="PAST"?(l.note||"Past library fees"):(l.name||l.sid||l.ref);
   const later=!!l.sday&&!!today&&l.sday>today;
   const row=(
     <button type="button" onClick={onOpen} className="lma-noscale flex w-full min-w-0 flex-1 items-start gap-2.5 px-3.5 py-3 text-left active:bg-lma-bg">
@@ -489,7 +495,9 @@ function EntryRow({ l, basis, today, onOpen, ts, tk, onTick, busy }:{ l:Line; ba
         </div>
         <div className="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[11.5px] text-lma-ink-3">
           <span className="font-semibold text-lma-ink-2">{l.lib}</span>
-          <span className={!l.tag||!l.bank?"font-semibold text-lma-out":"font-semibold text-lma-ink-2"}>{l.tag||"no tag"} → {l.bank||"no bank"}</span>
+          {l.src==="PAST"
+            ? <span className="font-semibold text-lma-ink-2">{l.cat==="UNKNOWN"?"split not known":[l.tag,l.bank].filter(Boolean).join(" → ")}</span>
+            : <span className={!l.tag||!l.bank?"font-semibold text-lma-out":"font-semibold text-lma-ink-2"}>{l.tag||"no tag"} → {l.bank||"no bank"}</span>}
           {l.src==="RECEIPTS"&&<span className="font-lma-mono">{l.ref}</span>}
           {l.src==="DUES"&&<span className="font-lma-mono">{l.ref}{l.rno?` · for ${l.rno}`:""}</span>}
           {l.src==="REFUNDS"&&<span className="font-lma-mono">{l.ref}{l.rno?` · of ${l.rno}`:""}</span>}
@@ -498,7 +506,7 @@ function EntryRow({ l, basis, today, onOpen, ts, tk, onTick, busy }:{ l:Line; ba
           {l.rtype&&<span>{l.rtype}</span>}
           {l.xlib&&<span className="font-semibold text-[#7c3aed]">cross-library</span>}
           {basis==="pay"&&l.dir==="IN"&&!!l.sday&&l.sday!==l.day&&<span className={later?"font-semibold text-lma-warn-2":""}>{later?"credits":"credited"} {dm(l.sday)}</span>}
-          {basis==="credit"&&<span>paid {dm(l.day)}</span>}
+          {basis==="credit"&&l.src!=="PAST"&&<span>paid {dm(l.day)}</span>}
           {l.src==="MISC"&&l.note&&<span className="max-w-full truncate">{l.note}</span>}
         </div>
       </div>
@@ -576,7 +584,7 @@ function EntrySheet({ l, today, onClose, onOpenReceipt }:{ l:Line; today:string|
             <p className="mt-1.5 text-center text-[11.5px] text-lma-ink-3">Use this only to fix a wrong tag, bank, amount or date.</p>
           </>
         ):(
-          <p className="mt-3 px-1 text-[12.5px] text-lma-ink-3">Misc entries are corrected on the Misc income screen.</p>
+          <p className="mt-3 px-1 text-[12.5px] text-lma-ink-3">{l.src==="PAST"?"Past library fees are corrected on the Past fees screen (More → Past fees).":"Misc entries are corrected on the Misc income screen."}</p>
         )}
       </div>
     </div>
