@@ -15,7 +15,7 @@ import OccupancyCard from "../_components/OccupancyCard";
 import PeriodPicker from "../_components/PeriodPicker";
 import PendingCredit, { type PendingRow } from "../_components/PendingCredit";
 import BankCredits, { type BankCreditsData } from "../_components/BankCredits";
-import { periodOf, isPreset, dmyOf, isoOf, localFromIso, ledgerHref, type Period, type LedgerDim, type LedgerSrc } from "../_lib/period";
+import { periodOf, isPreset, dmyOf, isoOf, localFromIso, ledgerHref, periodWords, type Period, type LedgerDim, type LedgerSrc } from "../_lib/period";
 import { Screen, Card, ScopeChips, Skeleton, SectionTitle, IconButton, Empty, BASE, cx } from "../_ui/kit";
 import { IconRefresh, IconLock, IconRepeat, IconWallet, IconChevron, IconChart } from "../_ui/icons";
 import { inr } from "../_ui/format";
@@ -56,6 +56,7 @@ function periodFromSaved(s: Saved | null): Period | null {
   if (!s) return null;
   if (isPreset(s.preset)) return periodOf(s.preset);
   const f = localFromIso(s.from), t = localFromIso(s.to);
+  if (s.preset === "day" && f) return { preset: "day", from: f, to: f };
   return f && t ? { preset: "custom", from: f, to: t } : null;
 }
 
@@ -100,7 +101,7 @@ export default function TodayPage() {
   useEffect(() => { if (alertsFor.current !== (scope || "ALL")) loadAlerts(); }, [scope, loadAlerts]);
 
   const chips = useScopeChips();
-  const isToday = period.preset === "today";
+  const words = periodWords(period);   // "today" · "yesterday" · "all time" · null
 
   const openLedger = (o: { dim?: LedgerDim; key?: string; src?: LedgerSrc; period?: Period }) => {
     const dim = o.dim || "all";
@@ -133,7 +134,7 @@ export default function TodayPage() {
         className="lma-noscale w-full p-5 text-left text-white active:brightness-95">
         <div className="flex items-center justify-between">
           <span className="text-[13px] font-semibold text-white/75">
-            {isToday ? "Collected today" : "Collected"}{scope ? ` · ${scope}` : ""}
+            {words ? `Collected ${words}` : "Collected"}{scope ? ` · ${scope}` : ""}
           </span>
           <span className="text-[12px] font-semibold text-white/75">All entries ›</span>
         </div>
@@ -141,11 +142,11 @@ export default function TodayPage() {
           <>
             <div className="mt-1 font-lma-mono text-[34px] font-medium leading-none tracking-[-0.02em]">{inr(data.headline.net)}</div>
             <div className="mt-1.5 text-[11.5px] text-white/75">
-              {isToday ? "" : `${data.range.from} → ${data.range.to} · `}
+              {words ? (period.preset === "all" ? "Every date · " : "") : `${data.range.from} → ${data.range.to} · `}
               In {inr(data.headline.gross_in)} · Refunds {inr(data.headline.refund_out)}
             </div>
             <div className="mt-4 grid grid-cols-2 gap-3">
-              <Stat label={isToday ? "Receipts today" : "Receipts"} value={String(data.counts.receipts)} />
+              <Stat label={words && (period.preset === "today" || period.preset === "yesterday") ? `Receipts ${words}` : "Receipts"} value={String(data.counts.receipts)} />
               <Stat label="Dues outstanding" value={inr(data.headline.outstanding_dues)} />
             </div>
           </>

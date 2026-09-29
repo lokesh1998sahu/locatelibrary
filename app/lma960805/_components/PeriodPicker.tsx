@@ -2,12 +2,16 @@
 // Shared period picker — preset chips + a custom from/to. Used by the Dashboard and the
 // Ledger. The presets and date maths live in ../_lib/period (single source).
 import { useState } from "react";
-import { PRESETS, periodOf, isoOf, localFromIso, type Period } from "../_lib/period";
-import { Chip, inputCls, cx } from "../_ui/kit";
+import { PRESETS, periodOf, presetRange, isoOf, localFromIso, type Period } from "../_lib/period";
+import { Chip, inputCls, cx, ACTIVE } from "../_ui/kit";
+import { IconCalendar } from "../_ui/icons";
 import { fmtDMY } from "../_lib/dates";
 
 export default function PeriodPicker({ value, onChange }: { value: Period; onChange: (p: Period) => void }) {
   const [open, setOpen] = useState(value.preset === "custom");
+  const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  const pickDay = (v: string) => { const d = localFromIso(v); if (d) { setOpen(false); onChange({ preset: "day", from: d, to: d }); } };
+  const isDay = value.preset === "day";
   const setDate = (which: "from" | "to", v: string) => {
     const d = localFromIso(v);
     if (!d) return;
@@ -17,10 +21,31 @@ export default function PeriodPicker({ value, onChange }: { value: Period; onCha
     <>
       <div className="-mx-4 mb-3 flex gap-2 overflow-x-auto px-4 pb-1 [scrollbar-width:none]">
         {PRESETS.map(p => (
-          <Chip key={p.k} on={value.preset === p.k && !open} onClick={() => { setOpen(false); onChange(periodOf(p.k)); }}>{p.label}</Chip>
+          <span key={p.k} className="contents">
+            <Chip on={value.preset === p.k && !open} onClick={() => { setOpen(false); onChange(periodOf(p.k)); }}>{p.label}</Chip>
+            {p.k === "yesterday" && (
+              // One tap opens the calendar (as in MF): an invisible date box sits over the chip.
+              <label className={cx("lma-btn relative inline-flex min-h-[40px] shrink-0 cursor-pointer items-center gap-1.5 rounded-full px-4 text-[14px] font-medium transition",
+                isDay && !open ? ACTIVE : "bg-lma-surface text-lma-ink-2 ring-1 ring-inset ring-lma-line active:bg-lma-bg")}>
+                <IconCalendar size={16} />
+                <span className="whitespace-nowrap">{isDay ? `${value.from.getDate()} ${MON[value.from.getMonth()]}` : "Other date"}</span>
+                <input type="date" aria-label="Pick a date" value={isDay ? isoOf(value.from) : ""}
+                  onChange={e => e.target.value && pickDay(e.target.value)}
+                  onClick={e => { try { (e.currentTarget as HTMLInputElement & { showPicker?: () => void }).showPicker?.(); } catch { /* older browsers open it anyway */ } }}
+                  className="absolute inset-0 h-full w-full cursor-pointer opacity-0" />
+              </label>
+            )}
+          </span>
         ))}
-        <Chip on={open || value.preset === "custom"} onClick={() => setOpen(v => !v)}>Custom</Chip>
+        <Chip on={open || value.preset === "custom"} onClick={() => {
+          // coming from All time, start the custom dates at this month rather than 2000–2099
+          if (value.preset === "all" && !open) { const r = presetRange("month"); onChange({ preset: "custom", from: r.from, to: r.to }); }
+          setOpen(v => !v);
+        }}>Custom</Chip>
       </div>
+      {value.preset === "all" && !open && (
+        <p className="-mt-1 mb-3 px-1 text-[12px] font-medium text-lma-ink-3">Showing everything — every date, no range applied.</p>
+      )}
       {open && (
         <div className="mb-3 grid grid-cols-2 gap-3 rounded-lma border border-lma-line bg-lma-surface p-3 shadow-lma-card">
           <label className="block">

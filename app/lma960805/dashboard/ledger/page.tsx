@@ -108,7 +108,7 @@ function LedgerScreen(){
     const d=q.get("dim"); setDim(d==="bank"||d==="tag"||d==="library"?d:"all");
     setKey((q.get("key")||"").toUpperCase());
     const p=q.get("p"), f=parseAnyDate(q.get("from")), t=parseAnyDate(q.get("to"));
-    if(f&&t) setPeriod({ preset:isPreset(p)?p:"custom", from:f, to:t });
+    if(f&&t) setPeriod(p==="day" ? { preset:"day", from:f, to:f } : { preset:isPreset(p)?p:"custom", from:f, to:t });
     else setPeriod(periodOf(isPreset(p)?p:"month"));
     setScope((q.get("lib")||"").toUpperCase());
     const s=q.get("src"); setSrc(s==="RECEIPTS"||s==="DUES"||s==="MISC"||s==="REFUNDS"||s==="PAST"?s:"");
@@ -256,7 +256,7 @@ function LedgerScreen(){
   const buildSummary=()=>{
     const out:string[]=[];
     out.push(`📒 LMA Ledger — ${viewName}`);
-    out.push(`${dmy(isoOf(period.from))} to ${dmy(isoOf(period.to))} · ${dim==="library"?"":(scope||"All libraries")+" · "}by ${basis==="credit"?"bank credit date":"payment date"}`);
+    out.push(`${period.preset==="all"?"All time":period.preset==="day"?dmy(isoOf(period.from)):`${dmy(isoOf(period.from))} to ${dmy(isoOf(period.to))}`} · ${dim==="library"?"":(scope||"All libraries")+" · "}by ${basis==="credit"?"bank credit date":"payment date"}`);
     const f=[src?SRC_PLURAL[src]:"",sub?`${subDim==="tag"?"tag":"bank"} ${keyLabel(sub)}`:"",unOnly?"no tag/bank only":"",search.trim()?`search "${search.trim()}"`:""].filter(Boolean);
     if(f.length) out.push(`Filter: ${f.join(", ")}`);
     out.push(`IN ${inr(tot.gross)} · OUT ${inr(tot.refund)} · NET ${inrSigned(tot.net)}`);
@@ -287,7 +287,7 @@ function LedgerScreen(){
     const url=URL.createObjectURL(blob);
     const a=document.createElement("a");
     const tag=(dim==="all"?"all":`${dim}-${keyLabel(activeKey)}`).replace(/[^A-Za-z0-9-]+/g,"-");
-    a.href=url; a.download=`LMA-ledger_${tag}_${isoOf(period.from)}_to_${isoOf(period.to)}.csv`;
+    a.href=url; a.download=`LMA-ledger_${tag}_${period.preset==="all"?"all-time":`${isoOf(period.from)}_to_${isoOf(period.to)}`}.csv`;
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(()=>URL.revokeObjectURL(url),1500);
     showToast(`CSV ready · ${plural(rows.length,"entry","entries")}`);
