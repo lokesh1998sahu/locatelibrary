@@ -2,6 +2,7 @@
 
 import ContactCopyButton from "../_components/ContactCopyButton";
 import WhatsAppButton from "../_components/WhatsAppButton";
+import ContactIcons from "../_components/ContactIcons";
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -950,8 +951,11 @@ function DetailSheet({ cell, panel, onClose, scope, lib, branch, post, showToast
     };
     return (
       <div className="rounded-[18px] border border-lma-line bg-lma-surface p-3.5 shadow-lma-card">
-        <div>
-          <span className="inline-block max-w-full -ml-1 whitespace-normal break-words rounded-lg px-2 py-0.5 text-[17px] font-bold leading-snug text-lma-ink" style={{ background:o.gender?(normGender(o.gender)==="F"?"#fbe4ef":"#d3e4ff"):"transparent" }}>{o.name}</span>
+        <div className="flex items-start gap-2">
+          <span className="min-w-0 flex-1">
+            <span className="inline-block max-w-full -ml-1 whitespace-normal break-words rounded-lg px-2 py-0.5 text-[17px] font-bold leading-snug text-lma-ink" style={{ background:o.gender?(normGender(o.gender)==="F"?"#fbe4ef":"#d3e4ff"):"transparent" }}>{o.name}</span>
+          </span>
+          <ContactIcons phones={o.phones} name={o.name} />
         </div>
         {/* who and which receipt — both open their window */}
         <div className="mt-2.5 grid grid-cols-2 gap-2">
@@ -982,13 +986,21 @@ function DetailSheet({ cell, panel, onClose, scope, lib, branch, post, showToast
         </div>
         {o.fees_due_balance>0&&<div className="inline-flex items-center gap-1 mt-2 px-2.5 py-1 rounded-lg text-[12px] font-extrabold" style={{ background:"#fcecca", color:"#b45309", boxShadow:"inset 0 0 0 1px rgba(180,83,9,.18)", fontFamily:mono }}>₹{o.fees_due_balance} due</div>}
         {o.remark&&<div className="text-[11px] mt-1.5 italic" style={{ color:"#646882" }}>📝 {o.remark}</div>}
-        {/* in the order they are used: renew · collect dues · whatsapp · re-allot · more */}
+        {/* in the order they are used: renew · collect dues · reminders · re-allot · more */}
         <div className={`mt-3 grid gap-2 ${o.fees_due_balance>0?"grid-cols-2":"grid-cols-1"}`}>
           <button onClick={()=>onRenew(o.receipt_no, cell.display_label, o.shift)} className="lma-glass-btn h-12 rounded-[14px] text-white text-[15px] font-bold flex items-center justify-center gap-1.5 active:brightness-95"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round"><path d="M5 11V9.5A3.5 3.5 0 0 1 8.5 6H18l-3-3"/><path d="M19 13v1.5a3.5 3.5 0 0 1-3.5 3.5H6l3 3"/></svg>Renew</button>
           {o.fees_due_balance>0&&<button disabled={busy} onClick={()=>tglLane(o.receipt_no,"collect")} className="h-12 rounded-[14px] text-white text-[15px] font-bold flex items-center justify-center gap-1.5 disabled:opacity-50 shadow-[inset_0_1px_0_rgb(255_255_255/0.28),0_8px_18px_-8px_rgb(180_83_9/0.6)]" style={{ background:"linear-gradient(180deg,#f5a524 0%,#d97706 60%,#b45309 100%)" }}>Collect ₹{o.fees_due_balance}</button>}
         </div>
         <div className="mt-2 grid grid-cols-[1.3fr_1fr_1fr] gap-2">
-          <WhatsAppButton phones={o.phones} label="WhatsApp" chat className="h-12 w-full whitespace-nowrap rounded-[14px] flex items-center justify-center text-[13px] font-semibold bg-[#e3f6ec] text-[#0b7a52] ring-1 ring-inset ring-[#c6ecd8] disabled:opacity-40" variants={[...(o.fees_due_balance>0&&o.dues_status==="PENDING"?[{label:"Dues reminder",text:duesReminder(o)}]:[]),...((o.color==="EXPIRING"||o.color==="EXPIRED")?[{label:"Renewal reminder",text:remind(o)}]:[]),...(o.color==="EXPIRED"?[{label:"Follow-up · deposit fees",text:followUpPay(o)},{label:"Follow-up · confirm continuing",text:followUpAsk(o)}]:[]),...(o.receipt_no?[{label:"📋 Student copy",text:"",getText:()=>fetchCopy("student")}]:[]),...(o.receipt_type!=="RENEWAL"?[{label:"📢 Group copy",text:"",getText:()=>fetchCopy("group"),pick:true}]:[])]}/>
+          {(() => {
+            // Reminders: only the ready-made messages. Opening a plain chat is the
+            // WhatsApp icon next to the name.
+            const reminders = [...(o.fees_due_balance>0&&o.dues_status==="PENDING"?[{label:"Dues reminder",text:duesReminder(o)}]:[]),...((o.color==="EXPIRING"||o.color==="EXPIRED")?[{label:"Renewal reminder",text:remind(o)}]:[]),...(o.color==="EXPIRED"?[{label:"Follow-up · deposit fees",text:followUpPay(o)},{label:"Follow-up · confirm continuing",text:followUpAsk(o)}]:[]),...(o.receipt_no?[{label:"📋 Student copy",text:"",getText:()=>fetchCopy("student")}]:[]),...(o.receipt_type!=="RENEWAL"?[{label:"📢 Group copy",text:"",getText:()=>fetchCopy("group"),pick:true}]:[])];
+            return reminders.length
+              ? <WhatsAppButton phones={o.phones} label="Reminders" menu menuTitle="Reminders" variants={reminders}
+                  className="h-12 w-full whitespace-nowrap rounded-[14px] flex items-center justify-center text-[13px] font-semibold bg-[#e3f6ec] text-[#0b7a52] ring-1 ring-inset ring-[#c6ecd8] disabled:opacity-40"/>
+              : <button type="button" disabled className="h-12 w-full whitespace-nowrap rounded-[14px] text-[13px] font-semibold bg-lma-bg text-lma-ink-3 ring-1 ring-inset ring-lma-line opacity-70">Reminders</button>;
+          })()}
           <button disabled={busy} onClick={()=>onReAllot(o)} className="h-12 w-full rounded-[14px] flex items-center justify-center text-[13px] font-semibold bg-lma-brand-soft text-lma-brand ring-1 ring-inset ring-[#dcdffb] disabled:opacity-50">{o.temporary_seat?"Restore":"Re-allot"}</button>
           <button onClick={()=>tglLane(o.receipt_no,"more")} aria-expanded={laneUI.rno===o.receipt_no&&laneUI.sec==="more"} className={`h-12 w-full rounded-[14px] flex items-center justify-center gap-1 text-[13px] font-semibold ring-1 ring-inset ${laneUI.rno===o.receipt_no&&laneUI.sec==="more"?"bg-lma-ink text-white ring-lma-ink":"bg-lma-bg text-lma-ink-2 ring-lma-line"}`}>More<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.4} strokeLinecap="round" style={{transform:laneUI.rno===o.receipt_no&&laneUI.sec==="more"?"rotate(180deg)":"none",transition:"transform .15s"}}><path d="M6 9l6 6 6-6"/></svg></button>
         </div>

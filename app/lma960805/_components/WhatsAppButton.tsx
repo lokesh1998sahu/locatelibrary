@@ -1,5 +1,5 @@
 "use client";
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { type ContactPhone } from "../_lib/contact";
 import { parsePhone10 } from "../_lib/phone";
@@ -8,9 +8,13 @@ import { parsePhone10 } from "../_lib/phone";
 // message chooser (e.g. Initial / Follow-up), THEN the phones step when there are
 // several numbers. With no variants the behaviour is exactly as before.
 // The chooser is a bottom sheet: every message is readable before you send it.
-export default function WhatsAppButton({ phones, className, label, text, variants, chat }:{
+// Optional: `icon` shows instead of the text label (no ▾), with `ariaLabel` for
+// screen readers; `menuTitle` names the message sheet; `menu` always shows the
+// message list first, even with a single message, so you see what you send.
+export default function WhatsAppButton({ phones, className, label, text, variants, chat, icon, ariaLabel, menuTitle, menu }:{
   phones?:ContactPhone[]; className?:string; label?:string; text?:string;
   variants?:{label:string;text:string;getText?:()=>Promise<string>;pick?:boolean}[]; chat?:boolean;
+  icon?:ReactNode; ariaLabel?:string; menuTitle?:string; menu?:boolean;
 }){
   const [open,setOpen]=useState(false);
   const [chosen,setChosen]=useState<string|null>(null);
@@ -20,8 +24,8 @@ export default function WhatsAppButton({ phones, className, label, text, variant
   const multi=list.length>1;
   const vlist=(variants||[]).filter(v=>v&&(v.text||v.getText));
   const items = chat ? [{label:"Open WhatsApp chat", text:""}, ...vlist] : vlist;
-  const soleVar = items.length===1 ? items[0].text : undefined;
-  const hasVar = items.length>1;
+  const hasVar = items.length>1 || (!!menu && items.length>=1);
+  const soleVar = !hasVar && items.length===1 ? items[0].text : undefined;
   useEffect(()=>{ if(!open) setChosen(null); },[open]);
   const openChat=(num:string,t?:string)=>{ const p=parsePhone10(num||""); const msg=t!==undefined?t:(chosen!==null?chosen:(text!==undefined?text:soleVar)); if(p) window.open(msg?`https://wa.me/91${p}?text=${encodeURIComponent(msg)}`:`https://wa.me/91${p}`,"_blank"); setOpen(false); };
   const onClick=()=>{ if(list.length===0) return; if(hasVar){ setChosen(null); setOpen(o=>!o); return; } if(!multi){ openChat(list[0].number); } else { setOpen(o=>!o); } };
@@ -33,11 +37,11 @@ export default function WhatsAppButton({ phones, className, label, text, variant
     window.addEventListener("keydown",k);
     return ()=>window.removeEventListener("keydown",k);
   },[open]);
-  const title = showVarStep ? "Send on WhatsApp" : "Which number?";
+  const title = showVarStep ? (menuTitle || "Send on WhatsApp") : "Which number?";
   const sub = showVarStep ? `Pick a message · ${items.length} options` : chosen!==null ? "Message ready — pick the number" : `${list.length} numbers`;
   return (
     <div ref={wrap} className="relative shrink-0">
-      <button type="button" onClick={onClick} disabled={list.length===0} className={className||"px-2.5 py-2.5 rounded-xl bg-lma-accent/10 text-lma-accent font-bold text-xs disabled:opacity-40"}>{label||"💬"}{(multi||hasVar)?" ▾":""}</button>
+      <button type="button" onClick={onClick} disabled={list.length===0} className={className||"px-2.5 py-2.5 rounded-xl bg-lma-accent/10 text-lma-accent font-bold text-xs disabled:opacity-40"} aria-label={ariaLabel}>{icon ?? <>{label||"💬"}{(multi||hasVar)?" ▾":""}</>}</button>
       {open && (multi||hasVar) && typeof document!=="undefined" && createPortal((
         <div className="fixed inset-0 z-[10002] flex items-end justify-center" onClick={()=>setOpen(false)}>
           <div className="lma-fade-in absolute inset-0 bg-[rgb(15_23_42/0.5)]"/>
