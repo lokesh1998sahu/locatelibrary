@@ -12,7 +12,7 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useMF, money, groupsOf } from "../_components/MFProvider";
+import { useMF, money, groupsOf, laterText } from "../_components/MFProvider";
 import { TopBar, Card, Chip, Segmented, Sheet, Button, Empty, Skeleton, BASE, cx } from "../_ui/kit";
 import { IconBook, IconWallet } from "../_ui/icons";
 import { dayLabel } from "../_ui/format";
@@ -46,7 +46,7 @@ export default function Passbook() {
     return v > 0 ? v : null;
   });
   const [rows, setRows] = useState<Row[]>([]);
-  const [meta, setMeta] = useState<{ needs_setup?: boolean; total?: number; shown?: number } | null>(null);
+  const [meta, setMeta] = useState<{ needs_setup?: boolean; total?: number; shown?: number; today?: string; balance_now?: number } | null>(null);
   const [busy, setBusy] = useState(false);
   const [openId, setOpenId] = useState<number | null>(null);
   const [world, setWorld] = useState<string>("");          // "" = every group
@@ -55,7 +55,7 @@ export default function Passbook() {
     setBusy(true);
     const j = await post("ledger", { account_id: accountId ?? 0, world });
     setBusy(false);
-    if (j) { setRows(j.rows ?? []); setMeta({ needs_setup: j.needs_setup, total: j.total, shown: j.shown }); }
+    if (j) { setRows(j.rows ?? []); setMeta({ needs_setup: j.needs_setup, total: j.total, shown: j.shown, today: j.today, balance_now: j.balance_now }); }
   }, [accountId, world, post]);
 
   useEffect(() => { load(); }, [load]);
@@ -115,6 +115,20 @@ export default function Passbook() {
         <Card><Empty icon={<IconBook size={22} />} title="Nothing recorded yet" body="Entries appear here as soon as money moves." /></Card>
       ) : (
         <>
+          {meta?.today && meta.balance_now != null && rows.some(r => r.balance != null) && (() => {
+            const acct = init?.accounts.find(a => String(a.id) === String(accountId));
+            const later = acct ? laterText(acct) : "";
+            return (
+              <Card className="mb-3">
+                <div className="flex items-baseline justify-between gap-3">
+                  <span className="text-[13px] text-mf-ink-3">In the bank now</span>
+                  <span className="font-mf-mono text-[20px] text-mf-ink">{money(meta.balance_now)}</span>
+                </div>
+                {later && <div className="mt-0.5 text-right text-[12px] font-semibold text-mf-in">{later}</div>}
+                {later && <p className="mt-2 text-[11.5px] leading-relaxed text-mf-ink-3">Rows marked “on its way” are dated after today — the bank doesn’t show them yet. The balance on each row still runs through them.</p>}
+              </Card>
+            );
+          })()}
           {days.map(d => (
             <section key={d.day} className="mb-3">
               <h2 className="mb-1.5 px-1 text-[12px] font-bold uppercase tracking-[0.08em] text-mf-ink-3">{dayLabel(d.day)}</h2>
@@ -128,6 +142,9 @@ export default function Passbook() {
                           {r.world && <span className="shrink-0 rounded-full px-1.5 py-px text-[10.5px] font-semibold ring-1 ring-inset ring-mf-line">{groupsOf(init).find(g => g.code === r.world)?.name ?? r.world}</span>}
                           {r.category && r.category !== r.label && <span className="truncate">{r.category}</span>}
                           {r.source === "LMA" && <span className="rounded-full bg-mf-bg px-1.5 py-px text-[10.5px] font-semibold text-mf-ink-2">From LMA</span>}
+                          {meta?.today && String(r.on_date).slice(0, 10) > meta.today && (
+                            <span className="shrink-0 rounded-full bg-mf-in/10 px-1.5 py-px text-[10.5px] font-semibold text-mf-in">on its way</span>
+                          )}
                         </div>
                       </div>
                       <div className="shrink-0 text-right">

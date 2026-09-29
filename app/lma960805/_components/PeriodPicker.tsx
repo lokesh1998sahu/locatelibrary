@@ -1,5 +1,5 @@
 "use client";
-// Shared period picker — preset chips + a custom from/to. Used by Today and the
+// Shared period picker — preset chips + a custom from/to. Used by the Dashboard and the
 // Ledger. The presets and date maths live in ../_lib/period (single source).
 import { useState } from "react";
 import { PRESETS, periodOf, isoOf, localFromIso, type Period } from "../_lib/period";

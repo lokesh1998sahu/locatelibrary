@@ -18,11 +18,16 @@ function isoDate(v: unknown): string {
 // ── reference data: cheap indexed lookups, safe on every app open ─────
 // Deliberately excludes anything that scans fin.entry_lines without a date
 // bound. That lives in initLive() and runs only when the owner asks.
+// A date from the database (Date object or text) as plain YYYY-MM-DD.
+function ymdOf(v: unknown): string {
+  if (v instanceof Date) return isNaN(v.getTime()) ? "" : v.toISOString().slice(0, 10);
+  return String(v ?? "").slice(0, 10);
+}
+
 async function initData() {
   const [accounts, categories, people, routes, libraries, groups, labels] = await Promise.all([
-    sql`select account_id, bank_code, bank_name, owner_name, acct_type, is_liability,
-               active, opening_balance, opening_date, is_set_up, balance, lma_income_all_time
-        from fin.v_account_balance where active order by is_liability, balance desc nulls last`,
+    // select * so this keeps working before mf-balance-now-setup.sql adds its columns
+    sql`select * from fin.v_account_balance where active order by is_liability, balance desc nulls last`,
     sql`select id, code, name, kind, quick, group_code, parent_id, sort from fin.categories where active order by sort, name`,
     sql`select id, name, quick from fin.people where active order by quick desc, name`,
     sql`select display_code, bank_code, settlement_days from fin.v_routes_mf order by display_code`,
@@ -48,8 +53,13 @@ async function initData() {
       is_liability: !!a.is_liability,
       is_set_up: !!a.is_set_up,
       opening_balance: a.opening_balance == null ? null : num(a.opening_balance),
-      opening_date: a.opening_date ?? null,
-      balance: a.balance == null ? null : num(a.balance),
+      opening_date: a.opening_date ? ymdOf(a.opening_date) : null,
+      // "balance" is what the bank should show TODAY; the parts dated later are separate
+      balance: a.balance == null ? null : num(a.balance_now ?? a.balance),
+      balance_total: a.balance == null ? null : num(a.balance),
+      incoming: num(a.incoming ?? 0),                  // library fees landing after today
+      dated_later: num(a.dated_later ?? 0),            // MF entries dated after today
+      lands_by: a.lands_by ? ymdOf(a.lands_by) : null,
     })),
     categories: categories.map((c) => ({
       id: Number(c.id), code: c.code, name: c.name, kind: c.kind, quick: !!c.quick,
@@ -118,7 +128,7 @@ async function initLive() {
       due_soon: due,
       overdue: Number(x.overdue ?? 0),
       next_name: x.next_name ?? null,
-      next_due: x.next_due ?? null,
+      next_due: x.next_due ? ymdOf(x.next_due) : null,
     } : null,
     totals: {
       haves: money(h), owes: money(o), net: money(h - o),
@@ -534,13 +544,18 @@ async function ledger(p: any) {
     };
   });
 
+  // today in India, so the screen can mark rows that haven't reached the bank yet
+  const istToday = new Date(Date.now() + 5.5 * 3600e3).toISOString().slice(0, 10);
+  const lastNow = [...walked].reverse().find((r) => ymdOf(r.on_date) <= istToday);
   return {
     mode: "passbook",
     account: {
       id: accountId, name: acc.bank_name ?? acc.bank_code, bank_code: acc.bank_code,
-      opening_balance: money(acc.opening_balance), opening_date: acc.opening_date,
+      opening_balance: money(acc.opening_balance), opening_date: acc.opening_date ? ymdOf(acc.opening_date) : null,
     },
     needs_setup: false,
+    today: istToday,
+    balance_now: lastNow ? lastNow.balance : money(acc.opening_balance),   // what the bank should show today
     rows: walked.slice(-limit).reverse(),
     shown: Math.min(limit, walked.length),
     total: walked.length,
@@ -588,7 +603,7 @@ async function checkPrepare(p: any) {
     on_date: onDate,
     app_balance: money(a.app_balance),
     last_check: last.length
-      ? { checked_on: last[0].checked_on, real_balance: money(last[0].real_balance), difference: money(last[0].difference) }
+      ? { checked_on: ymdOf(last[0].checked_on), real_balance: money(last[0].real_balance), difference: money(last[0].difference) }
       : null,
   };
 }
@@ -1027,11 +1042,11 @@ async function schedules() {
         id: Number(s.id), name: s.name, amount: money(s.amount), note: s.note ?? "",
         account_id: s.account_id == null ? null : Number(s.account_id),
         account_name: s.bank_name ?? s.bank_code ?? null,
-        frequency: s.frequency, next_due: s.next_due, days_away: Number(s.days_away),
+        frequency: s.frequency, next_due: ymdOf(s.next_due), days_away: Number(s.days_away),
         installments_total: s.installments_total == null ? null : Number(s.installments_total),
         installments_paid: Number(s.installments_paid ?? 0),
         remaining: s.installments_total == null ? null : Number(s.installments_total) - Number(s.installments_paid ?? 0),
-        status: s.status ?? (s.active ? "ACTIVE" : "CLOSED"), closed_reason: s.closed_reason ?? null, closed_on: s.closed_on ?? null,
+        status: s.status ?? (s.active ? "ACTIVE" : "CLOSED"), closed_reason: s.closed_reason ?? null, closed_on: s.closed_on ? ymdOf(s.closed_on) : null,
         shares,
         paid_total: money(mine.reduce((a, x) => a + num(x.total), 0)),
         payments: mine.slice(0, 12).map((x) => ({ entry_id: Number(x.id), on: x.entry_date, amount: money(x.total), part: x.part })),
@@ -1568,7 +1583,7 @@ async function accountsTree() {
       owner_name: a.owner_name ?? "", acct_type: a.acct_type, is_liability: !!a.is_liability,
       description: a.description ?? "", active: !!a.active, quick: !!a.quick,
       opening_balance: a.opening_balance == null ? null : money(a.opening_balance),
-      opening_date: a.opening_date ?? null,
+      opening_date: a.opening_date ? ymdOf(a.opening_date) : null,
       history_rows: usage.get(String(a.bank_code).toUpperCase()) ?? 0,
       routes: routes
         .filter((r) => r.bank_code === a.bank_code)

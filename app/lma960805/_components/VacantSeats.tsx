@@ -1,7 +1,7 @@
 "use client";
 
 // LMA — the vacant-seat list. Same shared vacancy computer as the seat chart,
-// used both on Today and on its own screen (the bolt button), so the wording
+// used both on the Dashboard and on its own screen (the bolt button), so the wording
 // you send out is identical wherever you ask for it.
 
 import { useState } from "react";

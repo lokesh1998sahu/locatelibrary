@@ -13,6 +13,7 @@ import ReceiptModal, { MoneyTrail } from "../../_components/ReceiptModal";
 import SearchBar from "../../_components/SearchBar";
 import Pager from "../../_components/Pager";
 import PeriodPicker from "../../_components/PeriodPicker";
+import PendingCredit from "../../_components/PendingCredit";
 import { periodOf, isPreset, dmyOf, isoOf, type Period, type LedgerDim, type LedgerSrc } from "../../_lib/period";
 import { parseAnyDate, fmtDMY } from "../../_lib/dates";
 import { Screen, Card, Chip, ScopeChips, Segmented, Sheet, Button, Skeleton, Empty, IconButton, cx } from "../../_ui/kit";
@@ -99,7 +100,7 @@ function LedgerScreen(){
   const adoptKey=useRef(false);   // server picked the key: take it without refetching
 
   // Read the link — and read it again whenever it changes. The app keeps this
-  // screen mounted when another link opens it (e.g. tapping a bank on Today while
+  // screen mounted when another link opens it (e.g. tapping a bank on the Dashboard while
   // the Ledger is already open), so reading it only once kept the old view.
   // Anything the link doesn't say goes back to its default.
   useEffect(()=>{
@@ -229,7 +230,7 @@ function LedgerScreen(){
   const setAll=(v:boolean)=>setOpenMap(()=>{ const n:Record<string,boolean>={}; groups.forEach(g=>{ n[g.k]=v; }); return n; });
 
   const pickDim=(d:LedgerDim)=>{ if(d===dim) return; setDim(d); setKey(""); setSrc(""); setDraft(""); setSearch(""); };
-  const back=()=>{ if(window.history.length>1) router.back(); else router.push("/lma960805/today"); };
+  const back=()=>{ if(window.history.length>1) router.back(); else router.push("/lma960805/dashboard"); };
 
   // ── header text ──
   const libName=(code:string)=>{
@@ -332,7 +333,7 @@ function LedgerScreen(){
         {/* which date decides the day */}
         <Segmented className="mb-1.5" value={basis} onChange={v=>setBasis(v as Basis)} options={[{v:"pay",label:"Paid on"},{v:"credit",label:"Credited on"}]}/>
         <p className="mb-3 px-1 text-[12px] leading-relaxed text-lma-ink-3">{basis==="pay"
-          ?"Each day shows the money received that day, the same as Today."
+          ?"Each day shows the money received that day, the same as the Dashboard."
           :"Each day is what should appear as a credit on the bank statement: the payment date plus the tag’s settlement days. Around Sundays and holidays the bank may credit a day later."}</p>
 
         {err&&(
@@ -356,7 +357,8 @@ function LedgerScreen(){
                 <div className="rounded-[14px] bg-white/10 px-3 py-2.5"><div className="text-[11.5px] font-semibold text-white/70">In</div><div className="mt-0.5 font-lma-mono text-[17px] font-medium">{inr(tot.gross)}</div></div>
                 <div className="rounded-[14px] bg-white/10 px-3 py-2.5"><div className="text-[11.5px] font-semibold text-white/70">Out</div><div className="mt-0.5 font-lma-mono text-[17px] font-medium">{inr(tot.refund)}</div></div>
               </div>
-              {transit&&<div className="mt-3 rounded-[12px] bg-white/15 px-3 py-2 text-[12px] font-semibold">⏳ {inr(transit.amt)} received but not yet credited · lands by {dm(transit.last)}</div>}
+              {transit&&today&&<PendingCredit today={today} scope={scope}
+                rows={shown.filter(l=>l.dir==="IN"&&!!l.sday&&l.sday>today).map(l=>({ tag:l.tag, bank:l.bank, amount:l.amt, lands:l.sday||"" }))} />}
             </section>
 
             {basis==="credit"&&data&&data.ticks_ready===false&&(

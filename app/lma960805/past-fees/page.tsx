@@ -50,7 +50,7 @@ export default function PastFees() {
 
   return (
     <div className="mx-auto w-full max-w-[560px] px-4 pb-28">
-      <TopBar back={BASE + "/today"} title="Past fees" sub="Fee income from months before LMA"
+      <TopBar back={BASE + "/dashboard"} title="Past fees" sub="Fee income from months before LMA"
         right={data?.ready ? <Button variant="secondary" className="h-10 px-3 text-[14px]" onClick={() => setEdit("new")}><IconPlus size={17} /> Add</Button> : undefined} />
 
       {data && !data.ready ? (

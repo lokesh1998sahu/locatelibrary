@@ -10,7 +10,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { useMF, money } from "../_components/MFProvider";
+import { useMF, money, laterText } from "../_components/MFProvider";
 import { TopBar, Card, Chip, ChipGroup, Button, Banner, Empty, Field, cx, ACTIVE, BASE } from "../_ui/kit";
 import { IconCheck, IconCalendar } from "../_ui/icons";
 import { dateLong, dayLabel } from "../_ui/format";
@@ -115,6 +115,15 @@ export default function Check() {
           <section className="mf-glass-dark mb-5 rounded-[22px] p-5 text-white">
             <div className="text-[13px] font-semibold text-white/75">MF says{isToday ? "" : `, on ${dateLong(onDate)}`}</div>
             <div className="mt-1 font-mf-mono text-[32px] font-medium leading-none tracking-[-0.02em]">{money(app)}</div>
+            {isToday && (() => {
+              const acct = init?.accounts.find(a => a.id === accountId);
+              const later = acct ? laterText(acct) : "";
+              return later ? (
+                <div className="mt-2 text-[12px] leading-relaxed text-white/80">
+                  Not counted: {later}. Your bank app won’t show {later.includes("dated later") && !later.includes("on its way") ? "those" : "it"} yet either.
+                </div>
+              ) : null;
+            })()}
             {prep.last_check && (
               <div className="mt-3 text-[12px] text-white/70">
                 Last checked {dateLong(prep.last_check.checked_on)}

@@ -7,7 +7,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { useMF } from "./_components/MFProvider";
+import { useMF, laterText } from "./_components/MFProvider";
 import { Screen, Card, SectionTitle, Row, Amount, IconButton, Skeleton, Empty, BASE, cx } from "./_ui/kit";
 import { IconLock, IconRefresh, IconIn, IconPlus, IconRepeat, IconChevron, IconWallet } from "./_ui/icons";
 import { money, dateShort } from "./_ui/format";
@@ -135,7 +135,10 @@ export default function MFHome() {
             <Row key={a.id} href={`${BASE}/passbook?account=${a.id}`} last={i === setUp.length - 1}
               title={a.bank_name}
               sub={[a.owner_name, TYPE_LABEL[a.acct_type] || a.acct_type].filter(Boolean).join(" · ")}
-              right={<Amount value={a.balance} tone={a.is_liability ? "out" : "plain"} className="text-[15px]" />} />
+              right={<span className="flex flex-col items-end">
+                <Amount value={a.balance} tone={a.is_liability ? "out" : "plain"} className="text-[15px]" />
+                {laterText(a) && <span className="mt-0.5 text-[11.5px] font-semibold text-mf-in">{laterText(a)}</span>}
+              </span>} />
           ))
         )}
       </Card>

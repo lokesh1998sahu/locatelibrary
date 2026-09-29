@@ -2356,12 +2356,64 @@ async function getOccupancySummary() {
     const A = _mkAgg();
 
     // 1–4) receipt payments, dues, misc, refunds — totalled from the shared money lines
-    const M = _moneyLines(T, fromYmd, toYmd, scope, "pay", null);
+    // the tag map only sets each line's credit day (sday); totals here go by the paid day
+    const tagMapD = await _loadTagMap();
+    const M = _moneyLines(T, fromYmd, toYmd, scope, "pay", tagMapD);
     for (const L of M.lines) {
       if (L.dir === "IN") _addInflow(A, L.amt, L.lib, L.bank, L.tag, L.day, L.src);
       else _addOutflow(A, L.amt, L.lib, L.bank, L.tag, L.day);
     }
     A.counts = M.counts;
+
+    // Money received in this period that reaches the bank after today (tag → bank → day)
+    const todayKey = _ymdKeyStr(todayMidnightIST()) || "";
+    const pendMap = new Map<string, { tag: string; bank: string; amount: number; lands: string }>();
+    for (const L of M.lines) {
+      if (L.dir !== "IN" || !L.sday || L.sday <= todayKey) continue;
+      const k = L.tag + "|" + L.bank + "|" + L.sday;
+      const x = pendMap.get(k) || { tag: L.tag, bank: L.bank, amount: 0, lands: L.sday };
+      x.amount += L.amt;
+      pendMap.set(k, x);
+    }
+    const pendingCredit = Array.from(pendMap.values()).map((x) => ({ ...x, amount: Math.round(x.amount * 100) / 100 }));
+
+    // Bank credits by the DAY money reaches each bank — today, tomorrow, and the
+    // following week — whatever period is picked above. Refunds leave the bank,
+    // so they count against it. Each bank also says how much is already ticked
+    // off against the statement.
+    const bankCredits = await (async () => {
+      if (!todayKey) return null;
+      const addDays = (iso: string, n: number) => { const d = new Date(iso + "T00:00:00Z"); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
+      const tomorrow = addDays(todayKey, 1), weekEnd = addDays(todayKey, 8);
+      const ymdN = (iso: string) => Number(iso.replace(/-/g, ""));
+      const C = _moneyLines(T, ymdN(todayKey), ymdN(weekEnd), scope, "credit", tagMapD);
+      const ticks = C.lines.length ? await _loadTicks(C.lines.map(_lineKey)) : null;
+      type BankRow = { bank: string; total: number; ticked: number; tags: { tag: string; amount: number; lands: string; refund: boolean }[] };
+      const mk = () => new Map<string, BankRow>();
+      const groups: Record<"TODAY" | "TOMORROW" | "LATER", Map<string, BankRow>> = { TODAY: mk(), TOMORROW: mk(), LATER: mk() };
+      for (const L of C.lines) {
+        if (!L.sday || L.sday < todayKey || !L.bank) continue;       // no bank → nothing to expect on a statement
+        const g = L.sday === todayKey ? "TODAY" : L.sday === tomorrow ? "TOMORROW" : "LATER";
+        const amt = L.dir === "OUT" ? -L.amt : L.amt;
+        const b = groups[g].get(L.bank) || { bank: L.bank, total: 0, ticked: 0, tags: [] };
+        b.total += amt;
+        const t = ticks ? ticks[_lineKey(L)] : null;
+        if (t && Math.abs(num(t.amount) - L.amt) < 0.005 && String(t.bank || "") === L.bank && String(t.credit_day || "") === L.sday) b.ticked += amt;
+        const refund = L.dir === "OUT";
+        const row = b.tags.find((x) => x.tag === (L.tag || "") && x.lands === L.sday && x.refund === refund);
+        if (row) row.amount += amt; else b.tags.push({ tag: L.tag || "", amount: amt, lands: L.sday, refund });
+        groups[g].set(L.bank, b);
+      }
+      const out = (m: Map<string, BankRow>) => Array.from(m.values())
+        .map((b) => ({ ...b, total: Math.round(b.total * 100) / 100, ticked: Math.round(b.ticked * 100) / 100,
+                       tags: b.tags.map((x) => ({ ...x, amount: Math.round(x.amount * 100) / 100 })).sort((a, c) => a.lands.localeCompare(c.lands) || c.amount - a.amount) }))
+        .filter((b) => Math.abs(b.total) >= 0.005 || b.tags.length)
+        .sort((a, c) => c.total - a.total);
+      const sum = (rows: BankRow[]) => Math.round(rows.reduce((a, b) => a + b.total, 0) * 100) / 100;
+      const today = out(groups.TODAY), tom = out(groups.TOMORROW), later = out(groups.LATER);
+      return { today: todayKey, tomorrow, later_to: weekEnd, ticks_ready: ticks !== null,
+               TODAY: { total: sum(today), banks: today }, TOMORROW: { total: sum(tom), banks: tom }, LATER: { total: sum(later), banks: later } };
+    })();
 
     // live (not date-bound)
     let outstanding = 0;
@@ -2401,6 +2453,9 @@ async function getOccupancySummary() {
         PAST: Math.round(A.bySource.PAST || 0),
       },
       past_partial: (M.pastPartial || []).map((x: any) => ({ ...x, amount: Math.round(x.amount) })),
+      pending_credit: pendingCredit,
+      bank_credits: bankCredits,
+      today: todayKey,
       by_library: _finalizeBreakdown(A.byLibrary),
       by_fees_mode: _finalizeBreakdown(A.byFeesMode),
       by_tag: _finalizeBreakdown(A.byTag),

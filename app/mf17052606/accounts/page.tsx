@@ -11,7 +11,7 @@
 // Moving a tag to another account only affects money recorded from then on.
 
 import { useCallback, useEffect, useState } from "react";
-import { useMF } from "../_components/MFProvider";
+import { useMF, laterText } from "../_components/MFProvider";
 import {
   TopBar, Card, Amount, Button, Banner, Empty, Field, TextInput, Segmented, Sheet, Skeleton,
   SwitchRow, Stepper, inputCls, cx,
@@ -85,6 +85,7 @@ export default function AccountsAndRoutes() {
   const off = all.filter(a => !a.active);
   const needOpening = on.filter(a => a.opening_date == null);
   const balanceOf = (id: number) => init?.accounts.find(x => x.id === id)?.balance ?? null;
+  const laterOf = (id: number) => { const x = init?.accounts.find(y => y.id === id); return x ? laterText(x) : ""; };
   const acct = sheet?.kind === "acct" ? all.find(a => a.id === sheet.id) ?? null : null;
   const tag = sheet?.kind === "tag" ? all.flatMap(a => a.routes).find(r => r.id === sheet.id) ?? null : null;
 
@@ -108,7 +109,7 @@ export default function AccountsAndRoutes() {
           action={<Button onClick={() => setSheet({ kind: "new" })}>Add an account</Button>} /></Card>
       ) : (
         on.map(a => (
-          <AccountCard key={a.id} a={a} balance={balanceOf(a.id)}
+          <AccountCard key={a.id} a={a} balance={balanceOf(a.id)} later={laterOf(a.id)}
             onOpen={() => setSheet({ kind: "acct", id: a.id })} onTag={id => setSheet({ kind: "tag", id })} />
         ))
       )}
@@ -141,8 +142,8 @@ export default function AccountsAndRoutes() {
 }
 
 // ── one account and its tags ──
-function AccountCard({ a, balance, dim, onOpen, onTag }: {
-  a: Acct; balance: number | null; dim?: boolean; onOpen: () => void; onTag: (id: number) => void;
+function AccountCard({ a, balance, later, dim, onOpen, onTag }: {
+  a: Acct; balance: number | null; later?: string; dim?: boolean; onOpen: () => void; onTag: (id: number) => void;
 }) {
   return (
     <Card pad={false} className={cx("mb-3 overflow-hidden", dim && "opacity-60")}>
@@ -156,7 +157,12 @@ function AccountCard({ a, balance, dim, onOpen, onTag }: {
             {a.active && a.opening_date == null && <span className="rounded-full bg-mf-warn-soft px-2 py-px text-[11px] font-semibold text-mf-warn">No opening balance</span>}
           </div>
         </div>
-        {balance != null && <Amount value={balance} tone={a.is_liability ? "out" : "plain"} className="text-[15px]" />}
+        {balance != null && (
+          <span className="flex flex-col items-end">
+            <Amount value={balance} tone={a.is_liability ? "out" : "plain"} className="text-[15px]" />
+            {later && <span className="mt-0.5 text-[11.5px] font-semibold text-mf-in">{later}</span>}
+          </span>
+        )}
         <IconChevron size={18} className="shrink-0 text-mf-ink-3" />
       </button>
       {a.routes.length > 0 ? (
@@ -200,7 +206,7 @@ function AccountForm({ a, rows, onDone }: { a: Acct; rows: Acct[]; onDone: () =>
   const [owner, setOwner] = useState(a.owner_name);
   const [type, setType] = useState(a.acct_type);
   const [bal, setBal] = useState(a.opening_balance == null ? "" : String(a.opening_balance));
-  const [date, setDate] = useState(a.opening_date ?? "");
+  const [date, setDate] = useState(String(a.opening_date ?? "").slice(0, 10));   // a date box needs plain YYYY-MM-DD
   const [busy, setBusy] = useState(false);
   const [adding, setAdding] = useState(false);
   const [confirmOff, setConfirmOff] = useState(false);

@@ -23,7 +23,12 @@ const AUTH_API = API + "/auth";
 export interface MFAccount {
   id: number; bank_code: string; bank_name: string; owner_name: string;
   acct_type: string; is_liability: boolean; is_set_up: boolean;
-  opening_balance: number | null; opening_date: string | null; balance: number | null;
+  opening_balance: number | null; opening_date: string | null;
+  balance: number | null;          // what the bank should show TODAY (India time)
+  balance_total?: number | null;   // including everything dated after today
+  incoming?: number;               // library fees received, landing in this bank after today
+  dated_later?: number;            // your own entries dated after today
+  lands_by?: string | null;        // last day the incoming fees should land
 }
 // A Head (group_code set) or a Sub-head (parent_id = its Head).
 export interface MFCategory {
@@ -78,6 +83,7 @@ export function useMF(): MFContextValue {
 
 // ₹ formatting lives in ../_ui/format (one source); re-exported so existing imports keep working.
 export { money } from "../_ui/format";
+import { money as fmtMoney } from "../_ui/format";
 
 
 export default function MFProvider({ children }: { children: ReactNode }) {
@@ -237,3 +243,17 @@ export const headsOf = (init: MFInitData | null | undefined, kind: "EXPENSE" | "
 /** Sub-heads under one head. */
 export const subsOf = (init: MFInitData | null | undefined, headId: number | null): MFCategory[] =>
   headId ? (init?.categories || []).filter(c => c.parent_id === headId) : [];
+
+/** "+₹2,800 on its way · by 30 Sep" — money not in the bank yet (empty when there is none). */
+export function laterText(a: Pick<MFAccount, "incoming" | "dated_later" | "lands_by">): string {
+  const parts: string[] = [];
+  const inc = Number(a.incoming || 0), later = Number(a.dated_later || 0);
+  if (Math.abs(inc) >= 0.5) {
+    const by = a.lands_by ? String(a.lands_by).slice(0, 10) : "";
+    const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    const d = by ? `${Number(by.slice(8, 10))} ${MON[Number(by.slice(5, 7)) - 1]}` : "";
+    parts.push(`${inc > 0 ? "+" : "−"}${fmtMoney(Math.abs(inc))} on its way${d ? " · by " + d : ""}`);
+  }
+  if (Math.abs(later) >= 0.5) parts.push(`${later > 0 ? "+" : "−"}${fmtMoney(Math.abs(later))} dated later`);
+  return parts.join(" · ");
+}

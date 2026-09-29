@@ -394,9 +394,9 @@ export const MORE_LINKS: NavLink[] = [
   { href: BASE + "/settings",        label: "Settings",  desc: "Libraries, fees, layouts",    icon: IconSettings },
 ];
 // The centre button: the two jumps that are not tabs. Enquiry and Misc are tabs
-// already; the money screen (Today + Dashboard) and direct admission live here.
+// already; the money screen (the Dashboard) and direct admission live here.
 const QUICK_LINKS: NavLink[] = [
-  { href: BASE + "/today",      label: "Today & Dashboard", desc: "Collection, alerts, occupancy, analytics", icon: IconChart },
+  { href: BASE + "/dashboard",  label: "Dashboard",  desc: "Collection, alerts, occupancy, analytics", icon: IconChart },
   { href: BASE + "/vacant",     label: "Vacant seats",      desc: "What is free · list to send out",          icon: IconSeat },
   { href: BASE + "/admissions", label: "Direct admission",  desc: "Without opening the seat chart",           icon: IconPlus },
 ];
