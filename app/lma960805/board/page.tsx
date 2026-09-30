@@ -840,15 +840,6 @@ function MoneyTrailInline({ receiptNo }:{ receiptNo:string }){
   );
 }
 
-function DetailCopyRow({ occupant, lib, branch, showToast }:{ occupant:Occupant; lib:string; branch:string; showToast:(m:string,t?:"success"|"error")=>void }){
-  return (
-    <div className="relative">
-      <span className="pointer-events-none absolute left-3.5 top-1/2 z-[1] -translate-y-1/2"><RowIcon><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><rect x="8" y="8" width="11" height="12" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h8"/></svg></RowIcon></span>
-      <ContactCopyButton name={occupant.name} library={branch||lib} studentId={occupant.student_id} phones={occupant.phones} onCopied={showToast} wrapperClassName="w-full" label="Copy contact" className={ROW_CLS+" pl-[62px]"}/>
-    </div>
-  );
-}
-
 // ── SEAT SHEET ROWS: one look for every item in a booking's "More" drawer ──
 const ROW_CLS="lma-noscale flex min-h-[52px] w-full items-center gap-3 px-3.5 py-2 text-left text-[14px] font-medium text-lma-ink active:bg-lma-bg disabled:opacity-50";
 function RowIcon({ children, tone }:{ children:React.ReactNode; tone?:"out"|"warn" }){
@@ -953,7 +944,19 @@ function DetailSheet({ cell, panel, onClose, scope, lib, branch, post, showToast
       <div className="rounded-[18px] border border-lma-line bg-lma-surface p-3.5 shadow-lma-card">
         <div className="flex items-start gap-2">
           <span className="min-w-0 flex-1">
-            <span className="inline-block max-w-full -ml-1 whitespace-normal break-words rounded-lg px-2 py-0.5 text-[17px] font-bold leading-snug text-lma-ink" style={{ background:o.gender?(normGender(o.gender)==="F"?"#fbe4ef":"#d3e4ff"):"transparent" }}>{o.name}</span>
+            {/* tap the name to copy the contact (was "Copy contact" in More) */}
+            <ContactCopyButton name={o.name} library={branch||lib} studentId={o.student_id} phones={o.phones} onCopied={showToast}
+              wrapperClassName="relative min-w-0" ariaLabel={`Copy contact · ${o.name}`}
+              className="lma-noscale -ml-1 inline-flex h-[28px] max-w-full flex-wrap items-center gap-x-1.5 overflow-hidden text-left active:opacity-70"
+              content={<>
+                {/* always one line; a very long name ends in "…" (full name in the student window) */}
+                {/* one line only: the row is one line tall, so when the copy icon doesn't fit
+                    beside the name it drops to a hidden second line — the name is never squeezed */}
+                <span className={"max-w-full truncate rounded-lg px-2 py-0.5 text-[17px] font-bold leading-[24px] text-lma-ink " + (o.gender ? (normGender(o.gender)==="F" ? "bg-[#fbe4ef]" : "bg-[#d3e4ff]") : "")} title={o.name}>{o.name}</span>
+                <span aria-hidden="true" className="flex h-[24px] items-center text-lma-ink-3">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" className="shrink-0"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>
+                </span>
+              </>} />
           </span>
           <ContactIcons phones={o.phones} name={o.name} />
         </div>
@@ -1014,7 +1017,6 @@ function DetailSheet({ cell, panel, onClose, scope, lib, branch, post, showToast
             : <button disabled={busy} onClick={()=>setConfirmVacate(o)} className={ROW_CLS}><RowIcon>{Ic.pause}</RowIcon><span className="flex-1">Temp-vacate</span><span className="text-[12px] text-lma-ink-3">park, seat held</span></button>}
           <MoneyTrailInline receiptNo={o.receipt_no}/>
           <RefundInline receiptNo={o.receipt_no} post={post} showToast={showToast} onChanged={onChanged} onEvent={(t)=>onShare(t,"Refund issued",o.phones)}/>
-          <DetailCopyRow occupant={o} lib={lib} branch={branch} showToast={showToast}/>
           <button onClick={()=>loadHist(o.shift)} className={ROW_CLS}><RowIcon>{Ic.clock}</RowIcon><span className="flex-1">Past 5 on this seat</span><span className="text-[12px] text-lma-ink-3">{histBusy===shKey(o.shift)?"loading…":shKey(o.shift)}</span></button>
           {histBlock(o.shift)&&<div className="px-3.5 py-2">{histBlock(o.shift)}</div>}
         </div>}

@@ -89,6 +89,7 @@ import { occupancyStats } from "../../lma960805/_lib/vacancy";
     "getStudentCurrentSeats",
     "tickMoneyLines",
     "getPastFees",
+    "studentReceiptsInfo",
     "pastFeesMonthInfo",
     "savePastFee",
     "deletePastFee",
@@ -4098,9 +4099,56 @@ async function getOccupancySummary() {
     if (p.branch !== undefined) upd.branch = (p.has_branches === false) ? "" : up(p.branch || "");
     // is_past is IMMUTABLE — silently ignored
     if (!Object.keys(upd).length) return { updated: true };
-    const r = (await sql`update students set ${sql(upd)} where upper(student_id)=${targetId} and upper(library)=${targetLib}`) as any;
-    if (!r.count) return { ok: false, error: "Student not found: " + targetId + " in " + targetLib };
-    return { updated: true };
+    if (!p.apply_to_receipts) {
+      const r = (await sql`update students set ${sql(upd)} where upper(student_id)=${targetId} and upper(library)=${targetLib}`) as any;
+      if (!r.count) return { ok: false, error: "Student not found: " + targetId + " in " + targetLib };
+      return { updated: true };
+    }
+    // Student + all their receipts (own library and cross-library), in one step:
+    // copy the details receipts hold, then rebuild each receipt's stored messages.
+    const home = await _studentHome(targetId, targetLib);          // before any branch change
+    const list = home ? await _studentReceiptList(targetId, home) : [];
+    const recUpd: Record<string, any> = {};
+    for (const k of STUDENT_ON_RECEIPT) if (upd[k] !== undefined) recUpd[k] = upd[k];
+    return await sql.begin(async (tx: any) => {
+      const r = (await tx`update students set ${tx(upd)} where upper(student_id)=${targetId} and upper(library)=${targetLib}`) as any;
+      if (!r.count) throw new Error("Student not found: " + targetId + " in " + targetLib);
+      let n = 0;
+      if (Object.keys(recUpd).length && list.length) {
+        const nos = list.map((x) => x.receipt_no);
+        await tx`update receipt_log set ${tx(recUpd)} where upper(receipt_no) = any(${nos})`;
+        for (const no of nos) { await _refreshReceiptTextsW(tx, no); n++; }
+      }
+      return { updated: true, receipts_updated: n };
+    });
+  }
+
+  // The student details a receipt keeps its own copy of.
+  const STUDENT_ON_RECEIPT = ["name", "gender", "phone", "phone_tag", "phone2", "phone2_tag", "phone3", "phone3_tag", "phone4", "phone4_tag"];
+  // A student's home: their branch where the library has branches, else the library.
+  async function _studentHome(studentId: string, library: string): Promise<string> {
+    const rows = (await sql`select library, branch from students where upper(student_id)=${up(studentId)} and upper(library)=${up(library)} limit 1`) as any[];
+    return rows.length ? up(rows[0].branch || rows[0].library || "") : "";
+  }
+  // Every receipt of one student — same base ID and the same home (their own
+  // bookings and cross-library ones). The same rule as Booking history.
+  async function _studentReceiptList(studentId: string, home: string): Promise<{ receipt_no: string; live: boolean; cross: boolean }[]> {
+    const id = up(studentId).split("-")[0];
+    if (!id || !home) return [];
+    const rows = (await sql`select receipt_no, student_id, library, branch, is_cross_library, status
+                              from receipt_log where upper(coalesce(student_id,'')) like ${"%" + id + "%"}`) as any[];
+    return rows
+      .filter((r) => r.receipt_no && up(r.student_id || "").split("-")[0] === id && resolveOrigin(r.library, r.branch, r.is_cross_library) === home)
+      .map((r) => { const c = up(r.is_cross_library || ""); return { receipt_no: up(r.receipt_no), live: !String(r.status ?? "").trim(), cross: !!c && c !== "NO" }; });
+  }
+  // For the student window: how many receipts an edit would also change.
+  async function studentReceiptsInfo(p: any): Promise<any> {
+    const id = up(p?.student_id || ""), lib = up(p?.library || "");
+    if (!id || !lib) throw new Error("student_id and library are required.");
+    const home = await _studentHome(id, lib);
+    const list = home ? await _studentReceiptList(id, home) : [];
+    return { ok: true, total: list.length, current: list.filter((x) => x.live).length,
+             past: list.filter((x) => !x.live).length, cross: list.filter((x) => x.cross).length };
   }
 
   // ── MISC INCOME ──────────────────────────────────────────────────────
@@ -5048,6 +5096,8 @@ async function getOccupancySummary() {
         return await tickMoneyLines(params);
       case "getPastFees":
         return await getPastFees(params);
+      case "studentReceiptsInfo":
+        return await studentReceiptsInfo(params);
       case "pastFeesMonthInfo":
         return await pastFeesMonthInfo(params);
       case "savePastFee":

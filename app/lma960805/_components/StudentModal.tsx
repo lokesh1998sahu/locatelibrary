@@ -35,7 +35,7 @@ interface Student {
 export default function StudentModal({ studentId, library, crossOrigin, onClose, onSaved, onDelete }:{
   studentId:string; library?:string; crossOrigin?:string; onClose:()=>void; onSaved?:(s:Student)=>void; onDelete?:()=>void;
 }) {
-  const { init, post, showToast } = useLMA();
+  const { init, post, showToast, confirm } = useLMA();
   const [student,setStudent] = useState<Student|null>(null);
   const [loading,setLoading] = useState(true);
   const [mode,setMode]       = useState<"view"|"edit">("view");
@@ -97,13 +97,36 @@ export default function StudentModal({ studentId, library, crossOrigin, onClose,
       date_of_birth: f.date_of_birth,
       gender: f.gender,
     };
+    // Name, phone numbers and gender are also copied onto every receipt. If any of
+    // them changed, ask whether to update this student's receipts too (current and
+    // past, own library and cross-library) — their receipt messages get rebuilt.
+    const phonesKey=(ps:any[])=>JSON.stringify((ps||[]).filter((x:any)=>x&&String(x.number||"").trim())
+      .map((x:any)=>[String(x.number).replace(/\D/g,"").slice(-10), String(x.tag||"").toUpperCase()]));
+    const onReceipts = !!student && (
+      payload.name.toUpperCase()!==String(student.name||"").toUpperCase() ||
+      String(payload.gender||"").toUpperCase()!==String(student.gender||"").toUpperCase() ||
+      phonesKey(payload.phones)!==phonesKey(student.phones||[]));
+    let apply=false;
     setSaving(true);
-    const r = await post("updateStudent", payload);
+    if(onReceipts){
+      const info = await post("studentReceiptsInfo", { student_id: f.student_id, library: f.library });
+      if(info && info.total>0){
+        const parts=[info.current?`${info.current} current`:"", info.past?`${info.past} past`:"", info.cross?`${info.cross} at another library`:""].filter(Boolean).join(" · ");
+        const many = info.total===1 ? "receipt" : "receipts";
+        apply = await confirm({
+          title: `Update ${info.total} ${many} too?`,
+          body: `The name, phone numbers and gender are also on this student's ${info.total} ${many} (${parts}). Update ${info.total===1?"it":"them"} too, so WhatsApp and printed receipts show the new details?`,
+          confirmLabel: `Student + ${info.total} ${many}`, cancelLabel: "Student only",
+        });
+      }
+    }
+    const r = await post("updateStudent", { ...payload, apply_to_receipts: apply });
     setSaving(false);
     const ok = r && (r.updated || r.ok === true);
     if(ok){
       const updated:Student = { ...(student as Student), ...payload, phones: payload.phones };
-      setStudent(updated); setMode("view"); showToast("Saved");
+      setStudent(updated); setMode("view");
+      showToast(apply && r.receipts_updated ? `Saved · ${r.receipts_updated} receipt${r.receipts_updated===1?"":"s"} updated` : "Saved");
       onSaved && onSaved(updated);
     } else {
       showToast((r && r.error) || "Save failed","error");

@@ -1,11 +1,14 @@
 "use client";
-import { useState, useRef } from "react";
+import { useState, useRef, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { contactLabels, type ContactPhone } from "../_lib/contact";
 
-export default function ContactCopyButton({ name, library, studentId, phones, className, wrapperClassName, label, onCopied }:{
+// `content` (optional) shows in place of the text label — e.g. the student's name,
+// so tapping the name copies the contact. `ariaLabel` names it for screen readers.
+export default function ContactCopyButton({ name, library, studentId, phones, className, wrapperClassName, label, onCopied, content, ariaLabel }:{
   name:string; library:string; studentId:string; phones?:ContactPhone[];
   className?:string; wrapperClassName?:string; label?:string; onCopied?:(m:string)=>void;
+  content?:ReactNode; ariaLabel?:string;
 }){
   const [open,setOpen]=useState(false);
   const [copied,setCopied]=useState(false);
@@ -23,7 +26,7 @@ export default function ContactCopyButton({ name, library, studentId, phones, cl
   const txt=copied?"Copied":(label||"📇 Contact");
   return (
     <div ref={wrap} className={wrapperClassName||"relative"}>
-      <button type="button" onClick={onClick} className={className||"w-full py-2 rounded-lg bg-lma-warn/10 text-lma-warn font-bold text-xs"}>{txt}{multi?" ▾":""}</button>
+      <button type="button" onClick={onClick} aria-label={ariaLabel} className={className||"w-full py-2 rounded-lg bg-lma-warn/10 text-lma-warn font-bold text-xs"}>{content ?? <>{txt}{multi?" ▾":""}</>}</button>
       {open && multi && typeof document!=="undefined" && createPortal((
         <div className="fixed inset-0 z-[10002] flex items-center justify-center px-8" onClick={()=>setOpen(false)}>
           <div className="absolute inset-0 bg-black/40"/>
