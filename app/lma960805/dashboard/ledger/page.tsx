@@ -108,7 +108,7 @@ function LedgerScreen(){
     const d=q.get("dim"); setDim(d==="bank"||d==="tag"||d==="library"?d:"all");
     setKey((q.get("key")||"").toUpperCase());
     const p=q.get("p"), f=parseAnyDate(q.get("from")), t=parseAnyDate(q.get("to"));
-    if(f&&t) setPeriod(p==="day" ? { preset:"day", from:f, to:f } : { preset:isPreset(p)?p:"custom", from:f, to:t });
+    if(f&&t) setPeriod(p==="day" ? { preset:"day", from:f, to:f } : p==="mon" ? { preset:"mon", from:f, to:t } : { preset:isPreset(p)?p:"custom", from:f, to:t });
     else setPeriod(periodOf(isPreset(p)?p:"month"));
     setScope((q.get("lib")||"").toUpperCase());
     const s=q.get("src"); setSrc(s==="RECEIPTS"||s==="DUES"||s==="MISC"||s==="REFUNDS"||s==="PAST"?s:"");
@@ -256,7 +256,7 @@ function LedgerScreen(){
   const buildSummary=()=>{
     const out:string[]=[];
     out.push(`📒 LMA Ledger — ${viewName}`);
-    out.push(`${period.preset==="all"?"All time":period.preset==="day"?dmy(isoOf(period.from)):`${dmy(isoOf(period.from))} to ${dmy(isoOf(period.to))}`} · ${dim==="library"?"":(scope||"All libraries")+" · "}by ${basis==="credit"?"bank credit date":"payment date"}`);
+    out.push(`${period.preset==="all"?"All time":period.preset==="day"?dmy(isoOf(period.from)):(period.preset==="mon"||period.preset==="lastmonth")?`${["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"][period.from.getMonth()]} ${period.from.getFullYear()}`:`${dmy(isoOf(period.from))} to ${dmy(isoOf(period.to))}`} · ${dim==="library"?"":(scope||"All libraries")+" · "}by ${basis==="credit"?"bank credit date":"payment date"}`);
     const f=[src?SRC_PLURAL[src]:"",sub?`${subDim==="tag"?"tag":"bank"} ${keyLabel(sub)}`:"",unOnly?"no tag/bank only":"",search.trim()?`search "${search.trim()}"`:""].filter(Boolean);
     if(f.length) out.push(`Filter: ${f.join(", ")}`);
     out.push(`IN ${inr(tot.gross)} · OUT ${inr(tot.refund)} · NET ${inrSigned(tot.net)}`);

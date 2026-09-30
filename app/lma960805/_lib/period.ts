@@ -4,14 +4,15 @@
 // Dates are LOCAL calendar dates (the app runs in IST).
 
 export type Preset = "today"|"yesterday"|"week"|"month"|"lastmonth"|"year"|"lastyear"|"all";
-// "day" = one chosen date (the "Other date" chip); "custom" = a from–to range.
-export type Period = { preset:Preset|"custom"|"day"; from:Date; to:Date };
+// "day" = one chosen date (the "Other date" chip); "mon" = one chosen month (the
+// "Other Month" chip); "custom" = a from–to range.
+export type Period = { preset:Preset|"custom"|"day"|"mon"; from:Date; to:Date };
 export type LedgerDim = "all"|"bank"|"tag"|"library";
 export type LedgerSrc = "RECEIPTS"|"DUES"|"MISC"|"REFUNDS"|"PAST";
 
 export const PRESETS:{k:Preset;label:string}[] = [
   {k:"today",label:"Today"},{k:"yesterday",label:"Yesterday"},{k:"week",label:"This Week"},{k:"month",label:"This Month"},
-  {k:"lastmonth",label:"Last Month"},{k:"year",label:"This FY"},{k:"lastyear",label:"Last FY"},{k:"all",label:"All time"},
+  {k:"year",label:"This FY"},{k:"lastyear",label:"Last FY"},{k:"all",label:"All time"},
 ];
 
 // "All time" skips dates: it asks for everything from the first day LMA could
@@ -19,7 +20,21 @@ export const PRESETS:{k:Preset;label:string}[] = [
 export const ALL_FROM = new Date(2000, 0, 1);
 export const ALL_TO = new Date(2099, 11, 31);
 
-export function isPreset(v:unknown):v is Preset{ return PRESETS.some(p=>p.k===v); }
+// "lastmonth" has no chip any more (the Other Month chip covers it) but old links still open it.
+export function isPreset(v:unknown):v is Preset{ return v==="lastmonth" || PRESETS.some(p=>p.k===v); }
+
+/** The month a period stands for when it is one whole month ("mon", or an old "lastmonth"), else null. */
+export function monthOf(p:Period):Date|null{ return p.preset==="mon"||p.preset==="lastmonth" ? p.from : null; }
+/** Every month from last month back, newest first (for the Other Month list). */
+export function pastMonths(count=36):Date[]{
+  const n=new Date(); const out:Date[]=[];
+  for(let i=1;i<=count;i++) out.push(new Date(n.getFullYear(), n.getMonth()-i, 1));
+  return out;
+}
+/** A whole month as a period. */
+export function monthPeriod(first:Date):Period{
+  return { preset:"mon", from:new Date(first.getFullYear(), first.getMonth(), 1), to:new Date(first.getFullYear(), first.getMonth()+1, 0) };
+}
 
 export function presetRange(p:Preset):{from:Date;to:Date}{
   const now=new Date(); now.setHours(0,0,0,0);
@@ -54,6 +69,7 @@ const _MON=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","D
 export const dayName=(d:Date)=>`${d.getDate()} ${_MON[d.getMonth()]} ${d.getFullYear()}`;
 export function periodWords(p:Period):string|null{
   if(p.preset==="day") return `on ${dayName(p.from)}`;
+  if(p.preset==="mon"||p.preset==="lastmonth") return `in ${_MON[p.from.getMonth()]} ${p.from.getFullYear()}`;
   return p.preset==="today"?"today":p.preset==="yesterday"?"yesterday":p.preset==="all"?"all time":null;
 }
 

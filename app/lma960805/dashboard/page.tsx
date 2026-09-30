@@ -57,6 +57,7 @@ function periodFromSaved(s: Saved | null): Period | null {
   if (isPreset(s.preset)) return periodOf(s.preset);
   const f = localFromIso(s.from), t = localFromIso(s.to);
   if (s.preset === "day" && f) return { preset: "day", from: f, to: f };
+  if (s.preset === "mon" && f && t) return { preset: "mon", from: f, to: t };
   return f && t ? { preset: "custom", from: f, to: t } : null;
 }
 
