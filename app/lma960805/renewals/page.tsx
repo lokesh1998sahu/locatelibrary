@@ -16,6 +16,7 @@ import WhatsAppButton from "../_components/WhatsAppButton";
 import Pager, { PAGE_SIZE } from "../_components/Pager";
 import BookingFlow from "../_components/BookingFlow";
 import { Screen, Card, Chip, ScopeChips, Sheet, Button, Skeleton, Empty, IconButton, cx } from "../_ui/kit";
+import { shownStudentId } from "../_lib/ids";
 import { IconRefresh, IconRepeat } from "../_ui/icons";
 import { inr } from "../_ui/format";
 
@@ -211,7 +212,7 @@ function Refs({ it, onRno, onStu }:{ it:QueueItem; onRno:()=>void; onStu:()=>voi
       <button type="button" onClick={onStu} aria-label={`Open student ${it.student_id}`}
         className={cx("inline-flex h-8 items-center gap-1 rounded-[10px] px-2.5 font-lma-mono text-[12.5px] font-semibold ring-1 ring-inset active:brightness-95",
           cross?"bg-[#f5f0ff] text-[#7c3aed] ring-[#e4d9fb]":"bg-lma-bg text-lma-ink ring-lma-line")}>
-        {it.student_id}{cross?`-${it.is_cross_library}`:""}{open}
+        {cross?shownStudentId(it.student_id,it.is_cross_library):it.student_id}{open}
       </button>
       <button type="button" onClick={onRno} aria-label={`Open receipt ${it.receipt_no}`}
         className="inline-flex h-8 items-center gap-1 rounded-[10px] bg-lma-bg px-2.5 font-lma-mono text-[12.5px] font-semibold text-lma-ink ring-1 ring-inset ring-lma-line active:brightness-95">

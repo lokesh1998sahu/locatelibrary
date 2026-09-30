@@ -3,6 +3,7 @@
 import ContactCopyButton from "../_components/ContactCopyButton";
 import WhatsAppButton from "../_components/WhatsAppButton";
 import ContactIcons from "../_components/ContactIcons";
+import { shownStudentId } from "../_lib/ids";
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -966,7 +967,7 @@ function DetailSheet({ cell, panel, onClose, scope, lib, branch, post, showToast
             className={`lma-noscale flex min-h-[48px] min-w-0 items-center rounded-[12px] px-3 text-left ring-1 ring-inset active:brightness-95 ${cross?"bg-[#f5f0ff] ring-[#e4d9fb]":"bg-lma-bg ring-lma-line"}`}>
             <span className="min-w-0 flex-1">
               <span className="flex items-center justify-between gap-1 text-[10.5px] font-bold uppercase tracking-[0.06em] text-lma-ink-3"><span className="truncate">Student</span><svg aria-hidden="true" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.6} strokeLinecap="round" strokeLinejoin="round" className="shrink-0"><path d="M8 16 16 8M9 8h7v7"/></svg></span>
-              <span className={`flex items-center gap-1 truncate font-lma-mono text-[13.5px] font-semibold ${cross?"text-[#7c3aed]":"text-lma-ink"}`}>{cross&&<svg aria-hidden="true" width="12" height="12" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" className="shrink-0"><path d="M8 12l4-4M7.5 7H6a4 4 0 000 8h1.5M12.5 13H14a4 4 0 000-8h-1.5"/></svg>}<span className="truncate">{cross?`${o.student_id}-${o.is_cross_library}`:o.student_id}</span></span>
+              <span className={`flex items-center gap-1 truncate font-lma-mono text-[13.5px] font-semibold ${cross?"text-[#7c3aed]":"text-lma-ink"}`}>{cross&&<svg aria-hidden="true" width="12" height="12" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" className="shrink-0"><path d="M8 12l4-4M7.5 7H6a4 4 0 000 8h1.5M12.5 13H14a4 4 0 000-8h-1.5"/></svg>}<span className="truncate">{cross?shownStudentId(o.student_id,o.is_cross_library):o.student_id}</span></span>
             </span>
           </button>
           <button type="button" onClick={()=>onViewReceipt(o.receipt_no)} aria-label={`Open receipt ${o.receipt_no}`}
